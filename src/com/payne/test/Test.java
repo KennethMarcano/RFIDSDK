@@ -32,7 +32,7 @@ import java.util.*;
 
 public class Test {
     /*Config params area-----------------------------↓↓↓*/
-    public static final String COM_PORT = "COM6";
+    public static final String COM_PORT = "ttyUSB0";
     /* SINGLE_CHANNEL FOUR_CHANNELS EIGHT_CHANNELS SIXTEEN_CHANNELS */
     private static AntennaCount antCount = AntennaCount.SINGLE_CHANNEL;
     private static Session session = Session.S0;
