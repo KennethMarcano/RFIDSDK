@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="libs">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/libs/lib_reader.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/jSerialComm-2.9.1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/lib_connect.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
