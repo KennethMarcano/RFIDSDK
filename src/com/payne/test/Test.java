@@ -30,6 +30,11 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+
 public class Test {
     /*Config params area-----------------------------↓↓↓*/
     public static final String COM_PORT = "ttyUSB0";
@@ -54,6 +59,18 @@ public class Test {
     private static final String ENDPOINT_URL = "https://fulle.eship.com.br/v3/?api&funcao=webServicePutProduto";/* configure aqui */
     private static final String API_TOKEN = "f060512c2c3b0f8866df1dda5cef80a9";/* configure aqui (ex.: "eyJ...") */
     /* HTTP/REST Config ↑↑↑ */
+
+    /* GPIO sysfs (Raspberry Pi) ↓↓↓
+     * IMPORTANTE: "GPIO29" em Pi4J/WiringPi corresponde ao BCM 21.
+     * Portanto, no sysfs usaremos gpio21.
+     */
+    private static final int GPIO_PIN_BCM = 21; /* mapeado de GPIO29 (WiringPi) -> BCM21 */
+    private static final Path SYSFS_EXPORT = Paths.get("/sys/class/gpio/export");
+    private static final Path SYSFS_UNEXPORT = Paths.get("/sys/class/gpio/unexport");
+    private static final Path SYSFS_GPIO_DIR = Paths.get("/sys/class/gpio/gpio" + GPIO_PIN_BCM);
+    private static final Path SYSFS_GPIO_DIRECTION = SYSFS_GPIO_DIR.resolve("direction");
+    private static final Path SYSFS_GPIO_VALUE = SYSFS_GPIO_DIR.resolve("value");
+    /* GPIO sysfs ↑↑↑ */
 
     private static InventoryParam param = new InventoryParam();
     private static Consumer<Failure> failureConsumer = new Consumer<Failure>() {
@@ -114,6 +131,52 @@ public class Test {
         return sb.toString();
     }
 
+    /* ---------------------- GPIO sysfs helpers ---------------------- */
+    private static void gpioInitIfLinux() {
+        String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
+        if (!os.contains("linux")) return;
+        try {
+            if (!Files.exists(SYSFS_GPIO_DIR)) {
+                Files.write(SYSFS_EXPORT, String.valueOf(GPIO_PIN_BCM).getBytes(StandardCharsets.US_ASCII),
+                        StandardOpenOption.WRITE);
+                /* aguarda o kernel criar a pasta */
+                for (int i = 0; i < 10 && !Files.exists(SYSFS_GPIO_DIR); i++) {
+                    try { Thread.sleep(10); } catch (InterruptedException ignored) {}
+                }
+            }
+            if (Files.exists(SYSFS_GPIO_DIRECTION)) {
+                Files.write(SYSFS_GPIO_DIRECTION, "out".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
+            }
+            if (Files.exists(SYSFS_GPIO_VALUE)) {
+                Files.write(SYSFS_GPIO_VALUE, "0".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
+            }
+        } catch (Exception e) {
+            System.err.println("GPIO sysfs init error: " + e.getMessage());
+        }
+    }
+
+    private static void gpioSetHighPulse() {
+        String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
+        if (!os.contains("linux")) return;
+        try {
+            if (!Files.exists(SYSFS_GPIO_VALUE)) return;
+            Files.write(SYSFS_GPIO_VALUE, "1".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
+            new Thread(() -> {
+                try {
+                    Thread.sleep(300);
+                } catch (InterruptedException ignored) {
+                }
+                try {
+                    Files.write(SYSFS_GPIO_VALUE, "0".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
+                } catch (Exception ignored) {
+                }
+            }, "gpio29-success-pulse").start();
+        } catch (Exception e) {
+            System.err.println("GPIO sysfs write error: " + e.getMessage());
+        }
+    }
+    /* -------------------- GPIO sysfs helpers (end) -------------------- */
+
     private static void postJson(String urlStr, String jsonBody, Map<String, String> headers) {
         String currentUrl = urlStr;
         for (int attempt = 0; attempt < 2; attempt++) {
@@ -165,6 +228,10 @@ public class Test {
                 // System.out.println("HTTP response: " + responseBody);
                 if (code < 200 || code >= 300) {
                     System.err.println("HTTP post failed: " + code);
+                }
+                if (code >= 200 && code < 300) {
+                    /* Sucesso HTTP: pulso no GPIO (alto por ~300ms) */
+                    gpioSetHighPulse();
                 }
                 break;/* sucesso ou erro não-redirecionado: sai do loop */
             } catch (Exception e) {
@@ -282,6 +349,7 @@ public class Test {
                 System.err.println("no com port!");
                 return;
             }
+            gpioInitIfLinux();
             LinuxDemo demo = new LinuxDemo();
             boolean connect = demo.connect();
             if (connect) {
