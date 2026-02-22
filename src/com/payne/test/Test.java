@@ -36,6 +36,9 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 
 public class Test {
+    /* Verbose console logs */
+    private static final boolean VERBOSE = false;
+
     /*Config params area-----------------------------↓↓↓*/
     public static final String COM_PORT = "ttyUSB0";
     /* SINGLE_CHANNEL FOUR_CHANNELS EIGHT_CHANNELS SIXTEEN_CHANNELS */
@@ -72,6 +75,15 @@ public class Test {
     private static final Path SYSFS_GPIO_VALUE = SYSFS_GPIO_DIR.resolve("value");
     /* GPIO sysfs ↑↑↑ */
 
+    /* UI notifier (Linux) */
+    private interface UiNotifier {
+        void onConnectStatus(boolean connected);
+        void onReadingStatus(boolean reading);
+        void onTagDetected(String code);
+        void onApiResult(boolean success, String code, String message);
+    }
+    private static volatile UiNotifier uiNotifier;
+
     private static InventoryParam param = new InventoryParam();
     private static Consumer<Failure> failureConsumer = new Consumer<Failure>() {
         @Override
@@ -92,16 +104,31 @@ public class Test {
     }
 
     private static String buildTagJsonBody(InventoryTag tag) {
+        String epcDecimal = extractCodeFromTag(tag);
+        String osName = safeString(System.getProperty("os.name"));
+        long ts = System.currentTimeMillis();
+        /* JSON simples e padronizado; ajuste conforme sua API */
+        StringBuilder sb = new StringBuilder(256);
+        sb.append("{")
+                // .append("\"timestamp\":").append(ts).append(",")
+                .append("\"descricao\":").append("\"EDITADO PELO RFID\"").append(",")
+                // .append("\"sourceOs\":\"").append(escapeJson(osName)).append("\",")
+                .append("\"cnpjCadastro\":\"").append("62.742.738/0001-81").append("\",")
+                // .append("\"epcHex\":\"").append(escapeJson(epcHexClean)).append("\",")
+                .append("\"idCodigoProduto\":\"").append(escapeJson(epcDecimal)).append("\"")
+                .append("}");
+        return sb.toString();
+    }
+
+    private static String extractCodeFromTag(InventoryTag tag) {
         String epcHex = safeString(tag != null ? tag.getEpc() : "");
-        // System.out.println("epcHex: " + epcHex);
         String epcHexClean = epcHex.replaceAll("[^0-9A-Fa-f]", "");
-        /* Converter bytes HEX em ASCII e manter apenas dígitos */
         String epcDecimal;
         if (epcHexClean.length() >= 2) {
             try {
                 int hexLen = epcHexClean.length();
                 if ((hexLen & 1) == 1) {
-                    hexLen -= 1;/* ignora nibble final solto */
+                    hexLen -= 1;
                 }
                 byte[] buf = new byte[hexLen / 2];
                 for (int i = 0; i < hexLen; i += 2) {
@@ -116,19 +143,7 @@ public class Test {
         } else {
             epcDecimal = "0";
         }
-        String osName = safeString(System.getProperty("os.name"));
-        long ts = System.currentTimeMillis();
-        /* JSON simples e padronizado; ajuste conforme sua API */
-        StringBuilder sb = new StringBuilder(256);
-        sb.append("{")
-                // .append("\"timestamp\":").append(ts).append(",")
-                .append("\"descricao\":").append("\"EDITADO PELO RFID\"").append(",")
-                // .append("\"sourceOs\":\"").append(escapeJson(osName)).append("\",")
-                .append("\"cnpjCadastro\":\"").append("62.742.738/0001-81").append("\",")
-                // .append("\"epcHex\":\"").append(escapeJson(epcHexClean)).append("\",")
-                .append("\"idCodigoProduto\":\"").append(escapeJson(epcDecimal)).append("\"")
-                .append("}");
-        return sb.toString();
+        return epcDecimal;
     }
 
     /* ---------------------- GPIO sysfs helpers ---------------------- */
@@ -177,7 +192,7 @@ public class Test {
     }
     /* -------------------- GPIO sysfs helpers (end) -------------------- */
 
-    private static void postJson(String urlStr, String jsonBody, Map<String, String> headers) {
+    private static void postJson(String urlStr, String jsonBody, Map<String, String> headers, String codeForUi) {
         String currentUrl = urlStr;
         for (int attempt = 0; attempt < 2; attempt++) {
             HttpURLConnection conn = null;
@@ -232,10 +247,25 @@ public class Test {
                 if (code >= 200 && code < 300) {
                     /* Sucesso HTTP: pulso no GPIO (alto por ~300ms) */
                     gpioSetHighPulse();
+                    if (uiNotifier != null) {
+                        UiNotifier n = uiNotifier;
+                        SwingUtilities.invokeLater(() -> n.onApiResult(true, codeForUi, "HTTP " + code));
+                    }
+                    System.out.println("OK tag=" + codeForUi + " HTTP=" + code);
+                } else {
+                    if (uiNotifier != null) {
+                        UiNotifier n = uiNotifier;
+                        SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "HTTP " + code));
+                    }
+                    System.err.println("ERROR tag=" + codeForUi + " HTTP=" + code);
                 }
                 break;/* sucesso ou erro não-redirecionado: sai do loop */
             } catch (Exception e) {
                 System.err.println("HTTP post error: " + e.getMessage());
+                if (uiNotifier != null) {
+                    UiNotifier n = uiNotifier;
+                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, e.getMessage()));
+                }
                 break;
             } finally {
                 if (conn != null) {
@@ -248,13 +278,13 @@ public class Test {
         }
     }
 
-    private static void sendTag(InventoryTag tag) {
+    private static void sendTag(InventoryTag tag, String codeForUi) {
         if (ENDPOINT_URL == null || ENDPOINT_URL.trim().isEmpty()) {
             return;
         }
         final String body = buildTagJsonBody(tag);
         final Map<String, String> headers = buildDefaultHeaders();
-        new Thread(() -> postJson(ENDPOINT_URL, body, headers), "rfid-http-post").start();
+        new Thread(() -> postJson(ENDPOINT_URL, body, headers, codeForUi), "rfid-http-post").start();
     }
 
     private static String safeString(String s) {
@@ -307,8 +337,10 @@ public class Test {
         }
         System.out.println("-------------------------------------------------" + Arrays.toString(args));
         SerialPort[] commPorts = SerialPort.getCommPorts();
-        for (SerialPort commPort : commPorts) {
-            System.out.println("CommPort:" + commPort.getDescriptivePortName() + "-->" + commPort.getSystemPortName());
+        if (VERBOSE) {
+            for (SerialPort commPort : commPorts) {
+                System.out.println("CommPort:" + commPort.getDescriptivePortName() + "-->" + commPort.getSystemPortName());
+            }
         }
 
         String osName = System.getProperty("os.name").toLowerCase();
@@ -349,6 +381,7 @@ public class Test {
                 System.err.println("no com port!");
                 return;
             }
+            initLinuxUI();
             gpioInitIfLinux();
             LinuxDemo demo = new LinuxDemo();
             boolean connect = demo.connect();
@@ -357,6 +390,62 @@ public class Test {
             }
         }
     }
+
+    /* ---------------------- Simple Linux UI (Swing) ---------------------- */
+    private static void initLinuxUI() {
+        String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
+        if (!os.contains("linux")) return;
+        SwingUtilities.invokeLater(() -> {
+            JFrame jf = new JFrame("RFID Linux Status");
+            jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+            jf.setAlwaysOnTop(true);
+            jf.setSize(520, 160);
+            jf.setLayout(new GridLayout(4, 1));
+
+            JLabel lbConn = new JLabel("Conexão: -");
+            JLabel lbRead = new JLabel("Leitura: -");
+            JLabel lbTag = new JLabel("Última tag: -");
+            JLabel lbApi = new JLabel("API: -");
+
+            jf.add(lbConn);
+            jf.add(lbRead);
+            jf.add(lbTag);
+            jf.add(lbApi);
+            jf.setLocationRelativeTo(null);
+            jf.setVisible(true);
+
+            uiNotifier = new UiNotifier() {
+                @Override
+                public void onConnectStatus(boolean connected) {
+                    lbConn.setText("Conexão: " + (connected ? "Conectado" : "Desconectado"));
+                }
+
+                @Override
+                public void onReadingStatus(boolean reading) {
+                    lbRead.setText("Leitura: " + (reading ? "Lendo..." : "Parado"));
+                }
+
+                @Override
+                public void onTagDetected(String code) {
+                    lbTag.setText("Última tag: " + code);
+                    lbApi.setText("API: aguardando resposta...");
+                }
+
+                @Override
+                public void onApiResult(boolean success, String code, String message) {
+                    lbApi.setText("API (" + code + "): " + (success ? "OK" : "ERRO") + " - " + message);
+                }
+            };
+
+            jf.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosed(WindowEvent e) {
+                    System.exit(0);
+                }
+            });
+        });
+    }
+    /* -------------------- Simple Linux UI (end) -------------------- */
 
     private static class WinDemo {
         //<editor-fold desc="No need edit area">
@@ -506,15 +595,19 @@ public class Test {
             mReader.setOriginalDataCallback(new Consumer<byte[]>() {
                 @Override
                 public void accept(byte[] onSend) throws Exception {
-                    String hexString = ArrayUtils.bytesToHexString(onSend, 0, onSend.length);
-                    System.out.println("---reader send :" + hexString);
+                    if (VERBOSE) {
+                        String hexString = ArrayUtils.bytesToHexString(onSend, 0, onSend.length);
+                        System.out.println("---reader send :" + hexString);
+                    }
 //                endMs = System.currentTimeMillis();
                 }
             }, new Consumer<byte[]>() {
                 @Override
                 public void accept(byte[] onReceive) throws Exception {
-                    String hexString = ArrayUtils.bytesToHexString(onReceive, 0, onReceive.length);
-                    System.out.println("===reader recv:" + hexString);
+                    if (VERBOSE) {
+                        String hexString = ArrayUtils.bytesToHexString(onReceive, 0, onReceive.length);
+                        System.out.println("===reader recv:" + hexString);
+                    }
 //                long l = System.currentTimeMillis() - endMs;
 //                System.out.println(formatSeconds((int) (l / 1000.0)));
                 }
@@ -832,20 +925,26 @@ public class Test {
 
                 @Override
                 public void onUnknownArr(byte[] bytes) throws Exception {
-                    System.err.println("---onUnknownArr:" + ArrayUtils.bytesToHexString(bytes, 0, bytes.length));
+                    if (VERBOSE) {
+                        System.err.println("---onUnknownArr:" + ArrayUtils.bytesToHexString(bytes, 0, bytes.length));
+                    }
                 }
             });
             mReader.setOriginalDataCallback(new Consumer<byte[]>() {
                 @Override
                 public void accept(byte[] onSend) throws Exception {
-                    String hexString = ArrayUtils.bytesToHexString(onSend, 0, onSend.length);
-                    System.out.println("---reader send :" + hexString);
+                    if (VERBOSE) {
+                        String hexString = ArrayUtils.bytesToHexString(onSend, 0, onSend.length);
+                        System.out.println("---reader send :" + hexString);
+                    }
 //                endMs = System.currentTimeMillis();
                 }
             }, new Consumer<byte[]>() {
                 @Override
                 public void accept(byte[] onReceive) throws Exception {
-                    System.out.println("===reader recv:" + ArrayUtils.bytesToHexString(onReceive, 0, onReceive.length));
+                    if (VERBOSE) {
+                        System.out.println("===reader recv:" + ArrayUtils.bytesToHexString(onReceive, 0, onReceive.length));
+                    }
 //                long l = System.currentTimeMillis() - endMs;
 //                System.out.println(formatSeconds((int) (l / 1000.0)));
                 }
@@ -948,14 +1047,20 @@ public class Test {
                     .setOnInventoryTagSuccess(new Consumer<InventoryTag>() {
                         @Override
                         public void accept(InventoryTag tag) throws Exception {
-                            System.out.println("tag: " + tag.toString());
-                            /* Enviar tag via HTTP (Linux) */
-                            sendTag(tag);
+                            /* Atualiza UI com a tag detectada e envia para API */
+                            String code = extractCodeFromTag(tag);
+                            if (uiNotifier != null) {
+                                UiNotifier n = uiNotifier;
+                                SwingUtilities.invokeLater(() -> n.onTagDetected(code));
+                            }
+                            sendTag(tag, code);
                         }
                     }).setOnInventoryTagEndSuccess(new Consumer<InventoryTagEnd>() {
                         @Override
                         public void accept(InventoryTagEnd tagEnd) throws Exception {
-                            System.out.println("tag: " + tagEnd.toString());
+                            if (VERBOSE) {
+                                System.out.println("tag: " + tagEnd.toString());
+                            }
 
                             if (fastSwitchAnt) {
                                 return;
@@ -984,6 +1089,11 @@ public class Test {
             if (mReader == null) {
                 System.out.println("mReader is null ...");
                 return;
+            }
+
+            if (uiNotifier != null) {
+                UiNotifier n = uiNotifier;
+                SwingUtilities.invokeLater(() -> n.onReadingStatus(true));
             }
 
             doNextAnt(false);/*startInventory*/
