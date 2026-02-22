@@ -748,7 +748,7 @@ public class Test {
             }
             lbCount.setText(countStr + mTagMap.size());
             /* Enviar tag via HTTP (Windows) */
-            sendTag(tag);
+            sendTag(tag, extractCodeFromTag(tag));
         }
 
         private void onEnd(InventoryTagEnd tagEnd) {
