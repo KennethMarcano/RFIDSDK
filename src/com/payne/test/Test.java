@@ -192,6 +192,40 @@ public class Test {
     }
     /* -------------------- GPIO sysfs helpers (end) -------------------- */
 
+    /* ---------------------- Linux serial helpers ---------------------- */
+    private static String resolveLinuxPortByScan() {
+        try {
+            SerialPort[] ports = SerialPort.getCommPorts();
+            String candidate = null;
+            for (SerialPort p : ports) {
+                String name = safeString(p.getSystemPortName());
+                if (name.contains("ttyUSB") || name.contains("ttyACM") || name.contains("ttyAMA")) {
+                    candidate = name;
+                    break;
+                }
+                if (candidate == null) candidate = name;
+            }
+            return candidate != null && candidate.length() > 0 ? candidate : "ttyUSB0";
+        } catch (Throwable ignored) {
+            return "ttyUSB0";
+        }
+    }
+
+    private static String resolveLinuxPortFromPropsEnv() {
+        String[] props = {"rfid.port", "serial.port"};
+        for (String key : props) {
+            String v = System.getProperty(key);
+            if (v != null && v.trim().length() > 0) return v.trim();
+        }
+        String[] envs = {"RFID_PORT", "SERIAL_PORT"};
+        for (String key : envs) {
+            String v = System.getenv(key);
+            if (v != null && v.trim().length() > 0) return v.trim();
+        }
+        return null;
+    }
+    /* -------------------- Linux serial helpers (end) -------------------- */
+
     private static void postJson(String urlStr, String jsonBody, Map<String, String> headers, String codeForUi) {
         String currentUrl = urlStr;
         for (int attempt = 0; attempt < 2; attempt++) {
@@ -903,6 +937,15 @@ public class Test {
             } catch (Exception e) {
                 System.err.println(e.getMessage());
             }
+
+            /* overrides via props/env or scan if necessário */
+            String fromPropsEnv = resolveLinuxPortFromPropsEnv();
+            if (fromPropsEnv != null && fromPropsEnv.trim().length() > 0) {
+                mPortName = fromPropsEnv.trim();
+            } else if (mPortName == null || mPortName.trim().isEmpty()) {
+                mPortName = resolveLinuxPortByScan();
+            }
+            System.out.println("Using serial port: " + mPortName);
         }
 
         private boolean connect() {
@@ -913,7 +956,15 @@ public class Test {
             boolean linkSuccess = mReader.connect(handle);
             if (!linkSuccess) {
                 System.err.println(LLLog.getStackTrace(2) + "\nReader connect fail...");
+                if (uiNotifier != null) {
+                    UiNotifier n = uiNotifier;
+                    SwingUtilities.invokeLater(() -> n.onConnectStatus(false));
+                }
                 return false;
+            }
+            if (uiNotifier != null) {
+                UiNotifier n = uiNotifier;
+                SwingUtilities.invokeLater(() -> n.onConnectStatus(true));
             }
             inventoryParamConfig();
 
