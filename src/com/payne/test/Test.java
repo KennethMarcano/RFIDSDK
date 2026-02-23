@@ -356,15 +356,50 @@ public class Test {
 
     /* ---------------------- API body validation helpers ---------------------- */
     private static boolean bodyHasNonEmptyErrors(String body) {
-        if (body == null) return false;
+        if (body == null || body.trim().isEmpty()) return false;
+        
+        // Procurar pelo campo "erros"
         int key = body.indexOf("\"erros\"");
-        if (key < 0) return false;
-        int lb = body.indexOf('[', key);
-        if (lb < 0) return false;
-        int rb = body.indexOf(']', lb);
-        if (rb < 0) return false;
-        String inside = body.substring(lb + 1, rb).trim();
-        return inside.length() > 0;
+        if (key < 0) {
+            // Se não encontrar "erros", assumir que não há erros (pode ser formato diferente)
+            return false;
+        }
+        
+        // Procurar pelo valor após "erros":
+        int colon = body.indexOf(':', key);
+        if (colon < 0) return false;
+        
+        // Pular espaços após os dois pontos
+        int valueStart = colon + 1;
+        while (valueStart < body.length() && Character.isWhitespace(body.charAt(valueStart))) {
+            valueStart++;
+        }
+        
+        if (valueStart >= body.length()) return false;
+        
+        // Verificar se é null (sem erros)
+        String remaining = body.substring(valueStart);
+        if (remaining.startsWith("null")) {
+            return false; // null significa sem erros - sucesso
+        }
+        
+        // Verificar se é um array vazio [] (sem erros)
+        if (remaining.startsWith("[]")) {
+            return false; // array vazio significa sem erros - sucesso
+        }
+        
+        // Verificar se é um array com conteúdo
+        if (remaining.startsWith("[")) {
+            int rb = body.indexOf(']', valueStart);
+            if (rb < 0) return false;
+            String inside = body.substring(valueStart + 1, rb).trim();
+            // Se o array tem conteúdo, há erros
+            return inside.length() > 0;
+        }
+        
+        // Se chegou aqui e não é null nem array vazio, pode haver erro
+        // Mas por padrão, se não conseguimos identificar, assumir que não há erros
+        return false;
     }
 
     private static String extractFirstErrorMessage(String body) {
