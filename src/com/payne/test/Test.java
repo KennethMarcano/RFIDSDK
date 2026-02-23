@@ -99,6 +99,9 @@ public class Test {
     private static volatile JTextField tfTipoMovimento;
     private static volatile JTextField tfNivelOperacao;
     private static volatile JTextField tfApiToken;
+    private static volatile JLabel lbStatusEquipamento;
+    private static volatile JLabel lbStatusDestinoLocal;
+    private static volatile JButton btnAtualizarAlternativas;
 
     /* Enfileiramento para evitar trabalho pesado no callback do leitor */
     private static final int HTTP_QUEUE_CAPACITY = 256;
@@ -497,10 +500,30 @@ public class Test {
 
     private static java.util.List<EquipamentoItem> fetchEquipamentos() {
         java.util.List<EquipamentoItem> lista = new ArrayList<>();
+        System.out.println("========================================");
+        System.out.println("Consultando equipamentos...");
+        System.out.println("URL: " + ENDPOINT_URL_EQUIPAMENTO);
         try {
             Map<String, String> headers = buildDefaultHeaders();
             String responseBody = getJson(ENDPOINT_URL_EQUIPAMENTO, headers);
+            System.out.println("Resposta da API (Equipamentos):");
+            System.out.println(responseBody != null ? responseBody : "(null)");
+            
             if (responseBody != null && !responseBody.isEmpty()) {
+                // Verificar se há erros na resposta
+                if (bodyHasNonEmptyErrors(responseBody)) {
+                    String errorMsg = extractFirstErrorMessage(responseBody);
+                    String errorCode = extractFirstErrorCode(responseBody);
+                    System.err.println("ERRO na consulta de equipamentos: " + errorMsg + (errorCode != null ? " (" + errorCode + ")" : ""));
+                    if (lbStatusEquipamento != null) {
+                        SwingUtilities.invokeLater(() -> {
+                            lbStatusEquipamento.setText("ERRO: " + (errorMsg != null ? errorMsg : "Erro desconhecido"));
+                            lbStatusEquipamento.setForeground(Color.RED);
+                        });
+                    }
+                    return lista;
+                }
+                
                 // Parse JSON response
                 // Estrutura: {"erros":null,"corpo":{"body":{"dadosPaginacao":{...},"dados":[...]}}}
                 // Procurar pelo array "dados" de forma mais flexível
@@ -522,20 +545,63 @@ public class Test {
                         }
                     }
                 }
+                
+                System.out.println("Equipamentos encontrados: " + lista.size());
+                if (lbStatusEquipamento != null) {
+                    SwingUtilities.invokeLater(() -> {
+                        lbStatusEquipamento.setText("OK (" + lista.size() + " itens)");
+                        lbStatusEquipamento.setForeground(Color.GREEN);
+                    });
+                }
+            } else {
+                System.err.println("Resposta vazia ou nula da API de equipamentos");
+                if (lbStatusEquipamento != null) {
+                    SwingUtilities.invokeLater(() -> {
+                        lbStatusEquipamento.setText("ERRO: Resposta vazia");
+                        lbStatusEquipamento.setForeground(Color.RED);
+                    });
+                }
             }
         } catch (Exception e) {
             System.err.println("Error fetching equipamentos: " + e.getMessage());
             e.printStackTrace();
+            if (lbStatusEquipamento != null) {
+                SwingUtilities.invokeLater(() -> {
+                    lbStatusEquipamento.setText("ERRO: " + e.getMessage());
+                    lbStatusEquipamento.setForeground(Color.RED);
+                });
+            }
         }
+        System.out.println("========================================");
         return lista;
     }
 
     private static java.util.List<EstruturaLocalItem> fetchEstruturasLocais() {
         java.util.List<EstruturaLocalItem> lista = new ArrayList<>();
+        System.out.println("========================================");
+        System.out.println("Consultando estruturas locais...");
+        System.out.println("URL: " + ENDPOINT_URL_ESTRUTURA_LOCAL);
         try {
             Map<String, String> headers = buildDefaultHeaders();
             String responseBody = getJson(ENDPOINT_URL_ESTRUTURA_LOCAL, headers);
+            System.out.println("Resposta da API (Estruturas Locais):");
+            System.out.println(responseBody != null ? responseBody : "(null)");
+            
             if (responseBody != null && !responseBody.isEmpty()) {
+                // Verificar se há erros na resposta
+                if (bodyHasNonEmptyErrors(responseBody)) {
+                    String errorMsg = extractFirstErrorMessage(responseBody);
+                    String errorCode = extractFirstErrorCode(responseBody);
+                    System.err.println("ERRO na consulta de estruturas locais: " + errorMsg + (errorCode != null ? " (" + errorCode + ")" : ""));
+                    if (lbStatusDestinoLocal != null) {
+                        SwingUtilities.invokeLater(() -> {
+                            lbStatusDestinoLocal.setText("ERRO: " + (errorMsg != null ? errorMsg : "Erro desconhecido"));
+                            lbStatusDestinoLocal.setForeground(Color.RED);
+                        });
+                    }
+                    return lista;
+                }
+                
                 // Parse JSON response
                 // Procurar pelo array "dados" de forma mais flexível
                 Pattern dadosPattern = Pattern.compile("\"dados\"\\s*:\\s*\\[(.*?)\\]", Pattern.DOTALL);
@@ -557,11 +623,34 @@ public class Test {
                         }
                     }
                 }
+                
+                System.out.println("Estruturas locais encontradas: " + lista.size());
+                if (lbStatusDestinoLocal != null) {
+                    SwingUtilities.invokeLater(() -> {
+                        lbStatusDestinoLocal.setText("OK (" + lista.size() + " itens)");
+                        lbStatusDestinoLocal.setForeground(Color.GREEN);
+                    });
+                }
+            } else {
+                System.err.println("Resposta vazia ou nula da API de estruturas locais");
+                if (lbStatusDestinoLocal != null) {
+                    SwingUtilities.invokeLater(() -> {
+                        lbStatusDestinoLocal.setText("ERRO: Resposta vazia");
+                        lbStatusDestinoLocal.setForeground(Color.RED);
+                    });
+                }
             }
         } catch (Exception e) {
             System.err.println("Error fetching estruturas locais: " + e.getMessage());
             e.printStackTrace();
+            if (lbStatusDestinoLocal != null) {
+                SwingUtilities.invokeLater(() -> {
+                    lbStatusDestinoLocal.setText("ERRO: " + e.getMessage());
+                    lbStatusDestinoLocal.setForeground(Color.RED);
+                });
+            }
         }
+        System.out.println("========================================");
         return lista;
     }
     /* -------------------- Métodos GET (end) -------------------- */
@@ -866,8 +955,8 @@ public class Test {
             JFrame jf = new JFrame("RFID Linux Status - Movimentação Obrigatória");
             jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             jf.setAlwaysOnTop(true);
-            jf.setSize(700, 550);
-            jf.setLayout(new GridLayout(13, 1));
+            jf.setSize(800, 600);
+            jf.setLayout(new GridLayout(15, 1));
 
             JLabel lbConn = new JLabel("Conexão: -");
             JLabel lbRead = new JLabel("Leitura: -");
@@ -895,15 +984,26 @@ public class Test {
             JPanel pEquipamento = new JPanel(new FlowLayout(FlowLayout.LEFT));
             JLabel lbEquipamento = new JLabel("Equipamento:");
             JComboBox<EquipamentoItem> cbEquipamentoField = new JComboBox<>();
+            JLabel lbStatusEquipamentoField = new JLabel("(aguardando...)");
+            lbStatusEquipamentoField.setForeground(Color.GRAY);
             pEquipamento.add(lbEquipamento);
             pEquipamento.add(cbEquipamentoField);
+            pEquipamento.add(lbStatusEquipamentoField);
 
             // Select Destino Local
             JPanel pDestinoLocal = new JPanel(new FlowLayout(FlowLayout.LEFT));
             JLabel lbDestinoLocal = new JLabel("Destino Local:");
             JComboBox<EstruturaLocalItem> cbDestinoLocalField = new JComboBox<>();
+            JLabel lbStatusDestinoLocalField = new JLabel("(aguardando...)");
+            lbStatusDestinoLocalField.setForeground(Color.GRAY);
             pDestinoLocal.add(lbDestinoLocal);
             pDestinoLocal.add(cbDestinoLocalField);
+            pDestinoLocal.add(lbStatusDestinoLocalField);
+
+            // Botão para atualizar alternativas
+            JPanel pBtnAtualizar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JButton btnAtualizarAlternativasField = new JButton("Atualizar Alternativas");
+            pBtnAtualizar.add(btnAtualizarAlternativasField);
 
             // Campo tipoMovimento
             JPanel pTipoMovimento = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -927,6 +1027,7 @@ public class Test {
             jf.add(pCodArmazem);
             jf.add(pEquipamento);
             jf.add(pDestinoLocal);
+            jf.add(pBtnAtualizar);
             jf.add(pTipoMovimento);
             jf.add(pNivelOperacao);
             jf.add(lbTag);
@@ -940,9 +1041,16 @@ public class Test {
             cbDestinoLocal = cbDestinoLocalField;
             tfTipoMovimento = tfTipoMovimentoField;
             tfNivelOperacao = tfNivelOperacaoField;
+            lbStatusEquipamento = lbStatusEquipamentoField;
+            lbStatusDestinoLocal = lbStatusDestinoLocalField;
+            btnAtualizarAlternativas = btnAtualizarAlternativasField;
 
-            // Carregar dados dos selects em thread separada
-            new Thread(() -> {
+            // Método para carregar equipamentos
+            Runnable loadEquipamentos = () -> {
+                SwingUtilities.invokeLater(() -> {
+                    lbStatusEquipamentoField.setText("Carregando...");
+                    lbStatusEquipamentoField.setForeground(Color.BLUE);
+                });
                 try {
                     java.util.List<EquipamentoItem> equipamentos = fetchEquipamentos();
                     SwingUtilities.invokeLater(() -> {
@@ -956,10 +1064,19 @@ public class Test {
                     });
                 } catch (Exception e) {
                     System.err.println("Erro ao carregar equipamentos: " + e.getMessage());
+                    SwingUtilities.invokeLater(() -> {
+                        lbStatusEquipamentoField.setText("ERRO: " + e.getMessage());
+                        lbStatusEquipamentoField.setForeground(Color.RED);
+                    });
                 }
-            }, "load-equipamentos").start();
+            };
 
-            new Thread(() -> {
+            // Método para carregar estruturas locais
+            Runnable loadEstruturas = () -> {
+                SwingUtilities.invokeLater(() -> {
+                    lbStatusDestinoLocalField.setText("Carregando...");
+                    lbStatusDestinoLocalField.setForeground(Color.BLUE);
+                });
                 try {
                     java.util.List<EstruturaLocalItem> estruturas = fetchEstruturasLocais();
                     SwingUtilities.invokeLater(() -> {
@@ -973,8 +1090,35 @@ public class Test {
                     });
                 } catch (Exception e) {
                     System.err.println("Erro ao carregar estruturas locais: " + e.getMessage());
+                    SwingUtilities.invokeLater(() -> {
+                        lbStatusDestinoLocalField.setText("ERRO: " + e.getMessage());
+                        lbStatusDestinoLocalField.setForeground(Color.RED);
+                    });
                 }
-            }, "load-estruturas").start();
+            };
+
+            // Método para atualizar todas as alternativas
+            Runnable atualizarAlternativas = () -> {
+                btnAtualizarAlternativasField.setEnabled(false);
+                btnAtualizarAlternativasField.setText("Atualizando...");
+                new Thread(() -> {
+                    loadEquipamentos.run();
+                    loadEstruturas.run();
+                    SwingUtilities.invokeLater(() -> {
+                        btnAtualizarAlternativasField.setEnabled(true);
+                        btnAtualizarAlternativasField.setText("Atualizar Alternativas");
+                    });
+                }, "atualizar-alternativas").start();
+            };
+
+            // Adicionar listener ao botão
+            btnAtualizarAlternativasField.addActionListener(e -> atualizarAlternativas.run());
+
+            // Carregar dados dos selects em thread separada ao iniciar
+            new Thread(() -> {
+                loadEquipamentos.run();
+                loadEstruturas.run();
+            }, "load-inicial").start();
 
             uiNotifier = new UiNotifier() {
                 @Override
