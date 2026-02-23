@@ -88,6 +88,12 @@ public class Test {
     private static volatile JTextField tfIdRecebimento;
     private static volatile JTextField tfCodigoVolumeRecebimento;
 
+    /* Enfileiramento para evitar trabalho pesado no callback do leitor */
+    private static final int HTTP_QUEUE_CAPACITY = 256;
+    private static final java.util.concurrent.BlockingQueue<String> httpQueue =
+            new java.util.concurrent.ArrayBlockingQueue<>(HTTP_QUEUE_CAPACITY);
+    private static volatile boolean httpWorkerStarted = false;
+
     private static String getUiIdRecebimento() {
         if (tfIdRecebimento != null) {
             return safeString(tfIdRecebimento.getText()).trim();
@@ -397,6 +403,63 @@ public class Test {
         new Thread(() -> postJson(ENDPOINT_URL, body, headers, codeForUi), "rfid-http-post").start();
     }
 
+    /* Enfileirar envio para não bloquear callbacks do leitor */
+    private static void enqueueSend(String codeForUi) {
+        String idRecebimento = getUiIdRecebimento();
+        String codigoVolume = getUiCodigoVolumeRecebimento();
+        if (idRecebimento == null || idRecebimento.trim().isEmpty()
+                || codigoVolume == null || codigoVolume.trim().isEmpty()) {
+            String msg = "Preencha Identificador Recebimento e Codigo Volume Recebimento";
+            System.err.println("ERROR tag=" + codeForUi + " " + msg);
+            if (uiNotifier != null) {
+                UiNotifier n = uiNotifier;
+                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
+            }
+            return;
+        }
+        boolean offered = httpQueue.offer(codeForUi);
+        if (!offered) {
+            String msg = "Fila cheia. Descartando leitura.";
+            System.err.println("ERROR tag=" + codeForUi + " " + msg);
+            if (uiNotifier != null) {
+                UiNotifier n = uiNotifier;
+                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
+            }
+        }
+    }
+
+    private static synchronized void startHttpWorkerIfNeeded() {
+        if (httpWorkerStarted) return;
+        httpWorkerStarted = true;
+        Thread t = new Thread(() -> {
+            while (true) {
+                try {
+                    String code = httpQueue.take();
+                    String idRecebimento = getUiIdRecebimento();
+                    String codigoVolume = getUiCodigoVolumeRecebimento();
+                    if (idRecebimento == null || idRecebimento.trim().isEmpty()
+                            || codigoVolume == null || codigoVolume.trim().isEmpty()) {
+                        if (uiNotifier != null) {
+                            UiNotifier n = uiNotifier;
+                            String msg = "Campos obrigatórios não preenchidos";
+                            SwingUtilities.invokeLater(() -> n.onApiResult(false, code, msg));
+                        }
+                        continue;
+                    }
+                    final String body = buildApontamentoJsonBody(code, idRecebimento, codigoVolume);
+                    final Map<String, String> headers = buildDefaultHeaders();
+                    postJson(ENDPOINT_URL, body, headers, code);
+                } catch (InterruptedException ie) {
+                    break;
+                } catch (Throwable th) {
+                    System.err.println("HTTP worker error: " + th.getMessage());
+                }
+            }
+        }, "rfid-http-worker");
+        t.setDaemon(true);
+        t.start();
+    }
+
     private static String safeString(String s) {
         return s == null ? "" : s;
     }
@@ -493,6 +556,7 @@ public class Test {
             }
             initLinuxUI();
             gpioInitIfLinux();
+            startHttpWorkerIfNeeded();
             LinuxDemo demo = new LinuxDemo();
             boolean connect = demo.connect();
             if (connect) {
@@ -1055,6 +1119,11 @@ public class Test {
                 }
                 return false;
             }
+            /* Reconnect automático em timeouts */
+            try {
+                mReader.setReconnectByTimeoutTimes(3);
+            } catch (Throwable ignored) {
+            }
             if (uiNotifier != null) {
                 UiNotifier n = uiNotifier;
                 SwingUtilities.invokeLater(() -> n.onConnectStatus(true));
@@ -1197,7 +1266,8 @@ public class Test {
                                 UiNotifier n = uiNotifier;
                                 SwingUtilities.invokeLater(() -> n.onTagDetected(code));
                             }
-                            sendTag(tag, code);
+                            /* Enfileirar para evitar bloquear callback do leitor */
+                            enqueueSend(code);
                         }
                     }).setOnInventoryTagEndSuccess(new Consumer<InventoryTagEnd>() {
                         @Override
