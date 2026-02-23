@@ -34,6 +34,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Test {
     /* Verbose console logs */
@@ -239,6 +241,42 @@ public class Test {
     }
     /* -------------------- Linux serial helpers (end) -------------------- */
 
+    /* ---------------------- API body validation helpers ---------------------- */
+    private static boolean bodyHasNonEmptyErrors(String body) {
+        if (body == null) return false;
+        int key = body.indexOf("\"erros\"");
+        if (key < 0) return false;
+        int lb = body.indexOf('[', key);
+        if (lb < 0) return false;
+        int rb = body.indexOf(']', lb);
+        if (rb < 0) return false;
+        String inside = body.substring(lb + 1, rb).trim();
+        return inside.length() > 0;
+    }
+
+    private static String extractFirstErrorMessage(String body) {
+        if (body == null) return null;
+        try {
+            Pattern p = Pattern.compile("\"mensagem\"\\s*:\\s*\"(.*?)\"", Pattern.DOTALL);
+            Matcher m = p.matcher(body);
+            if (m.find()) return m.group(1);
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private static String extractFirstErrorCode(String body) {
+        if (body == null) return null;
+        try {
+            Pattern p = Pattern.compile("\"codigo\"\\s*:\\s*\"(.*?)\"", Pattern.DOTALL);
+            Matcher m = p.matcher(body);
+            if (m.find()) return m.group(1);
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+    /* ------------------ API body validation helpers (end) ------------------ */
+
     private static void postJson(String urlStr, String jsonBody, Map<String, String> headers, String codeForUi) {
         String currentUrl = urlStr;
         for (int attempt = 0; attempt < 2; attempt++) {
@@ -288,23 +326,36 @@ public class Test {
                 }
                 // System.out.println("HTTP status: " + code);
                 // System.out.println("HTTP response: " + responseBody);
-                if (code < 200 || code >= 300) {
+                boolean httpOk = (code >= 200 && code < 300);
+                boolean bodyErr = bodyHasNonEmptyErrors(responseBody);
+                boolean success = httpOk && !bodyErr;
+
+                String msg;
+                if (bodyErr) {
+                    String em = extractFirstErrorMessage(responseBody);
+                    String ec = extractFirstErrorCode(responseBody);
+                    msg = (em != null ? em : "Erro(s) no corpo") + (ec != null ? " (" + ec + ")" : "");
+                } else {
+                    msg = "HTTP " + code;
+                }
+
+                if (!success && !httpOk) {
                     System.err.println("HTTP post failed: " + code);
                 }
-                if (code >= 200 && code < 300) {
-                    /* Sucesso HTTP: pulso no GPIO (alto por ~300ms) */
-                    gpioSetHighPulse();
+
+                if (success) {
+                    gpioSetHighPulse(); /* pulso em sucesso */
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
-                        SwingUtilities.invokeLater(() -> n.onApiResult(true, codeForUi, "HTTP " + code));
+                        SwingUtilities.invokeLater(() -> n.onApiResult(true, codeForUi, msg));
                     }
-                    System.out.println("OK tag=" + codeForUi + " HTTP=" + code);
+                    System.out.println("OK tag=" + codeForUi + " " + msg);
                 } else {
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
-                        SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "HTTP " + code));
+                        SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
                     }
-                    System.err.println("ERROR tag=" + codeForUi + " HTTP=" + code);
+                    System.err.println("ERROR tag=" + codeForUi + " " + msg);
                 }
                 break;/* sucesso ou erro não-redirecionado: sai do loop */
             } catch (Exception e) {
