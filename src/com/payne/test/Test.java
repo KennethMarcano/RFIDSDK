@@ -771,12 +771,33 @@ public class Test {
                     System.err.println("ERROR tag=" + codeForUi + " " + msg);
                 }
                 break;/* sucesso ou erro não-redirecionado: sai do loop */
+            } catch (java.net.SocketTimeoutException e) {
+                System.err.println("HTTP post timeout: " + e.getMessage());
+                System.err.println("NOTA: Timeout HTTP não afeta a conexão com a antena");
+                if (uiNotifier != null) {
+                    UiNotifier n = uiNotifier;
+                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "Timeout na conexão HTTP"));
+                }
+                // Timeout HTTP não deve afetar a conexão com a antena
+                break;
+            } catch (java.net.ConnectException e) {
+                System.err.println("HTTP post connection error: " + e.getMessage());
+                System.err.println("NOTA: Erro de conexão HTTP não afeta a conexão com a antena");
+                if (uiNotifier != null) {
+                    UiNotifier n = uiNotifier;
+                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "Erro de conexão HTTP"));
+                }
+                // Erro de conexão HTTP não deve afetar a conexão com a antena
+                break;
             } catch (Exception e) {
                 System.err.println("HTTP post error: " + e.getMessage());
+                System.err.println("NOTA: Erro HTTP não afeta a conexão com a antena");
+                e.printStackTrace();
                 if (uiNotifier != null) {
                     UiNotifier n = uiNotifier;
                     SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, e.getMessage()));
                 }
+                // Erros HTTP não devem afetar a conexão com a antena
                 break;
             } finally {
                 if (conn != null) {
@@ -1692,10 +1713,12 @@ public class Test {
                 }
                 return false;
             }
-            /* Reconnect automático em timeouts */
+            /* Reconnect automático em timeouts - aumentar para 10 tentativas */
             try {
-                mReader.setReconnectByTimeoutTimes(3);
-            } catch (Throwable ignored) {
+                mReader.setReconnectByTimeoutTimes(10);
+                System.out.println("Reconexão automática configurada: 10 tentativas por timeout");
+            } catch (Throwable e) {
+                System.err.println("Erro ao configurar reconexão automática: " + e.getMessage());
             }
             if (uiNotifier != null) {
                 UiNotifier n = uiNotifier;
@@ -1865,6 +1888,21 @@ public class Test {
                             String cmdStr = Cmd.getNameForCmd(cmd);
                             String resultCodeStr = ResultCode.getNameForResultCode(errorCode);
                             System.err.println("OnFailure: AntId(" + antId + ") " + cmdStr + "-->" + resultCodeStr);
+                            
+                            // Se for timeout, tentar reconectar
+                            if (resultCodeStr != null && (resultCodeStr.contains("TIMEOUT") || resultCodeStr.contains("Timeout"))) {
+                                System.err.println("Timeout detectado - tentando reconectar...");
+                                // A reconexão automática deve ser tratada pelo setReconnectByTimeoutTimes
+                                // Mas podemos forçar uma verificação
+                                try {
+                                    if (mReader != null) {
+                                        // Não desconectar, deixar a reconexão automática funcionar
+                                        System.out.println("Aguardando reconexão automática...");
+                                    }
+                                } catch (Exception e) {
+                                    System.err.println("Erro ao tentar reconectar: " + e.getMessage());
+                                }
+                            }
                         }
                     }).build();
             mReader.setInventoryConfig(config);
