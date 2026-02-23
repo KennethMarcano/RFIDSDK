@@ -87,6 +87,7 @@ public class Test {
     private static volatile UiNotifier uiNotifier;
     private static volatile JTextField tfIdRecebimento;
     private static volatile JTextField tfCodigoVolumeRecebimento;
+    private static volatile JTextField tfCodigoProduto;
 
     /* Enfileiramento para evitar trabalho pesado no callback do leitor */
     private static final int HTTP_QUEUE_CAPACITY = 256;
@@ -112,6 +113,15 @@ public class Test {
         return v == null ? "" : v.trim();
     }
 
+    private static String getUiCodigoProduto() {
+        if (tfCodigoProduto != null) {
+            return safeString(tfCodigoProduto.getText()).trim();
+        }
+        String v = System.getProperty("codigoProduto");
+        if (v == null || v.trim().isEmpty()) v = System.getenv("CODIGO_PRODUTO");
+        return v == null ? "" : v.trim();
+    }
+
     private static InventoryParam param = new InventoryParam();
     private static Consumer<Failure> failureConsumer = new Consumer<Failure>() {
         @Override
@@ -131,12 +141,19 @@ public class Test {
         return headers;
     }
 
-    private static String buildApontamentoJsonBody(String serialNumber, String idRecebimento, String codigoVolumeRecebimento) {
+    private static String buildApontamentoJsonBody(String serialNumber, String idRecebimento, String codigoVolumeRecebimento, String codigoProduto) {
         StringBuilder sb = new StringBuilder(256);
         sb.append("{")
                 .append("\"idRecebimento\":\"").append(escapeJson(safeString(idRecebimento))).append("\",")
                 .append("\"codigoVolumeRecebimento\":\"").append(escapeJson(safeString(codigoVolumeRecebimento))).append("\",")
-                .append("\"serialNumber\":\"").append(escapeJson(safeString(serialNumber))).append("\"")
+                .append("\"serialNumber\":\"").append(escapeJson(safeString(serialNumber))).append("\"");
+        String cp = safeString(codigoProduto).trim();
+        if (cp.length() > 0) {
+            sb.append(",").append("\"codigoProduto\":\"").append(escapeJson(cp)).append("\"");
+        } else {
+            sb.append(",").append("\"codigoProduto\":").append("null");
+        }
+        sb
                 .append("}");
         return sb.toString();
     }
@@ -398,7 +415,8 @@ public class Test {
             }
             return;
         }
-        final String body = buildApontamentoJsonBody(codeForUi, idRecebimento, codigoVolume);
+        String codigoProduto = getUiCodigoProduto();
+        final String body = buildApontamentoJsonBody(codeForUi, idRecebimento, codigoVolume, codigoProduto);
         final Map<String, String> headers = buildDefaultHeaders();
         new Thread(() -> postJson(ENDPOINT_URL, body, headers, codeForUi), "rfid-http-post").start();
     }
@@ -446,7 +464,8 @@ public class Test {
                         }
                         continue;
                     }
-                    final String body = buildApontamentoJsonBody(code, idRecebimento, codigoVolume);
+                    String codigoProduto = getUiCodigoProduto();
+                    final String body = buildApontamentoJsonBody(code, idRecebimento, codigoVolume, codigoProduto);
                     final Map<String, String> headers = buildDefaultHeaders();
                     postJson(ENDPOINT_URL, body, headers, code);
                 } catch (InterruptedException ie) {
@@ -573,8 +592,8 @@ public class Test {
             JFrame jf = new JFrame("RFID Linux Status");
             jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             jf.setAlwaysOnTop(true);
-            jf.setSize(560, 220);
-            jf.setLayout(new GridLayout(6, 1));
+            jf.setSize(600, 260);
+            jf.setLayout(new GridLayout(7, 1));
 
             JLabel lbConn = new JLabel("Conexão: -");
             JLabel lbRead = new JLabel("Leitura: -");
@@ -593,10 +612,17 @@ public class Test {
             pVol.add(lbVol);
             pVol.add(tfVol);
 
+            JPanel pProd = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel lbProd = new JLabel("Codigo Produto:");
+            JTextField tfProd = new JTextField(22);
+            pProd.add(lbProd);
+            pProd.add(tfProd);
+
             jf.add(lbConn);
             jf.add(lbRead);
             jf.add(pId);
             jf.add(pVol);
+            jf.add(pProd);
             jf.add(lbTag);
             jf.add(lbApi);
             jf.setLocationRelativeTo(null);
@@ -604,6 +630,7 @@ public class Test {
 
             tfIdRecebimento = tfId;
             tfCodigoVolumeRecebimento = tfVol;
+            tfCodigoProduto = tfProd;
 
             uiNotifier = new UiNotifier() {
                 @Override
