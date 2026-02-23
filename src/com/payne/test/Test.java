@@ -813,9 +813,15 @@ public class Test {
 
     /* Enfileirar envio para não bloquear callbacks do leitor */
     private static void enqueueSend(String codeForUi) {
+        System.out.println("========================================");
+        System.out.println("Tag detectada: " + codeForUi);
         String codArmazem = getUiCodArmazem();
         String equipamentoId = getUiEquipamentoId();
         String destinoLocalId = getUiDestinoLocalId();
+        System.out.println("codArmazem: " + codArmazem);
+        System.out.println("equipamentoId: " + equipamentoId);
+        System.out.println("destinoLocalId: " + destinoLocalId);
+        
         if (codArmazem == null || codArmazem.trim().isEmpty()
                 || equipamentoId == null || equipamentoId.trim().isEmpty()
                 || destinoLocalId == null || destinoLocalId.trim().isEmpty()) {
@@ -835,25 +841,32 @@ public class Test {
                 UiNotifier n = uiNotifier;
                 SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
             }
+        } else {
+            System.out.println("Tag adicionada à fila para envio");
         }
+        System.out.println("========================================");
     }
 
     private static synchronized void startHttpWorkerIfNeeded() {
         if (httpWorkerStarted) return;
         httpWorkerStarted = true;
+        System.out.println("HTTP Worker iniciado - aguardando tags para envio via webServicePostMovimentacaoObrigatoria");
         Thread t = new Thread(() -> {
             while (true) {
                 try {
                     String code = httpQueue.take();
+                    System.out.println("========================================");
+                    System.out.println("Processando tag da fila: " + code);
                     String codArmazem = getUiCodArmazem();
                     String equipamentoId = getUiEquipamentoId();
                     String destinoLocalId = getUiDestinoLocalId();
                     if (codArmazem == null || codArmazem.trim().isEmpty()
                             || equipamentoId == null || equipamentoId.trim().isEmpty()
                             || destinoLocalId == null || destinoLocalId.trim().isEmpty()) {
+                        String msg = "Campos obrigatórios não preenchidos (codArmazem, equipamentoId, destinoLocalId)";
+                        System.err.println("ERROR: " + msg);
                         if (uiNotifier != null) {
                             UiNotifier n = uiNotifier;
-                            String msg = "Campos obrigatórios não preenchidos (codArmazem, equipamentoId, destinoLocalId)";
                             SwingUtilities.invokeLater(() -> n.onApiResult(false, code, msg));
                         }
                         continue;
@@ -862,14 +875,24 @@ public class Test {
                     String nivelOperacao = getUiNivelOperacao();
                     // sequenciamento: timestamp da data de envio
                     String sequenciamento = String.valueOf(System.currentTimeMillis());
+                    System.out.println("Enviando para: " + ENDPOINT_URL_MOVIMENTACAO);
+                    System.out.println("codArmazem: " + codArmazem);
+                    System.out.println("equipamentoId: " + equipamentoId);
+                    System.out.println("destinoLocalId: " + destinoLocalId);
+                    System.out.println("sequenciamento: " + sequenciamento);
+                    System.out.println("codigoIdentificador: " + code);
+                    System.out.println("tipoMovimento: " + tipoMovimento);
+                    System.out.println("nivelOperacao: " + nivelOperacao);
                     final String body = buildMovimentacaoJsonBody(codArmazem, equipamentoId, destinoLocalId, 
                                                                   sequenciamento, code, tipoMovimento, nivelOperacao);
                     final Map<String, String> headers = buildDefaultHeaders();
                     postJson(ENDPOINT_URL_MOVIMENTACAO, body, headers, code);
+                    System.out.println("========================================");
                 } catch (InterruptedException ie) {
                     break;
                 } catch (Throwable th) {
                     System.err.println("HTTP worker error: " + th.getMessage());
+                    th.printStackTrace();
                 }
             }
         }, "rfid-http-worker");
