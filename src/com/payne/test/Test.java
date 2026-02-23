@@ -59,7 +59,7 @@ public class Test {
     /*-------------------------------------------------------------------------------------------------*/
 
     /* HTTP/REST Config ↓↓↓ */
-    private static final String ENDPOINT_URL = "https://fulle.eship.com.br/v3/?api&funcao=webServicePutProduto";/* configure aqui */
+    private static final String ENDPOINT_URL = "https://fulle.eship.com.br/v3/?api&funcao=webServicePostApontamento";/* configure aqui */
     private static final String API_TOKEN = "f060512c2c3b0f8866df1dda5cef80a9";/* configure aqui (ex.: "eyJ...") */
     /* HTTP/REST Config ↑↑↑ */
 
@@ -83,6 +83,26 @@ public class Test {
         void onApiResult(boolean success, String code, String message);
     }
     private static volatile UiNotifier uiNotifier;
+    private static volatile JTextField tfIdRecebimento;
+    private static volatile JTextField tfCodigoVolumeRecebimento;
+
+    private static String getUiIdRecebimento() {
+        if (tfIdRecebimento != null) {
+            return safeString(tfIdRecebimento.getText()).trim();
+        }
+        String v = System.getProperty("idRecebimento");
+        if (v == null || v.trim().isEmpty()) v = System.getenv("ID_RECEBIMENTO");
+        return v == null ? "" : v.trim();
+    }
+
+    private static String getUiCodigoVolumeRecebimento() {
+        if (tfCodigoVolumeRecebimento != null) {
+            return safeString(tfCodigoVolumeRecebimento.getText()).trim();
+        }
+        String v = System.getProperty("codigoVolumeRecebimento");
+        if (v == null || v.trim().isEmpty()) v = System.getenv("CODIGO_VOLUME_RECEBIMENTO");
+        return v == null ? "" : v.trim();
+    }
 
     private static InventoryParam param = new InventoryParam();
     private static Consumer<Failure> failureConsumer = new Consumer<Failure>() {
@@ -103,19 +123,12 @@ public class Test {
         return headers;
     }
 
-    private static String buildTagJsonBody(InventoryTag tag) {
-        String epcDecimal = extractCodeFromTag(tag);
-        String osName = safeString(System.getProperty("os.name"));
-        long ts = System.currentTimeMillis();
-        /* JSON simples e padronizado; ajuste conforme sua API */
+    private static String buildApontamentoJsonBody(String serialNumber, String idRecebimento, String codigoVolumeRecebimento) {
         StringBuilder sb = new StringBuilder(256);
         sb.append("{")
-                // .append("\"timestamp\":").append(ts).append(",")
-                .append("\"descricao\":").append("\"EDITADO PELO RFID\"").append(",")
-                // .append("\"sourceOs\":\"").append(escapeJson(osName)).append("\",")
-                .append("\"cnpjCadastro\":\"").append("62.742.738/0001-81").append("\",")
-                // .append("\"epcHex\":\"").append(escapeJson(epcHexClean)).append("\",")
-                .append("\"idCodigoProduto\":\"").append(escapeJson(epcDecimal)).append("\"")
+                .append("\"idRecebimento\":\"").append(escapeJson(safeString(idRecebimento))).append("\",")
+                .append("\"codigoVolumeRecebimento\":\"").append(escapeJson(safeString(codigoVolumeRecebimento))).append("\",")
+                .append("\"serialNumber\":\"").append(escapeJson(safeString(serialNumber))).append("\"")
                 .append("}");
         return sb.toString();
     }
@@ -316,7 +329,19 @@ public class Test {
         if (ENDPOINT_URL == null || ENDPOINT_URL.trim().isEmpty()) {
             return;
         }
-        final String body = buildTagJsonBody(tag);
+        String idRecebimento = getUiIdRecebimento();
+        String codigoVolume = getUiCodigoVolumeRecebimento();
+        if (idRecebimento == null || idRecebimento.trim().isEmpty()
+                || codigoVolume == null || codigoVolume.trim().isEmpty()) {
+            String msg = "Preencha Identificador Recebimento e Codigo Volume Recebimento";
+            System.err.println("ERROR tag=" + codeForUi + " " + msg);
+            if (uiNotifier != null) {
+                UiNotifier n = uiNotifier;
+                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
+            }
+            return;
+        }
+        final String body = buildApontamentoJsonBody(codeForUi, idRecebimento, codigoVolume);
         final Map<String, String> headers = buildDefaultHeaders();
         new Thread(() -> postJson(ENDPOINT_URL, body, headers, codeForUi), "rfid-http-post").start();
     }
@@ -433,20 +458,37 @@ public class Test {
             JFrame jf = new JFrame("RFID Linux Status");
             jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             jf.setAlwaysOnTop(true);
-            jf.setSize(520, 160);
-            jf.setLayout(new GridLayout(4, 1));
+            jf.setSize(560, 220);
+            jf.setLayout(new GridLayout(6, 1));
 
             JLabel lbConn = new JLabel("Conexão: -");
             JLabel lbRead = new JLabel("Leitura: -");
             JLabel lbTag = new JLabel("Última tag: -");
             JLabel lbApi = new JLabel("API: -");
 
+            JPanel pId = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel lbId = new JLabel("Identificador Recebimento:");
+            JTextField tfId = new JTextField(22);
+            pId.add(lbId);
+            pId.add(tfId);
+
+            JPanel pVol = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel lbVol = new JLabel("Codigo Volume Recebimento:");
+            JTextField tfVol = new JTextField(22);
+            pVol.add(lbVol);
+            pVol.add(tfVol);
+
             jf.add(lbConn);
             jf.add(lbRead);
+            jf.add(pId);
+            jf.add(pVol);
             jf.add(lbTag);
             jf.add(lbApi);
             jf.setLocationRelativeTo(null);
             jf.setVisible(true);
+
+            tfIdRecebimento = tfId;
+            tfCodigoVolumeRecebimento = tfVol;
 
             uiNotifier = new UiNotifier() {
                 @Override
