@@ -894,8 +894,9 @@ public class Test {
                     }
                     String tipoMovimento = getUiTipoMovimento();
                     String nivelOperacao = getUiNivelOperacao();
-                    // sequenciamento: timestamp da data de envio
-                    String sequenciamento = String.valueOf(System.currentTimeMillis());
+                    // sequenciamento: número aleatório entre 1 e 10
+                    int sequenciamentoNum = (int)(Math.random() * 10) + 1;
+                    String sequenciamento = String.valueOf(sequenciamentoNum);
                     System.out.println("Enviando para: " + ENDPOINT_URL_MOVIMENTACAO);
                     System.out.println("codArmazem: " + codArmazem);
                     System.out.println("equipamentoId: " + equipamentoId);
