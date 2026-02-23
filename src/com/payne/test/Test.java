@@ -62,7 +62,10 @@ public class Test {
 
     /* HTTP/REST Config ↓↓↓ */
     private static final String ENDPOINT_URL = "https://fulle.eship.com.br/v3/?api&funcao=webServicePostApontamento";/* configure aqui */
-    private static final String API_TOKEN = "f060512c2c3b0f8866df1dda5cef80a9";/* configure aqui (ex.: "eyJ...") */
+    private static final String ENDPOINT_URL_MOVIMENTACAO = "https://fulle.eship.com.br/v3/?api&funcao=webServicePostMovimentacaoObrigatoria";
+    private static final String ENDPOINT_URL_EQUIPAMENTO = "https://fulle.eship.com.br/v3/?api&funcao=webServiceGetEquipamento";
+    private static final String ENDPOINT_URL_ESTRUTURA_LOCAL = "https://fulle.eship.com.br/v3/?api&funcao=webServiceGetEstruturaLocal";
+    private static final String API_TOKEN = "P";/* configure aqui (ex.: "eyJ...")
     /* HTTP/REST Config ↑↑↑ */
 
     /* GPIO sysfs (Raspberry Pi) ↓↓↓
@@ -88,6 +91,14 @@ public class Test {
     private static volatile JTextField tfIdRecebimento;
     private static volatile JTextField tfCodigoVolumeRecebimento;
     private static volatile JTextField tfCodigoProduto;
+    
+    /* Campos para Movimentacao Obrigatoria */
+    private static volatile JTextField tfCodArmazem;
+    private static volatile JComboBox<EquipamentoItem> cbEquipamento;
+    private static volatile JComboBox<EstruturaLocalItem> cbDestinoLocal;
+    private static volatile JTextField tfTipoMovimento;
+    private static volatile JTextField tfNivelOperacao;
+    private static volatile JTextField tfApiToken;
 
     /* Enfileiramento para evitar trabalho pesado no callback do leitor */
     private static final int HTTP_QUEUE_CAPACITY = 256;
@@ -122,6 +133,65 @@ public class Test {
         return v == null ? "" : v.trim();
     }
 
+    private static String getUiCodArmazem() {
+        if (tfCodArmazem != null) {
+            return safeString(tfCodArmazem.getText()).trim();
+        }
+        String v = System.getProperty("codArmazem");
+        if (v == null || v.trim().isEmpty()) v = System.getenv("COD_ARMAZEM");
+        return v == null ? "" : v.trim();
+    }
+
+    private static String getUiEquipamentoId() {
+        if (cbEquipamento != null && cbEquipamento.getSelectedItem() != null) {
+            EquipamentoItem item = (EquipamentoItem) cbEquipamento.getSelectedItem();
+            return String.valueOf(item.getId());
+        }
+        String v = System.getProperty("equipamentoId");
+        if (v == null || v.trim().isEmpty()) v = System.getenv("EQUIPAMENTO_ID");
+        return v == null ? "" : v.trim();
+    }
+
+    private static String getUiDestinoLocalId() {
+        if (cbDestinoLocal != null && cbDestinoLocal.getSelectedItem() != null) {
+            EstruturaLocalItem item = (EstruturaLocalItem) cbDestinoLocal.getSelectedItem();
+            return String.valueOf(item.getId());
+        }
+        String v = System.getProperty("destinoLocalId");
+        if (v == null || v.trim().isEmpty()) v = System.getenv("DESTINO_LOCAL_ID");
+        return v == null ? "" : v.trim();
+    }
+
+    private static String getUiTipoMovimento() {
+        if (tfTipoMovimento != null) {
+            String val = safeString(tfTipoMovimento.getText()).trim();
+            return val.isEmpty() ? "0" : val;
+        }
+        String v = System.getProperty("tipoMovimento");
+        if (v == null || v.trim().isEmpty()) v = System.getenv("TIPO_MOVIMENTO");
+        return v == null ? "0" : v.trim();
+    }
+
+    private static String getUiNivelOperacao() {
+        if (tfNivelOperacao != null) {
+            String val = safeString(tfNivelOperacao.getText()).trim();
+            return val.isEmpty() ? "1" : val;
+        }
+        String v = System.getProperty("nivelOperacao");
+        if (v == null || v.trim().isEmpty()) v = System.getenv("NIVEL_OPERACAO");
+        return v == null ? "1" : v.trim();
+    }
+
+    private static String getUiApiToken() {
+        if (tfApiToken != null) {
+            return safeString(tfApiToken.getText()).trim();
+        }
+        String v = System.getProperty("apiToken");
+        if (v == null || v.trim().isEmpty()) v = System.getenv("API_TOKEN");
+        // Se não encontrar no input nem nas propriedades, usa a constante como fallback
+        return v == null ? (API_TOKEN != null ? API_TOKEN.trim() : "") : v.trim();
+    }
+
     private static InventoryParam param = new InventoryParam();
     private static Consumer<Failure> failureConsumer = new Consumer<Failure>() {
         @Override
@@ -135,8 +205,9 @@ public class Test {
     private static Map<String, String> buildDefaultHeaders() {
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
-        if (API_TOKEN != null && API_TOKEN.trim().length() > 0) {
-            headers.put("Api", API_TOKEN.trim());
+        String apiToken = getUiApiToken();
+        if (apiToken != null && apiToken.trim().length() > 0) {
+            headers.put("Api", apiToken.trim());
         }
         return headers;
     }
@@ -154,6 +225,22 @@ public class Test {
             sb.append(",").append("\"codigoProduto\":").append("null");
         }
         sb
+                .append("}");
+        return sb.toString();
+    }
+
+    private static String buildMovimentacaoJsonBody(String codArmazem, String equipamentoId, String destinoLocalId, 
+                                                     String sequenciamento, String codigoIdentificador, 
+                                                     String tipoMovimento, String nivelOperacao) {
+        StringBuilder sb = new StringBuilder(256);
+        sb.append("{")
+                .append("\"codArmazem\":\"").append(escapeJson(safeString(codArmazem))).append("\",")
+                .append("\"equipamentoId\":\"").append(escapeJson(safeString(equipamentoId))).append("\",")
+                .append("\"destinoLocalId\":\"").append(escapeJson(safeString(destinoLocalId))).append("\",")
+                .append("\"sequenciamento\":\"").append(escapeJson(safeString(sequenciamento))).append("\",")
+                .append("\"codigoIdentificador\":\"").append(escapeJson(safeString(codigoIdentificador))).append("\",")
+                .append("\"tipoMovimento\":\"").append(escapeJson(safeString(tipoMovimento))).append("\",")
+                .append("\"nivelOperacao\":\"").append(escapeJson(safeString(nivelOperacao))).append("\"")
                 .append("}");
         return sb.toString();
     }
@@ -300,6 +387,185 @@ public class Test {
     }
     /* ------------------ API body validation helpers (end) ------------------ */
 
+    /* ---------------------- Classes auxiliares para selects ---------------------- */
+    private static class EquipamentoItem {
+        private final int id;
+        private final String descricao;
+        private final String codArmazem;
+
+        public EquipamentoItem(int id, String descricao, String codArmazem) {
+            this.id = id;
+            this.descricao = descricao;
+            this.codArmazem = codArmazem;
+        }
+
+        public int getId() {
+            return id;
+        }
+
+        public String getDescricao() {
+            return descricao;
+        }
+
+        public String getCodArmazem() {
+            return codArmazem;
+        }
+
+        @Override
+        public String toString() {
+            return descricao;
+        }
+    }
+
+    private static class EstruturaLocalItem {
+        private final int id;
+        private final String descricao;
+        private final String codArmazem;
+        private final int tipo;
+
+        public EstruturaLocalItem(int id, String descricao, String codArmazem, int tipo) {
+            this.id = id;
+            this.descricao = descricao;
+            this.codArmazem = codArmazem;
+            this.tipo = tipo;
+        }
+
+        public int getId() {
+            return id;
+        }
+
+        public String getDescricao() {
+            return descricao;
+        }
+
+        public String getCodArmazem() {
+            return codArmazem;
+        }
+
+        public int getTipo() {
+            return tipo;
+        }
+
+        @Override
+        public String toString() {
+            return descricao;
+        }
+    }
+    /* -------------------- Classes auxiliares (end) -------------------- */
+
+    /* ---------------------- Métodos GET para buscar dados ---------------------- */
+    private static String getJson(String urlStr, Map<String, String> headers) {
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL(urlStr);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            if (headers != null) {
+                for (Map.Entry<String, String> e : headers.entrySet()) {
+                    conn.setRequestProperty(e.getKey(), e.getValue());
+                }
+            }
+            int code = conn.getResponseCode();
+            if (code >= 200 && code < 300) {
+                try (java.io.InputStream is = conn.getInputStream()) {
+                    if (is != null) {
+                        try (java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(is, StandardCharsets.UTF_8))) {
+                            String line;
+                            StringBuilder rsb = new StringBuilder();
+                            while ((line = br.readLine()) != null) {
+                                rsb.append(line).append('\n');
+                            }
+                            return rsb.toString().trim();
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("GET error: " + e.getMessage());
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.disconnect();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        return null;
+    }
+
+    private static java.util.List<EquipamentoItem> fetchEquipamentos() {
+        java.util.List<EquipamentoItem> lista = new ArrayList<>();
+        try {
+            Map<String, String> headers = buildDefaultHeaders();
+            String responseBody = getJson(ENDPOINT_URL_EQUIPAMENTO, headers);
+            if (responseBody != null && !responseBody.isEmpty()) {
+                // Parse JSON response
+                // Estrutura: {"erros":null,"corpo":{"body":{"dadosPaginacao":{...},"dados":[...]}}}
+                // Procurar pelo array "dados" de forma mais flexível
+                Pattern dadosPattern = Pattern.compile("\"dados\"\\s*:\\s*\\[(.*?)\\]", Pattern.DOTALL);
+                Matcher dadosMatcher = dadosPattern.matcher(responseBody);
+                if (dadosMatcher.find()) {
+                    String dadosStr = dadosMatcher.group(1);
+                    // Extrair cada objeto do array - padrão mais flexível
+                    Pattern itemPattern = Pattern.compile("\\{\\s*\"id\"\\s*:\\s*(\\d+)\\s*,\\s*\"codArmazem\"\\s*:\\s*\"([^\"]*)\"\\s*,\\s*\"descricao\"\\s*:\\s*\"([^\"]*)\"\\s*\\}", Pattern.DOTALL);
+                    Matcher itemMatcher = itemPattern.matcher(dadosStr);
+                    while (itemMatcher.find()) {
+                        try {
+                            int id = Integer.parseInt(itemMatcher.group(1).trim());
+                            String codArmazem = itemMatcher.group(2).trim();
+                            String descricao = itemMatcher.group(3).trim();
+                            lista.add(new EquipamentoItem(id, descricao, codArmazem));
+                        } catch (Exception e) {
+                            System.err.println("Erro ao processar item de equipamento: " + e.getMessage());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error fetching equipamentos: " + e.getMessage());
+            e.printStackTrace();
+        }
+        return lista;
+    }
+
+    private static java.util.List<EstruturaLocalItem> fetchEstruturasLocais() {
+        java.util.List<EstruturaLocalItem> lista = new ArrayList<>();
+        try {
+            Map<String, String> headers = buildDefaultHeaders();
+            String responseBody = getJson(ENDPOINT_URL_ESTRUTURA_LOCAL, headers);
+            if (responseBody != null && !responseBody.isEmpty()) {
+                // Parse JSON response
+                // Procurar pelo array "dados" de forma mais flexível
+                Pattern dadosPattern = Pattern.compile("\"dados\"\\s*:\\s*\\[(.*?)\\]", Pattern.DOTALL);
+                Matcher dadosMatcher = dadosPattern.matcher(responseBody);
+                if (dadosMatcher.find()) {
+                    String dadosStr = dadosMatcher.group(1);
+                    // Extrair cada objeto do array - padrão mais flexível
+                    Pattern itemPattern = Pattern.compile("\\{\\s*\"id\"\\s*:\\s*(\\d+)\\s*,\\s*\"codArmazem\"\\s*:\\s*\"([^\"]*)\"\\s*,\\s*\"descricao\"\\s*:\\s*\"([^\"]*)\"\\s*,\\s*\"tipo\"\\s*:\\s*(\\d+)\\s*\\}", Pattern.DOTALL);
+                    Matcher itemMatcher = itemPattern.matcher(dadosStr);
+                    while (itemMatcher.find()) {
+                        try {
+                            int id = Integer.parseInt(itemMatcher.group(1).trim());
+                            String codArmazem = itemMatcher.group(2).trim();
+                            String descricao = itemMatcher.group(3).trim();
+                            int tipo = Integer.parseInt(itemMatcher.group(4).trim());
+                            lista.add(new EstruturaLocalItem(id, descricao, codArmazem, tipo));
+                        } catch (Exception e) {
+                            System.err.println("Erro ao processar item de estrutura local: " + e.getMessage());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error fetching estruturas locais: " + e.getMessage());
+            e.printStackTrace();
+        }
+        return lista;
+    }
+    /* -------------------- Métodos GET (end) -------------------- */
+
     private static void postJson(String urlStr, String jsonBody, Map<String, String> headers, String codeForUi) {
         String currentUrl = urlStr;
         for (int attempt = 0; attempt < 2; attempt++) {
@@ -423,11 +689,13 @@ public class Test {
 
     /* Enfileirar envio para não bloquear callbacks do leitor */
     private static void enqueueSend(String codeForUi) {
-        String idRecebimento = getUiIdRecebimento();
-        String codigoVolume = getUiCodigoVolumeRecebimento();
-        if (idRecebimento == null || idRecebimento.trim().isEmpty()
-                || codigoVolume == null || codigoVolume.trim().isEmpty()) {
-            String msg = "Preencha Identificador Recebimento e Codigo Volume Recebimento";
+        String codArmazem = getUiCodArmazem();
+        String equipamentoId = getUiEquipamentoId();
+        String destinoLocalId = getUiDestinoLocalId();
+        if (codArmazem == null || codArmazem.trim().isEmpty()
+                || equipamentoId == null || equipamentoId.trim().isEmpty()
+                || destinoLocalId == null || destinoLocalId.trim().isEmpty()) {
+            String msg = "Preencha Código Armazém, Equipamento e Destino Local";
             System.err.println("ERROR tag=" + codeForUi + " " + msg);
             if (uiNotifier != null) {
                 UiNotifier n = uiNotifier;
@@ -453,21 +721,27 @@ public class Test {
             while (true) {
                 try {
                     String code = httpQueue.take();
-                    String idRecebimento = getUiIdRecebimento();
-                    String codigoVolume = getUiCodigoVolumeRecebimento();
-                    if (idRecebimento == null || idRecebimento.trim().isEmpty()
-                            || codigoVolume == null || codigoVolume.trim().isEmpty()) {
+                    String codArmazem = getUiCodArmazem();
+                    String equipamentoId = getUiEquipamentoId();
+                    String destinoLocalId = getUiDestinoLocalId();
+                    if (codArmazem == null || codArmazem.trim().isEmpty()
+                            || equipamentoId == null || equipamentoId.trim().isEmpty()
+                            || destinoLocalId == null || destinoLocalId.trim().isEmpty()) {
                         if (uiNotifier != null) {
                             UiNotifier n = uiNotifier;
-                            String msg = "Campos obrigatórios não preenchidos";
+                            String msg = "Campos obrigatórios não preenchidos (codArmazem, equipamentoId, destinoLocalId)";
                             SwingUtilities.invokeLater(() -> n.onApiResult(false, code, msg));
                         }
                         continue;
                     }
-                    String codigoProduto = getUiCodigoProduto();
-                    final String body = buildApontamentoJsonBody(code, idRecebimento, codigoVolume, codigoProduto);
+                    String tipoMovimento = getUiTipoMovimento();
+                    String nivelOperacao = getUiNivelOperacao();
+                    // sequenciamento: timestamp da data de envio
+                    String sequenciamento = String.valueOf(System.currentTimeMillis());
+                    final String body = buildMovimentacaoJsonBody(codArmazem, equipamentoId, destinoLocalId, 
+                                                                  sequenciamento, code, tipoMovimento, nivelOperacao);
                     final Map<String, String> headers = buildDefaultHeaders();
-                    postJson(ENDPOINT_URL, body, headers, code);
+                    postJson(ENDPOINT_URL_MOVIMENTACAO, body, headers, code);
                 } catch (InterruptedException ie) {
                     break;
                 } catch (Throwable th) {
@@ -589,48 +863,118 @@ public class Test {
         String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
         if (!os.contains("linux")) return;
         SwingUtilities.invokeLater(() -> {
-            JFrame jf = new JFrame("RFID Linux Status");
+            JFrame jf = new JFrame("RFID Linux Status - Movimentação Obrigatória");
             jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             jf.setAlwaysOnTop(true);
-            jf.setSize(600, 260);
-            jf.setLayout(new GridLayout(7, 1));
+            jf.setSize(700, 550);
+            jf.setLayout(new GridLayout(13, 1));
 
             JLabel lbConn = new JLabel("Conexão: -");
             JLabel lbRead = new JLabel("Leitura: -");
             JLabel lbTag = new JLabel("Última tag: -");
             JLabel lbApi = new JLabel("API: -");
 
-            JPanel pId = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbId = new JLabel("Identificador Recebimento:");
-            JTextField tfId = new JTextField(22);
-            pId.add(lbId);
-            pId.add(tfId);
+            // Campo API Token (Autorização)
+            JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel lbApiToken = new JLabel("Autorização (API Token):");
+            JTextField tfApiTokenField = new JTextField(30);
+            if (API_TOKEN != null && !API_TOKEN.trim().isEmpty() && !API_TOKEN.equals("P")) {
+                tfApiTokenField.setText(API_TOKEN);
+            }
+            pApiToken.add(lbApiToken);
+            pApiToken.add(tfApiTokenField);
 
-            JPanel pVol = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbVol = new JLabel("Codigo Volume Recebimento:");
-            JTextField tfVol = new JTextField(22);
-            pVol.add(lbVol);
-            pVol.add(tfVol);
+            // Campo codArmazem
+            JPanel pCodArmazem = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel lbCodArmazem = new JLabel("Código Armazém:");
+            JTextField tfCodArmazemField = new JTextField(22);
+            pCodArmazem.add(lbCodArmazem);
+            pCodArmazem.add(tfCodArmazemField);
 
-            JPanel pProd = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbProd = new JLabel("Codigo Produto:");
-            JTextField tfProd = new JTextField(22);
-            pProd.add(lbProd);
-            pProd.add(tfProd);
+            // Select Equipamento
+            JPanel pEquipamento = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel lbEquipamento = new JLabel("Equipamento:");
+            JComboBox<EquipamentoItem> cbEquipamentoField = new JComboBox<>();
+            pEquipamento.add(lbEquipamento);
+            pEquipamento.add(cbEquipamentoField);
+
+            // Select Destino Local
+            JPanel pDestinoLocal = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel lbDestinoLocal = new JLabel("Destino Local:");
+            JComboBox<EstruturaLocalItem> cbDestinoLocalField = new JComboBox<>();
+            pDestinoLocal.add(lbDestinoLocal);
+            pDestinoLocal.add(cbDestinoLocalField);
+
+            // Campo tipoMovimento
+            JPanel pTipoMovimento = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel lbTipoMovimento = new JLabel("Tipo Movimento:");
+            JTextField tfTipoMovimentoField = new JTextField(22);
+            tfTipoMovimentoField.setText("0");
+            pTipoMovimento.add(lbTipoMovimento);
+            pTipoMovimento.add(tfTipoMovimentoField);
+
+            // Campo nivelOperacao
+            JPanel pNivelOperacao = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel lbNivelOperacao = new JLabel("Nível Operação:");
+            JTextField tfNivelOperacaoField = new JTextField(22);
+            tfNivelOperacaoField.setText("1");
+            pNivelOperacao.add(lbNivelOperacao);
+            pNivelOperacao.add(tfNivelOperacaoField);
 
             jf.add(lbConn);
             jf.add(lbRead);
-            jf.add(pId);
-            jf.add(pVol);
-            jf.add(pProd);
+            jf.add(pApiToken);
+            jf.add(pCodArmazem);
+            jf.add(pEquipamento);
+            jf.add(pDestinoLocal);
+            jf.add(pTipoMovimento);
+            jf.add(pNivelOperacao);
             jf.add(lbTag);
             jf.add(lbApi);
             jf.setLocationRelativeTo(null);
             jf.setVisible(true);
 
-            tfIdRecebimento = tfId;
-            tfCodigoVolumeRecebimento = tfVol;
-            tfCodigoProduto = tfProd;
+            tfApiToken = tfApiTokenField;
+            tfCodArmazem = tfCodArmazemField;
+            cbEquipamento = cbEquipamentoField;
+            cbDestinoLocal = cbDestinoLocalField;
+            tfTipoMovimento = tfTipoMovimentoField;
+            tfNivelOperacao = tfNivelOperacaoField;
+
+            // Carregar dados dos selects em thread separada
+            new Thread(() -> {
+                try {
+                    java.util.List<EquipamentoItem> equipamentos = fetchEquipamentos();
+                    SwingUtilities.invokeLater(() -> {
+                        cbEquipamentoField.removeAllItems();
+                        for (EquipamentoItem item : equipamentos) {
+                            cbEquipamentoField.addItem(item);
+                        }
+                        if (equipamentos.isEmpty()) {
+                            System.err.println("Nenhum equipamento encontrado");
+                        }
+                    });
+                } catch (Exception e) {
+                    System.err.println("Erro ao carregar equipamentos: " + e.getMessage());
+                }
+            }, "load-equipamentos").start();
+
+            new Thread(() -> {
+                try {
+                    java.util.List<EstruturaLocalItem> estruturas = fetchEstruturasLocais();
+                    SwingUtilities.invokeLater(() -> {
+                        cbDestinoLocalField.removeAllItems();
+                        for (EstruturaLocalItem item : estruturas) {
+                            cbDestinoLocalField.addItem(item);
+                        }
+                        if (estruturas.isEmpty()) {
+                            System.err.println("Nenhuma estrutura local encontrada");
+                        }
+                    });
+                } catch (Exception e) {
+                    System.err.println("Erro ao carregar estruturas locais: " + e.getMessage());
+                }
+            }, "load-estruturas").start();
 
             uiNotifier = new UiNotifier() {
                 @Override
