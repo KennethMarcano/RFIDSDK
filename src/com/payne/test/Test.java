@@ -1319,28 +1319,53 @@ public class Test {
 
             // Campo Power
             JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbPower = new JLabel("Power (1-33):");
+            JLabel lbPower = new JLabel("Potência (1-33):");
             JTextField tfPowerField = new JTextField(5);
             tfPowerField.setText(String.valueOf(power));
-            // Adicionar validação para aceitar apenas números entre 1-33
-            tfPowerField.addActionListener(e -> {
-                try {
-                    int powerValue = Integer.parseInt(tfPowerField.getText().trim());
-                    if (powerValue >= 1 && powerValue <= 33) {
-                        power = (byte) powerValue;
-                        // Atualizar power no módulo se estiver conectado
-                        updatePowerIfConnected();
-                    } else {
-                        tfPowerField.setText(String.valueOf(power));
-                        System.err.println("Power deve estar entre 1 e 33");
+            
+            // Botão para atualizar potência
+            JButton btnAtualizarPotencia = new JButton("Atualizar Potência");
+            btnAtualizarPotencia.addActionListener(e -> {
+                String powerText = tfPowerField.getText().trim();
+                int powerValue;
+                
+                // Se campo vazio ou valor 0, usar potência máxima (33)
+                if (powerText.isEmpty() || powerText.equals("0")) {
+                    powerValue = 33;
+                    tfPowerField.setText("33");
+                } else {
+                    try {
+                        powerValue = Integer.parseInt(powerText);
+                    } catch (NumberFormatException ex) {
+                        // Se não for número válido, usar potência máxima
+                        powerValue = 33;
+                        tfPowerField.setText("33");
+                        System.err.println("Valor inválido - usando potência máxima (33)");
                     }
-                } catch (NumberFormatException ex) {
-                    tfPowerField.setText(String.valueOf(power));
-                    System.err.println("Power deve ser um número válido");
+                }
+                
+                // Validar e aplicar potência
+                if (powerValue >= 1 && powerValue <= 33) {
+                    power = (byte) powerValue;
+                    // Atualizar power no módulo se estiver conectado
+                    updatePowerIfConnected();
+                    System.out.println("Potência atualizada para: " + power);
+                } else {
+                    // Se estiver fora do range, usar potência máxima
+                    power = 33;
+                    tfPowerField.setText("33");
+                    updatePowerIfConnected();
+                    System.err.println("Potência fora do range - usando potência máxima (33)");
+                    javax.swing.JOptionPane.showMessageDialog(null, 
+                        "Potência deve estar entre 1 e 33. Usando potência máxima (33).", 
+                        "Valor Ajustado", 
+                        javax.swing.JOptionPane.INFORMATION_MESSAGE);
                 }
             });
+            
             pPower.add(lbPower);
             pPower.add(tfPowerField);
+            pPower.add(btnAtualizarPotencia);
 
             pMainContent.add(pApiToken);
             pMainContent.add(pCodArmazem);
