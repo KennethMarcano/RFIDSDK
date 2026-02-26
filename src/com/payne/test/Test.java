@@ -99,9 +99,13 @@ public class Test {
     private static volatile JTextField tfTipoMovimento;
     private static volatile JTextField tfNivelOperacao;
     private static volatile JTextField tfApiToken;
+    private static volatile JTextField tfPower;
     private static volatile JLabel lbStatusEquipamento;
     private static volatile JLabel lbStatusDestinoLocal;
     private static volatile JButton btnAtualizarAlternativas;
+    
+    /* Referência estática para LinuxDemo para poder atualizar power */
+    private static volatile LinuxDemo linuxDemoInstance = null;
 
     /* Enfileiramento para evitar trabalho pesado no callback do leitor */
     private static final int HTTP_QUEUE_CAPACITY = 256;
@@ -322,6 +326,26 @@ public class Test {
             System.err.println("Erro ao ler arquivo .env: " + e.getMessage());
         }
         return envMap;
+    }
+    
+    /* Função para atualizar power no módulo se estiver conectado */
+    private static void updatePowerIfConnected() {
+        if (linuxDemoInstance != null && linuxDemoInstance.mReader != null) {
+            try {
+                // Usar Consumer de sucesso e falha
+                Consumer<Success> successConsumer = success -> {
+                    System.out.println("Power atualizado com sucesso: " + power);
+                };
+                Consumer<Failure> failureConsumer = failure -> {
+                    System.err.println("Erro ao atualizar power: " + failure.getMessage());
+                };
+                linuxDemoInstance.mReader.setOutputPowerUniformly(power, successConsumer, failureConsumer);
+            } catch (Exception e) {
+                System.err.println("Erro ao atualizar power: " + e.getMessage());
+            }
+        } else {
+            System.out.println("Módulo não conectado - power será aplicado na próxima conexão");
+        }
     }
 
     /* ---------------------- GPIO sysfs helpers ---------------------- */
@@ -1130,6 +1154,7 @@ public class Test {
             gpioInitIfLinux();
             startHttpWorkerIfNeeded();
             LinuxDemo demo = new LinuxDemo();
+            linuxDemoInstance = demo; // Armazenar referência para poder atualizar power
             boolean connect = demo.connect();
             if (connect) {
                 demo.startInventory();
@@ -1212,7 +1237,7 @@ public class Test {
             pTopPanel.add(pImagePanel, BorderLayout.EAST);
             
             // Painel principal com o conteúdo existente
-            JPanel pMainContent = new JPanel(new GridLayout(9, 1));
+            JPanel pMainContent = new JPanel(new GridLayout(10, 1));
 
             JLabel lbTag = new JLabel("Última tag: -");
             JLabel lbApi = new JLabel("API: -");
@@ -1282,6 +1307,31 @@ public class Test {
             pNivelOperacao.add(lbNivelOperacao);
             pNivelOperacao.add(tfNivelOperacaoField);
 
+            // Campo Power
+            JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel lbPower = new JLabel("Power (1-33):");
+            JTextField tfPowerField = new JTextField(5);
+            tfPowerField.setText(String.valueOf(power));
+            // Adicionar validação para aceitar apenas números entre 1-33
+            tfPowerField.addActionListener(e -> {
+                try {
+                    int powerValue = Integer.parseInt(tfPowerField.getText().trim());
+                    if (powerValue >= 1 && powerValue <= 33) {
+                        power = (byte) powerValue;
+                        // Atualizar power no módulo se estiver conectado
+                        updatePowerIfConnected();
+                    } else {
+                        tfPowerField.setText(String.valueOf(power));
+                        System.err.println("Power deve estar entre 1 e 33");
+                    }
+                } catch (NumberFormatException ex) {
+                    tfPowerField.setText(String.valueOf(power));
+                    System.err.println("Power deve ser um número válido");
+                }
+            });
+            pPower.add(lbPower);
+            pPower.add(tfPowerField);
+
             pMainContent.add(pApiToken);
             pMainContent.add(pCodArmazem);
             pMainContent.add(pEquipamento);
@@ -1289,6 +1339,7 @@ public class Test {
             pMainContent.add(pBtnAtualizar);
             pMainContent.add(pTipoMovimento);
             pMainContent.add(pNivelOperacao);
+            pMainContent.add(pPower);
             pMainContent.add(lbTag);
             pMainContent.add(lbApi);
             
@@ -1305,6 +1356,7 @@ public class Test {
             cbDestinoLocal = cbDestinoLocalField;
             tfTipoMovimento = tfTipoMovimentoField;
             tfNivelOperacao = tfNivelOperacaoField;
+            tfPower = tfPowerField;
             lbStatusEquipamento = lbStatusEquipamentoField;
             lbStatusDestinoLocal = lbStatusDestinoLocalField;
             btnAtualizarAlternativas = btnAtualizarAlternativasField;
@@ -1404,7 +1456,13 @@ public class Test {
                 @Override
                 public void onTagDetected(String code) {
                     lbTag.setText("Última tag: " + code);
-                    lbApi.setText("API: aguardando resposta...");
+                    // Só mostrar "aguardando resposta" se não for tag duplicada com sucesso
+                    String tagAtual = safeString(code).trim();
+                    boolean ehTagComSucesso = ultimaTagTeveSucesso && ultimaTagComSucesso != null && ultimaTagComSucesso.equals(tagAtual);
+                    if (!ehTagComSucesso) {
+                        lbApi.setText("API: aguardando resposta...");
+                    }
+                    // Se for tag com sucesso, mantém a última mensagem de sucesso
                 }
 
                 @Override
@@ -1862,7 +1920,7 @@ public class Test {
 
     //<editor-fold desc="LinuxDemo">
     private static class LinuxDemo {
-        private Reader mReader;
+        Reader mReader; // Mudado para package-private para poder acessar de updatePowerIfConnected
         private String mPortName = "ttyUSB0";
 
         public LinuxDemo() {
