@@ -1247,7 +1247,7 @@ public class Test {
             pTopPanel.add(pImagePanel, BorderLayout.EAST);
             
             // Painel principal com o conteúdo existente
-            JPanel pMainContent = new JPanel(new GridLayout(10, 1));
+            JPanel pMainContent = new JPanel(new GridLayout(0, 1)); // 0 = número de linhas automático
 
             JLabel lbTag = new JLabel("Última tag: -");
             JLabel lbApi = new JLabel("API: -");
@@ -1366,6 +1366,12 @@ public class Test {
             pPower.add(lbPower);
             pPower.add(tfPowerField);
             pPower.add(btnAtualizarPotencia);
+            
+            // Garantir que o painel Power está visível
+            pPower.setVisible(true);
+            lbPower.setVisible(true);
+            tfPowerField.setVisible(true);
+            btnAtualizarPotencia.setVisible(true);
 
             pMainContent.add(pApiToken);
             pMainContent.add(pCodArmazem);
@@ -1381,6 +1387,10 @@ public class Test {
             // Adicionar os painéis ao JFrame
             jf.add(pTopPanel, BorderLayout.NORTH);
             jf.add(pMainContent, BorderLayout.CENTER);
+            
+            // Forçar atualização do layout para garantir que todos os componentes sejam exibidos
+            jf.revalidate();
+            jf.repaint();
             
             jf.setLocationRelativeTo(null);
             jf.setVisible(true);
