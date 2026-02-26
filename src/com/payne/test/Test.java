@@ -108,6 +108,9 @@ public class Test {
     private static final java.util.concurrent.BlockingQueue<String> httpQueue =
             new java.util.concurrent.ArrayBlockingQueue<>(HTTP_QUEUE_CAPACITY);
     private static volatile boolean httpWorkerStarted = false;
+    
+    /* Variável para armazenar a última tag lida e evitar duplicados */
+    private static volatile String ultimaTagLida = null;
 
     private static String getUiIdRecebimento() {
         if (tfIdRecebimento != null) {
@@ -836,6 +839,20 @@ public class Test {
     private static void enqueueSend(String codeForUi) {
         System.out.println("========================================");
         System.out.println("Tag detectada: " + codeForUi);
+        
+        // Verificar se é a mesma tag da última leitura para evitar duplicados
+        String tagAtual = safeString(codeForUi).trim();
+        if (ultimaTagLida != null && ultimaTagLida.equals(tagAtual)) {
+            System.out.println("Tag duplicada detectada - ignorando envio: " + tagAtual);
+            System.out.println("Última tag lida: " + ultimaTagLida);
+            System.out.println("========================================");
+            return;
+        }
+        
+        // Atualizar a última tag lida
+        ultimaTagLida = tagAtual;
+        System.out.println("Nova tag - processando envio");
+        
         String codArmazem = getUiCodArmazem();
         String equipamentoId = getUiEquipamentoId();
         String destinoLocalId = getUiDestinoLocalId();
