@@ -1148,9 +1148,18 @@ public class Test {
             jf.setSize(800, 600);
             jf.setLayout(new BorderLayout());
             
+            // Painel superior com Conexão à esquerda e logo à direita
+            JPanel pTopPanel = new JPanel(new BorderLayout());
+            pTopPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            
+            // Campo Conexão à esquerda
+            JLabel lbConn = new JLabel("Conexão: OFF");
+            lbConn.setForeground(Color.RED);
+            pTopPanel.add(lbConn, BorderLayout.WEST);
+            
             // Painel para a imagem no canto superior direito
             JPanel pImagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            pImagePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            pImagePanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             try {
                 java.net.URL imageUrl = null;
                 // Tentar diferentes caminhos possíveis
@@ -1200,12 +1209,11 @@ public class Test {
             } catch (Exception e) {
                 System.err.println("Erro ao carregar imagem: " + e.getMessage());
             }
+            pTopPanel.add(pImagePanel, BorderLayout.EAST);
             
             // Painel principal com o conteúdo existente
-            JPanel pMainContent = new JPanel(new GridLayout(15, 1));
+            JPanel pMainContent = new JPanel(new GridLayout(9, 1));
 
-            JLabel lbConn = new JLabel("Conexão: -");
-            JLabel lbRead = new JLabel("Leitura: -");
             JLabel lbTag = new JLabel("Última tag: -");
             JLabel lbApi = new JLabel("API: -");
 
@@ -1274,8 +1282,6 @@ public class Test {
             pNivelOperacao.add(lbNivelOperacao);
             pNivelOperacao.add(tfNivelOperacaoField);
 
-            pMainContent.add(lbConn);
-            pMainContent.add(lbRead);
             pMainContent.add(pApiToken);
             pMainContent.add(pCodArmazem);
             pMainContent.add(pEquipamento);
@@ -1287,7 +1293,7 @@ public class Test {
             pMainContent.add(lbApi);
             
             // Adicionar os painéis ao JFrame
-            jf.add(pImagePanel, BorderLayout.NORTH);
+            jf.add(pTopPanel, BorderLayout.NORTH);
             jf.add(pMainContent, BorderLayout.CENTER);
             
             jf.setLocationRelativeTo(null);
@@ -1381,12 +1387,18 @@ public class Test {
             uiNotifier = new UiNotifier() {
                 @Override
                 public void onConnectStatus(boolean connected) {
-                    lbConn.setText("Conexão: " + (connected ? "Conectado" : "Desconectado"));
+                    if (connected) {
+                        lbConn.setText("Conexão: ON");
+                        lbConn.setForeground(Color.GREEN);
+                    } else {
+                        lbConn.setText("Conexão: OFF");
+                        lbConn.setForeground(Color.RED);
+                    }
                 }
 
                 @Override
                 public void onReadingStatus(boolean reading) {
-                    lbRead.setText("Leitura: " + (reading ? "Lendo..." : "Parado"));
+                    // Campo Leitura removido - informação já mostrada em Última tag
                 }
 
                 @Override
