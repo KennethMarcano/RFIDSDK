@@ -337,7 +337,8 @@ public class Test {
                     System.out.println("Power atualizado com sucesso: " + power);
                 };
                 Consumer<Failure> failureConsumer = failure -> {
-                    System.err.println("Erro ao atualizar power: " + failure.getMessage());
+                    String codeName = Failure.getNameForResultCode(failure.getErrorCode());
+                    System.err.println("Erro ao atualizar power: " + codeName + " (código: " + failure.getErrorCode() + ")");
                 };
                 linuxDemoInstance.mReader.setOutputPowerUniformly(power, successConsumer, failureConsumer);
             } catch (Exception e) {
