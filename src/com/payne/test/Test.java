@@ -111,6 +111,12 @@ public class Test {
     
     /* Variável para armazenar a última tag lida e evitar duplicados */
     private static volatile String ultimaTagLida = null;
+    
+    /* Variável para armazenar a última tag que teve sucesso na API */
+    private static volatile String ultimaTagComSucesso = null;
+    
+    /* Flag para indicar se a última tag teve sucesso */
+    private static volatile boolean ultimaTagTeveSucesso = false;
 
     private static String getUiIdRecebimento() {
         if (tfIdRecebimento != null) {
@@ -275,6 +281,47 @@ public class Test {
             epcDecimal = "0";
         }
         return epcDecimal;
+    }
+    
+    /* Função para carregar variáveis do arquivo .env */
+    private static java.util.Map<String, String> loadEnvFile() {
+        java.util.Map<String, String> envMap = new java.util.HashMap<>();
+        try {
+            java.io.File envFile = new java.io.File(".env");
+            if (!envFile.exists()) {
+                // Tentar na raiz do projeto
+                envFile = new java.io.File("src/.env");
+            }
+            if (!envFile.exists()) {
+                return envMap; // Retorna mapa vazio se arquivo não existir
+            }
+            
+            try (java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(envFile))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    line = line.trim();
+                    // Ignorar linhas vazias e comentários
+                    if (line.isEmpty() || line.startsWith("#")) {
+                        continue;
+                    }
+                    // Formato: KEY=VALUE ou KEY="VALUE"
+                    int eqIndex = line.indexOf('=');
+                    if (eqIndex > 0) {
+                        String key = line.substring(0, eqIndex).trim();
+                        String value = line.substring(eqIndex + 1).trim();
+                        // Remover aspas se existirem
+                        if ((value.startsWith("\"") && value.endsWith("\"")) || 
+                            (value.startsWith("'") && value.endsWith("'"))) {
+                            value = value.substring(1, value.length() - 1);
+                        }
+                        envMap.put(key, value);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Erro ao ler arquivo .env: " + e.getMessage());
+        }
+        return envMap;
     }
 
     /* ---------------------- GPIO sysfs helpers ---------------------- */
@@ -761,12 +808,20 @@ public class Test {
 
                 if (success) {
                     gpioSetHighPulse(); /* pulso em sucesso */
+                    // Marcar que a última tag teve sucesso
+                    ultimaTagComSucesso = codeForUi;
+                    ultimaTagTeveSucesso = true;
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
                         SwingUtilities.invokeLater(() -> n.onApiResult(true, codeForUi, msg));
                     }
                     System.out.println("OK tag=" + codeForUi + " " + msg);
                 } else {
+                    // Em caso de erro, limpar flag de sucesso para permitir reenvio
+                    if (ultimaTagComSucesso != null && ultimaTagComSucesso.equals(codeForUi)) {
+                        ultimaTagTeveSucesso = false;
+                        ultimaTagComSucesso = null;
+                    }
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
                         SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
@@ -775,6 +830,11 @@ public class Test {
                 }
                 break;/* sucesso ou erro não-redirecionado: sai do loop */
             } catch (java.net.SocketTimeoutException e) {
+                // Em caso de erro, limpar flag de sucesso para permitir reenvio
+                if (ultimaTagComSucesso != null && ultimaTagComSucesso.equals(codeForUi)) {
+                    ultimaTagTeveSucesso = false;
+                    ultimaTagComSucesso = null;
+                }
                 System.err.println("HTTP post timeout: " + e.getMessage());
                 System.err.println("NOTA: Timeout HTTP não afeta a conexão com a antena");
                 if (uiNotifier != null) {
@@ -784,6 +844,11 @@ public class Test {
                 // Timeout HTTP não deve afetar a conexão com a antena
                 break;
             } catch (java.net.ConnectException e) {
+                // Em caso de erro, limpar flag de sucesso para permitir reenvio
+                if (ultimaTagComSucesso != null && ultimaTagComSucesso.equals(codeForUi)) {
+                    ultimaTagTeveSucesso = false;
+                    ultimaTagComSucesso = null;
+                }
                 System.err.println("HTTP post connection error: " + e.getMessage());
                 System.err.println("NOTA: Erro de conexão HTTP não afeta a conexão com a antena");
                 if (uiNotifier != null) {
@@ -793,6 +858,11 @@ public class Test {
                 // Erro de conexão HTTP não deve afetar a conexão com a antena
                 break;
             } catch (Exception e) {
+                // Em caso de erro, limpar flag de sucesso para permitir reenvio
+                if (ultimaTagComSucesso != null && ultimaTagComSucesso.equals(codeForUi)) {
+                    ultimaTagTeveSucesso = false;
+                    ultimaTagComSucesso = null;
+                }
                 System.err.println("HTTP post error: " + e.getMessage());
                 System.err.println("NOTA: Erro HTTP não afeta a conexão com a antena");
                 e.printStackTrace();
@@ -840,18 +910,41 @@ public class Test {
         System.out.println("========================================");
         System.out.println("Tag detectada: " + codeForUi);
         
-        // Verificar se é a mesma tag da última leitura para evitar duplicados
+        // Ignorar tags com valor "0"
         String tagAtual = safeString(codeForUi).trim();
-        if (ultimaTagLida != null && ultimaTagLida.equals(tagAtual)) {
-            System.out.println("Tag duplicada detectada - ignorando envio: " + tagAtual);
-            System.out.println("Última tag lida: " + ultimaTagLida);
+        if ("0".equals(tagAtual)) {
+            System.out.println("Tag com valor '0' ignorada - passando para próxima leitura válida");
             System.out.println("========================================");
             return;
         }
         
+        // Verificar se é a mesma tag da última leitura
+        boolean ehMesmaTag = ultimaTagLida != null && ultimaTagLida.equals(tagAtual);
+        
+        // Se for a mesma tag E a última teve sucesso, não enviar novamente
+        if (ehMesmaTag && ultimaTagTeveSucesso && ultimaTagComSucesso != null && ultimaTagComSucesso.equals(tagAtual)) {
+            System.out.println("Tag já processada com sucesso - não será reenviada: " + tagAtual);
+            // Atualizar UI para mostrar a tag mas manter mensagem de sucesso
+            if (uiNotifier != null) {
+                UiNotifier n = uiNotifier;
+                SwingUtilities.invokeLater(() -> {
+                    n.onTagDetected(tagAtual);
+                    // Não chamar onApiResult para manter a última mensagem de sucesso
+                });
+            }
+            System.out.println("========================================");
+            return;
+        }
+        
+        // Se for tag diferente OU a última teve erro, permitir envio
         // Atualizar a última tag lida
         ultimaTagLida = tagAtual;
-        System.out.println("Nova tag - processando envio");
+        // Limpar flag de sucesso se for tag diferente
+        if (!ehMesmaTag) {
+            ultimaTagTeveSucesso = false;
+            ultimaTagComSucesso = null;
+        }
+        System.out.println("Nova tag ou tag com erro anterior - processando envio");
         
         String codArmazem = getUiCodArmazem();
         String equipamentoId = getUiEquipamentoId();
@@ -1120,7 +1213,14 @@ public class Test {
             JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT));
             JLabel lbApiToken = new JLabel("Autorização (API Token):");
             JTextField tfApiTokenField = new JTextField(30);
-            if (API_TOKEN != null && !API_TOKEN.trim().isEmpty() && !API_TOKEN.equals("P")) {
+            
+            // Tentar carregar apikey do arquivo .env
+            java.util.Map<String, String> envMap = loadEnvFile();
+            String apikeyFromEnv = envMap.get("apikey");
+            if (apikeyFromEnv != null && !apikeyFromEnv.trim().isEmpty()) {
+                tfApiTokenField.setText(apikeyFromEnv.trim());
+                System.out.println("API Key carregada do arquivo .env");
+            } else if (API_TOKEN != null && !API_TOKEN.trim().isEmpty() && !API_TOKEN.equals("P")) {
                 tfApiTokenField.setText(API_TOKEN);
             }
             pApiToken.add(lbApiToken);
@@ -1937,6 +2037,12 @@ public class Test {
                         public void accept(InventoryTag tag) throws Exception {
                             /* Atualiza UI com a tag detectada e envia para API */
                             String code = extractCodeFromTag(tag);
+                            
+                            // Ignorar tags com valor "0" - não atualizar UI nem enviar
+                            if ("0".equals(code.trim())) {
+                                return;
+                            }
+                            
                             if (uiNotifier != null) {
                                 UiNotifier n = uiNotifier;
                                 SwingUtilities.invokeLater(() -> n.onTagDetected(code));
