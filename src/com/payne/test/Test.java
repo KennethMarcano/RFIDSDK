@@ -998,6 +998,11 @@ public class Test {
             }
         } else {
             System.out.println("Tag adicionada à fila para envio");
+            // Atualizar status de conexão para ON quando tag é processada
+            if (uiNotifier != null) {
+                UiNotifier n = uiNotifier;
+                SwingUtilities.invokeLater(() -> n.onConnectStatus(true));
+            }
         }
         System.out.println("========================================");
     }
@@ -1042,6 +1047,11 @@ public class Test {
                     final String body = buildMovimentacaoJsonBody(codArmazem, equipamentoId, destinoLocalId, 
                                                                   sequenciamento, code, tipoMovimento, nivelOperacao);
                     final Map<String, String> headers = buildDefaultHeaders();
+                    // Atualizar status de conexão para ON quando requisição é feita
+                    if (uiNotifier != null) {
+                        UiNotifier n = uiNotifier;
+                        SwingUtilities.invokeLater(() -> n.onConnectStatus(true));
+                    }
                     postJson(ENDPOINT_URL_MOVIMENTACAO, body, headers, code);
                     System.out.println("========================================");
                 } catch (InterruptedException ie) {
@@ -2111,6 +2121,12 @@ public class Test {
                             // Ignorar tags com valor "0" - não atualizar UI nem enviar
                             if ("0".equals(code.trim())) {
                                 return;
+                            }
+                            
+                            // Atualizar status de conexão para ON quando tag é detectada
+                            if (uiNotifier != null) {
+                                UiNotifier n = uiNotifier;
+                                SwingUtilities.invokeLater(() -> n.onConnectStatus(true));
                             }
                             
                             if (uiNotifier != null) {
