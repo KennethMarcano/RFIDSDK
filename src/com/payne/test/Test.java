@@ -1053,7 +1053,63 @@ public class Test {
             jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             jf.setAlwaysOnTop(true);
             jf.setSize(800, 600);
-            jf.setLayout(new GridLayout(15, 1));
+            jf.setLayout(new BorderLayout());
+            
+            // Painel para a imagem no canto superior direito
+            JPanel pImagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            pImagePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            try {
+                java.net.URL imageUrl = null;
+                // Tentar diferentes caminhos possíveis
+                String[] possiblePaths = {
+                    "/resources/images.png",
+                    "resources/images.png",
+                    "/images.png",
+                    "images.png"
+                };
+                
+                for (String path : possiblePaths) {
+                    imageUrl = Test.class.getResource(path);
+                    if (imageUrl == null) {
+                        imageUrl = Test.class.getClassLoader().getResource(path);
+                    }
+                    if (imageUrl != null) {
+                        break;
+                    }
+                }
+                
+                if (imageUrl != null) {
+                    ImageIcon imageIcon = new ImageIcon(imageUrl);
+                    Image image = imageIcon.getImage();
+                    // Redimensionar a imagem se necessário (opcional, ajuste conforme necessário)
+                    Image scaledImage = image.getScaledInstance(100, 100, Image.SCALE_SMOOTH);
+                    ImageIcon scaledIcon = new ImageIcon(scaledImage);
+                    JLabel lbImage = new JLabel(scaledIcon);
+                    pImagePanel.add(lbImage);
+                } else {
+                    // Tentar carregar do sistema de arquivos como fallback
+                    try {
+                        java.io.File imageFile = new java.io.File("src/resources/images.png");
+                        if (imageFile.exists()) {
+                            ImageIcon imageIcon = new ImageIcon(imageFile.getAbsolutePath());
+                            Image image = imageIcon.getImage();
+                            Image scaledImage = image.getScaledInstance(100, 100, Image.SCALE_SMOOTH);
+                            ImageIcon scaledIcon = new ImageIcon(scaledImage);
+                            JLabel lbImage = new JLabel(scaledIcon);
+                            pImagePanel.add(lbImage);
+                        } else {
+                            System.err.println("Imagem não encontrada em nenhum dos caminhos tentados");
+                        }
+                    } catch (Exception e2) {
+                        System.err.println("Erro ao carregar imagem do sistema de arquivos: " + e2.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Erro ao carregar imagem: " + e.getMessage());
+            }
+            
+            // Painel principal com o conteúdo existente
+            JPanel pMainContent = new JPanel(new GridLayout(15, 1));
 
             JLabel lbConn = new JLabel("Conexão: -");
             JLabel lbRead = new JLabel("Leitura: -");
@@ -1118,17 +1174,22 @@ public class Test {
             pNivelOperacao.add(lbNivelOperacao);
             pNivelOperacao.add(tfNivelOperacaoField);
 
-            jf.add(lbConn);
-            jf.add(lbRead);
-            jf.add(pApiToken);
-            jf.add(pCodArmazem);
-            jf.add(pEquipamento);
-            jf.add(pDestinoLocal);
-            jf.add(pBtnAtualizar);
-            jf.add(pTipoMovimento);
-            jf.add(pNivelOperacao);
-            jf.add(lbTag);
-            jf.add(lbApi);
+            pMainContent.add(lbConn);
+            pMainContent.add(lbRead);
+            pMainContent.add(pApiToken);
+            pMainContent.add(pCodArmazem);
+            pMainContent.add(pEquipamento);
+            pMainContent.add(pDestinoLocal);
+            pMainContent.add(pBtnAtualizar);
+            pMainContent.add(pTipoMovimento);
+            pMainContent.add(pNivelOperacao);
+            pMainContent.add(lbTag);
+            pMainContent.add(lbApi);
+            
+            // Adicionar os painéis ao JFrame
+            jf.add(pImagePanel, BorderLayout.NORTH);
+            jf.add(pMainContent, BorderLayout.CENTER);
+            
             jf.setLocationRelativeTo(null);
             jf.setVisible(true);
 
