@@ -1449,12 +1449,8 @@ public class Test {
             // Painel principal com o conteúdo existente
             JPanel pMainContent = new JPanel(new GridLayout(0, 1)); // 0 = número de linhas automático
 
-            JLabel lbTag = new JLabel("Última tag: -");
-            JLabel lbApi = new JLabel("API: -");
-            JLabel lbDestinoLocal = new JLabel("Destino Local: -");
-
-            // Campo API Token (Autorização)
-            JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            // Campo API Token (Autorização) - Rótulo acima, input abaixo
+            JPanel pApiToken = new JPanel(new BorderLayout());
             JLabel lbApiToken = new JLabel("Autorização (API Token):");
             JTextField tfApiTokenField = new JTextField(30);
             
@@ -1467,12 +1463,13 @@ public class Test {
             } else if (API_TOKEN != null && !API_TOKEN.trim().isEmpty() && !API_TOKEN.equals("P")) {
                 tfApiTokenField.setText(API_TOKEN);
             }
-            pApiToken.add(lbApiToken);
-            pApiToken.add(tfApiTokenField);
+            pApiToken.add(lbApiToken, BorderLayout.NORTH);
+            pApiToken.add(tfApiTokenField, BorderLayout.CENTER);
 
-            // Campo Power
-            JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            // Campo Power - Rótulo acima, input e botão abaixo
+            JPanel pPower = new JPanel(new BorderLayout());
             JLabel lbPower = new JLabel("Potência (0-100):");
+            JPanel pPowerInput = new JPanel(new FlowLayout(FlowLayout.LEFT));
             JTextField tfPowerField = new JTextField(5);
             // Converter valor interno (0-33) para valor da interface (0-100)
             // power = 33 (máximo) -> 100 na interface
@@ -1533,9 +1530,10 @@ public class Test {
                 }
             });
             
-            pPower.add(lbPower);
-            pPower.add(tfPowerField);
-            pPower.add(btnAtualizarPotencia);
+            pPowerInput.add(tfPowerField);
+            pPowerInput.add(btnAtualizarPotencia);
+            pPower.add(lbPower, BorderLayout.NORTH);
+            pPower.add(pPowerInput, BorderLayout.CENTER);
             
             // Garantir que o painel Power está visível
             pPower.setVisible(true);
@@ -1543,16 +1541,38 @@ public class Test {
             tfPowerField.setVisible(true);
             btnAtualizarPotencia.setVisible(true);
 
+            // Campo Última Tag - Rótulo acima, valor abaixo
+            JPanel pTag = new JPanel(new BorderLayout());
+            JLabel lbTagLabel = new JLabel("Última Tag:");
+            JLabel lbTag = new JLabel("-");
+            pTag.add(lbTagLabel, BorderLayout.NORTH);
+            pTag.add(lbTag, BorderLayout.CENTER);
+
+            // Campo API - Rótulo acima, valor abaixo
+            JPanel pApi = new JPanel(new BorderLayout());
+            JLabel lbApiLabel = new JLabel("API:");
+            JLabel lbApi = new JLabel("-");
+            pApi.add(lbApiLabel, BorderLayout.NORTH);
+            pApi.add(lbApi, BorderLayout.CENTER);
+
+            // Campo Destino Local - Rótulo acima, valor abaixo
+            JPanel pDestinoLocal = new JPanel(new BorderLayout());
+            JLabel lbDestinoLocalLabel = new JLabel("Destino Local:");
+            JLabel lbDestinoLocal = new JLabel("-");
+            pDestinoLocal.add(lbDestinoLocalLabel, BorderLayout.NORTH);
+            pDestinoLocal.add(lbDestinoLocal, BorderLayout.CENTER);
+
             pMainContent.add(pApiToken);
             pMainContent.add(pPower);
-            pMainContent.add(lbTag);
-            pMainContent.add(lbApi);
-            pMainContent.add(lbDestinoLocal);
+            pMainContent.add(pTag);
+            pMainContent.add(pApi);
+            pMainContent.add(pDestinoLocal);
             
             // Painel direito com histórico de tags (abaixo do logo)
             JPanel pRightPanel = new JPanel(new BorderLayout());
             pRightPanel.setBorder(BorderFactory.createTitledBorder("Histórico de Tags"));
-            pRightPanel.setPreferredSize(new java.awt.Dimension(400, 0));
+            // Ocupar metade da largura da interface (1200px / 2 = 600px)
+            pRightPanel.setPreferredSize(new java.awt.Dimension(600, 0));
             
             // Lista para exibir o histórico
             javax.swing.DefaultListModel<String> historicoListModel = new javax.swing.DefaultListModel<>();
@@ -1640,26 +1660,26 @@ public class Test {
 
                 @Override
                 public void onTagDetected(String code) {
-                    lbTag.setText("Última tag: " + code);
+                    lbTag.setText(code);
                     // Só mostrar "aguardando resposta" se não for tag duplicada com sucesso
                     String tagAtual = safeString(code).trim();
                     boolean ehTagComSucesso = ultimaTagTeveSucesso && ultimaTagComSucesso != null && ultimaTagComSucesso.equals(tagAtual);
                     if (!ehTagComSucesso) {
-                    lbApi.setText("API: aguardando resposta...");
+                        lbApi.setText("aguardando resposta...");
                     }
                     // Se for tag com sucesso, mantém a última mensagem de sucesso
                 }
 
                 @Override
                 public void onApiResult(boolean success, String code, String message, String destinoLocalDescricao) {
-                    lbApi.setText("API (" + code + "): " + (success ? "OK" : "ERRO") + " - " + message);
+                    lbApi.setText((success ? "OK" : "ERRO") + " - " + message);
                     // Atualizar destino local se houver sucesso e descrição disponível
                     if (success && destinoLocalDescricao != null && !destinoLocalDescricao.trim().isEmpty()) {
-                        lbDestinoLocal.setText("Destino Local: " + destinoLocalDescricao);
+                        lbDestinoLocal.setText(destinoLocalDescricao);
                         lbDestinoLocal.setForeground(Color.BLACK);
                     } else if (!success) {
                         // Limpar destino local em caso de erro
-                        lbDestinoLocal.setText("Destino Local: -");
+                        lbDestinoLocal.setText("-");
                         lbDestinoLocal.setForeground(Color.BLACK);
                     }
                     // Atualizar histórico na interface quando houver resultado da API
