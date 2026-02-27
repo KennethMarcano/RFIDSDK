@@ -246,16 +246,16 @@ public class Test {
     }
 
     private static String getUiApiToken() {
-        if (lbApiTokenValue != null) {
-            String token = safeString(lbApiTokenValue.getText()).trim();
-            if (!token.isEmpty() && !token.equals("-")) {
-                return token;
-            }
+        // Buscar diretamente do arquivo .env ou variáveis de ambiente/propriedades
+        java.util.Map<String, String> envMap = loadEnvFile();
+        String apikeyFromEnv = envMap.get("apikey");
+        if (apikeyFromEnv != null && !apikeyFromEnv.trim().isEmpty()) {
+            return apikeyFromEnv.trim();
         }
         String v = System.getProperty("apiToken");
         if (v == null || v.trim().isEmpty()) v = System.getenv("API_TOKEN");
-        // Se não encontrar no label nem nas propriedades, usa a constante como fallback
-        return v == null ? (API_TOKEN != null ? API_TOKEN.trim() : "") : v.trim();
+        // Se não encontrar, usa a constante como fallback
+        return v == null ? (API_TOKEN != null && !API_TOKEN.equals("P") ? API_TOKEN.trim() : "") : v.trim();
     }
 
     private static InventoryParam param = new InventoryParam();
@@ -1418,10 +1418,9 @@ public class Test {
             pApiToken.add(lbApiToken, BorderLayout.NORTH);
             pApiToken.add(lbApiTokenValue, BorderLayout.CENTER);
 
-            // Campo Power - Rótulo acima, input e botão abaixo
+            // Campo Power - Rótulo acima, input abaixo, botão abaixo do input
             JPanel pPower = new JPanel(new BorderLayout());
             JLabel lbPower = new JLabel("Potência (0-100):");
-            JPanel pPowerInput = new JPanel(new FlowLayout(FlowLayout.LEFT));
             JTextField tfPowerField = new JTextField(5);
             // Converter valor interno (0-33) para valor da interface (0-100)
             // power = 33 (máximo) -> 100 na interface
@@ -1482,10 +1481,15 @@ public class Test {
                 }
             });
             
+            // Painel para input e botão (botão abaixo do input)
+            JPanel pPowerContent = new JPanel(new BorderLayout());
+            JPanel pPowerInput = new JPanel(new FlowLayout(FlowLayout.LEFT));
             pPowerInput.add(tfPowerField);
-            pPowerInput.add(btnAtualizarPotencia);
+            pPowerContent.add(pPowerInput, BorderLayout.NORTH);
+            pPowerContent.add(btnAtualizarPotencia, BorderLayout.CENTER);
+            
             pPower.add(lbPower, BorderLayout.NORTH);
-            pPower.add(pPowerInput, BorderLayout.CENTER);
+            pPower.add(pPowerContent, BorderLayout.CENTER);
             
             // Garantir que o painel Power está visível
             pPower.setVisible(true);
