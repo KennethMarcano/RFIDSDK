@@ -65,7 +65,7 @@ public class Test {
     private static final String ENDPOINT_URL_MOVIMENTACAO = "https://fulle.eship.com.br/v3/?api&funcao=webServicePostMovimentacaoObrigatoria";
     private static final String ENDPOINT_URL_EQUIPAMENTO = "https://fulle.eship.com.br/v3/?api&funcao=webServiceGetEquipamento";
     private static final String ENDPOINT_URL_ESTRUTURA_LOCAL = "https://fulle.eship.com.br/v3/?api&funcao=webServiceGetEstruturaLocal";
-    private static final String ENDPOINT_URL_CONSULTAR_MOVIMENTACAO = "https://fulle.eship.com.br/v3/?api&funcao=webServiceGetMovimentacaoObrigatoria";
+    private static final String ENDPOINT_URL_CONSULTAR_MOVIMENTACAO = "https://fulle.eship.com.br/v3/?api&funcao=webServicePostMovimentacao";
     private static final String API_TOKEN = "P";/* configure aqui (ex.: "eyJ...")
     /* HTTP/REST Config ↑↑↑ */
 
@@ -86,7 +86,7 @@ public class Test {
         void onConnectStatus(boolean connected);
         void onReadingStatus(boolean reading);
         void onTagDetected(String code);
-        void onApiResult(boolean success, String code, String message, String destinoLocalDescricao);
+        void onApiResult(boolean success, String code, String message);
     }
     private static volatile UiNotifier uiNotifier;
     private static volatile JTextField tfIdRecebimento;
@@ -308,13 +308,17 @@ public class Test {
         return sb.toString();
     }
     
-    /* Nova função para construir JSON body simplificado - apenas codigoIdentificador */
+    /* Função para construir JSON body para webServicePostMovimentacao */
     private static String buildConsultarMovimentacaoJsonBody(String codigoIdentificador) {
-        // Adicionar "02" no início do código identificador
+        // Adicionar "(02)" no início do código identificador
         String codigoComPrefixo = "(02)" + safeString(codigoIdentificador);
-        StringBuilder sb = new StringBuilder(128);
+        StringBuilder sb = new StringBuilder(256);
         sb.append("{")
-                .append("\"codigoIdentificador\":\"").append(escapeJson(codigoComPrefixo)).append("\"")
+                .append("\"codArmazem\":\"").append("03").append("\",")
+                .append("\"equipamentoId\":\"").append("326").append("\",")
+                .append("\"codigoIdentificador\":\"").append(escapeJson(codigoComPrefixo)).append("\",")
+                .append("\"parametros\":\"").append("{}").append("\",")
+                .append("\"idStatus\":").append("null")
                 .append("}");
         return sb.toString();
     }
@@ -491,14 +495,24 @@ public class Test {
     private static boolean bodyHasNonEmptyErrors(String body) {
         if (body == null || body.trim().isEmpty()) return false;
         
-        // Procurar pelo campo "erros"
-        int key = body.indexOf("\"erros\"");
+        // Procurar pelo campo "erro" ou "erros"
+        int keyErro = body.indexOf("\"erro\"");
+        int keyErros = body.indexOf("\"erros\"");
+        int key = -1;
+        
+        // Priorizar "erro" (singular), depois "erros" (plural)
+        if (keyErro >= 0) {
+            key = keyErro;
+        } else if (keyErros >= 0) {
+            key = keyErros;
+        }
+        
         if (key < 0) {
-            // Se não encontrar "erros", assumir que não há erros (pode ser formato diferente)
+            // Se não encontrar "erro" nem "erros", assumir que não há erros
             return false;
         }
         
-        // Procurar pelo valor após "erros":
+        // Procurar pelo valor após "erro" ou "erros":
         int colon = body.indexOf(':', key);
         if (colon < 0) return false;
         
@@ -521,6 +535,11 @@ public class Test {
             return false; // array vazio significa sem erros - sucesso
         }
         
+        // Verificar se é uma string vazia "" (sem erros)
+        if (remaining.startsWith("\"\"")) {
+            return false; // string vazia significa sem erros - sucesso
+        }
+        
         // Verificar se é um array com conteúdo
         if (remaining.startsWith("[")) {
             int rb = body.indexOf(']', valueStart);
@@ -530,8 +549,17 @@ public class Test {
             return inside.length() > 0;
         }
         
-        // Se chegou aqui e não é null nem array vazio, pode haver erro
-        // Mas por padrão, se não conseguimos identificar, assumir que não há erros
+        // Se chegou aqui e não é null, array vazio nem string vazia, pode haver erro
+        // Verificar se é uma string não vazia (há erro)
+        if (remaining.startsWith("\"")) {
+            int endQuote = remaining.indexOf('"', 1);
+            if (endQuote > 1) {
+                String errorValue = remaining.substring(1, endQuote);
+                return errorValue.length() > 0; // Se tem conteúdo, há erro
+            }
+        }
+        
+        // Por padrão, se não conseguimos identificar, assumir que não há erros
         return false;
     }
 
@@ -605,94 +633,6 @@ public class Test {
         return null;
     }
     
-    /* Extrai a descrição do destino local do primeiro objeto do array "dados" */
-    private static String extractDestinoLocalDescricao(String body) {
-        if (body == null || body.trim().isEmpty()) return null;
-        
-        try {
-            // Procurar pelo array "dados"
-            int dadosKey = body.indexOf("\"dados\"");
-            if (dadosKey < 0) return null;
-            
-            // Procurar pelo início do array após "dados":
-            int colon = body.indexOf(':', dadosKey);
-            if (colon < 0) return null;
-            
-            // Pular espaços após os dois pontos
-            int valueStart = colon + 1;
-            while (valueStart < body.length() && Character.isWhitespace(body.charAt(valueStart))) {
-                valueStart++;
-            }
-            
-            if (valueStart >= body.length()) return null;
-            
-            // Verificar se começa com [
-            if (body.charAt(valueStart) != '[') return null;
-            
-            // Procurar pelo primeiro objeto no array (entre { e })
-            int firstObjStart = body.indexOf('{', valueStart);
-            if (firstObjStart < 0) return null;
-            
-            // Procurar pelo fechamento do primeiro objeto
-            int braceCount = 0;
-            int firstObjEnd = -1;
-            for (int i = firstObjStart; i < body.length(); i++) {
-                char c = body.charAt(i);
-                if (c == '{') braceCount++;
-                else if (c == '}') {
-                    braceCount--;
-                    if (braceCount == 0) {
-                        firstObjEnd = i;
-                        break;
-                    }
-                }
-            }
-            
-            if (firstObjEnd < 0) return null;
-            
-            // Extrair o primeiro objeto
-            String firstObject = body.substring(firstObjStart, firstObjEnd + 1);
-            
-            // Procurar por "destinoLocal" dentro do primeiro objeto
-            int destinoLocalKey = firstObject.indexOf("\"destinoLocal\"");
-            if (destinoLocalKey < 0) return null;
-            
-            // Procurar pelo objeto destinoLocal (entre { e })
-            int destinoLocalStart = firstObject.indexOf('{', destinoLocalKey);
-            if (destinoLocalStart < 0) return null;
-            
-            // Procurar pelo fechamento do objeto destinoLocal
-            braceCount = 0;
-            int destinoLocalEnd = -1;
-            for (int i = destinoLocalStart; i < firstObject.length(); i++) {
-                char c = firstObject.charAt(i);
-                if (c == '{') braceCount++;
-                else if (c == '}') {
-                    braceCount--;
-                    if (braceCount == 0) {
-                        destinoLocalEnd = i;
-                        break;
-                    }
-                }
-            }
-            
-            if (destinoLocalEnd < 0) return null;
-            
-            // Extrair o objeto destinoLocal
-            String destinoLocalObj = firstObject.substring(destinoLocalStart, destinoLocalEnd + 1);
-            
-            // Procurar por "descricao" dentro do objeto destinoLocal
-            Pattern descricaoPattern = Pattern.compile("\"descricao\"\\s*:\\s*\"(.*?)\"");
-            Matcher descricaoMatcher = descricaoPattern.matcher(destinoLocalObj);
-            if (descricaoMatcher.find()) {
-                return descricaoMatcher.group(1);
-            }
-        } catch (Throwable e) {
-            System.err.println("Erro ao extrair descrição do destino local: " + e.getMessage());
-        }
-        
-        return null;
-    }
     /* ------------------ API body validation helpers (end) ------------------ */
 
     /* ---------------------- Classes auxiliares para selects ---------------------- */
@@ -1011,21 +951,16 @@ public class Test {
                 // System.out.println("HTTP response: " + responseBody);
                 boolean httpOk = (code >= 200 && code < 300);
                 boolean bodyErr = bodyHasNonEmptyErrors(responseBody);
-                boolean dadosVazio = isDadosArrayEmpty(responseBody);
-                // Considerar erro se houver erros no corpo OU se o array "dados" estiver vazio
-                boolean success = httpOk && !bodyErr && !dadosVazio;
+                // Considerar sucesso se HTTP OK e não houver erros no corpo
+                boolean success = httpOk && !bodyErr;
 
                 String msg;
                 if (bodyErr) {
                     String em = extractFirstErrorMessage(responseBody);
                     String ec = extractFirstErrorCode(responseBody);
-                    msg = (em != null ? em : "Erro(s) no corpo") + (ec != null ? " (" + ec + ")" : "");
-                } else if (dadosVazio) {
-                    // Adicionar prefixo "(02)" ao código da tag
-                    String codigoComPrefixo = "(02)" + codeForUi;
-                    msg = "Não foi encontrado movimentação para o codigo " + codigoComPrefixo;
+                    msg = (em != null ? em : "Erro retornado pela API") + (ec != null ? " (" + ec + ")" : "");
                 } else {
-                    msg = "HTTP " + code;
+                    msg = "Sucesso";
                 }
 
                 if (!success && !httpOk) {
@@ -1047,12 +982,9 @@ public class Test {
                         System.out.println("Tag não adicionada ao histórico (mesma tag da última com sucesso): " + codeForUi);
                     }
                     
-                    // Extrair descrição do destino local do primeiro objeto do array "dados"
-                    String destinoLocalDescricao = extractDestinoLocalDescricao(responseBody);
-                    
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
-                        SwingUtilities.invokeLater(() -> n.onApiResult(true, codeForUi, msg, destinoLocalDescricao));
+                        SwingUtilities.invokeLater(() -> n.onApiResult(true, codeForUi, msg));
                     }
                     System.out.println("OK tag=" + codeForUi + " " + msg);
                 } else {
@@ -1068,7 +1000,7 @@ public class Test {
                     
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
-                        SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg, null));
+                        SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
                     }
                     System.err.println("ERROR tag=" + codeForUi + " " + msg);
                 }
@@ -1089,7 +1021,7 @@ public class Test {
                 System.err.println("NOTA: Timeout HTTP não afeta a conexão com a antena");
                 if (uiNotifier != null) {
                     UiNotifier n = uiNotifier;
-                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "Timeout na conexão HTTP", null));
+                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "Timeout na conexão HTTP"));
                 }
                 // Timeout HTTP não deve afetar a conexão com a antena
                 break;
@@ -1109,7 +1041,7 @@ public class Test {
                 System.err.println("NOTA: Erro de conexão HTTP não afeta a conexão com a antena");
                 if (uiNotifier != null) {
                     UiNotifier n = uiNotifier;
-                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "Erro de conexão HTTP", null));
+                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "Erro de conexão HTTP"));
                 }
                 // Erro de conexão HTTP não deve afetar a conexão com a antena
                 break;
@@ -1130,7 +1062,7 @@ public class Test {
                 e.printStackTrace();
                 if (uiNotifier != null) {
                     UiNotifier n = uiNotifier;
-                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, e.getMessage(), null));
+                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, e.getMessage()));
                 }
                 // Erros HTTP não devem afetar a conexão com a antena
                 break;
@@ -1157,7 +1089,7 @@ public class Test {
             System.err.println("ERROR tag=" + codeForUi + " " + msg);
             if (uiNotifier != null) {
                 UiNotifier n = uiNotifier;
-                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg, null));
+                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
             }
             return;
         }
@@ -1215,7 +1147,7 @@ public class Test {
             System.err.println("ERROR tag=" + codeForUi + " " + msg);
             if (uiNotifier != null) {
                 UiNotifier n = uiNotifier;
-                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg, null));
+                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
             }
         } else {
             System.out.println("Tag adicionada à fila para envio");
@@ -1451,7 +1383,6 @@ public class Test {
 
             JLabel lbTag = new JLabel("Última tag: -");
             JLabel lbApi = new JLabel("API: -");
-            JLabel lbDestinoLocal = new JLabel("Destino Local: -");
 
             // Campo API Token (Autorização)
             JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -1547,7 +1478,6 @@ public class Test {
             pMainContent.add(pPower);
             pMainContent.add(lbTag);
             pMainContent.add(lbApi);
-            pMainContent.add(lbDestinoLocal);
             
             // Painel direito com histórico de tags (abaixo do logo)
             JPanel pRightPanel = new JPanel(new BorderLayout());
@@ -1651,17 +1581,8 @@ public class Test {
                 }
 
                 @Override
-                public void onApiResult(boolean success, String code, String message, String destinoLocalDescricao) {
+                public void onApiResult(boolean success, String code, String message) {
                     lbApi.setText("API (" + code + "): " + (success ? "OK" : "ERRO") + " - " + message);
-                    // Atualizar destino local se houver sucesso e descrição disponível
-                    if (success && destinoLocalDescricao != null && !destinoLocalDescricao.trim().isEmpty()) {
-                        lbDestinoLocal.setText("Destino Local: " + destinoLocalDescricao);
-                        lbDestinoLocal.setForeground(Color.BLACK);
-                    } else if (!success) {
-                        // Limpar destino local em caso de erro
-                        lbDestinoLocal.setText("Destino Local: -");
-                        lbDestinoLocal.setForeground(Color.BLACK);
-                    }
                     // Atualizar histórico na interface quando houver resultado da API
                     atualizarHistoricoRef.run();
                 }
