@@ -989,6 +989,10 @@ public class Test {
                         conn.setRequestProperty(e.getKey(), e.getValue());
                     }
                 }
+                System.out.println("========================================");
+                System.out.println("REQUEST:");
+                System.out.println("URL: " + currentUrl);
+                System.out.println("Method: POST");
                 System.out.println("jsonBody: " + jsonBody);
                 byte[] bytes = jsonBody.getBytes(StandardCharsets.UTF_8);
                 conn.setFixedLengthStreamingMode(bytes.length);
@@ -1021,8 +1025,10 @@ public class Test {
                     }
                 } catch (Exception ignored) {
                 }
-                // System.out.println("HTTP status: " + code);
-                // System.out.println("HTTP response: " + responseBody);
+                System.out.println("RESPONSE:");
+                System.out.println("HTTP status: " + code);
+                System.out.println("Response body: " + responseBody);
+                System.out.println("========================================");
                 boolean httpOk = (code >= 200 && code < 300);
                 boolean bodyErr = bodyHasNonEmptyErrors(responseBody);
                 // Considerar sucesso se HTTP OK e não houver erros no corpo
