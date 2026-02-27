@@ -596,7 +596,7 @@ public class Test {
         
         return false; // Array não está vazio
     }
-    
+
     private static String extractFirstErrorCode(String body) {
         if (body == null) return null;
         try {
@@ -1397,15 +1397,6 @@ public class Test {
             JPanel pMainContent = new JPanel(new GridLayout(0, 1, 0, 3)); // gap vertical de 3px entre campos
             pMainContent.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             
-            // Campo Conexão - Rótulo acima, valor abaixo
-            JPanel pConn = new JPanel(new BorderLayout());
-            pConn.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-            JLabel lbConnLabel = new JLabel("Conexão:");
-            JLabel lbConn = new JLabel("OFF");
-            lbConn.setForeground(Color.RED);
-            pConn.add(lbConnLabel, BorderLayout.NORTH);
-            pConn.add(lbConn, BorderLayout.CENTER);
-
             // Campo API Token (Autorização) - Rótulo acima, valor abaixo (apenas informativo)
             JPanel pApiToken = new JPanel(new BorderLayout());
             pApiToken.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
@@ -1435,12 +1426,12 @@ public class Test {
             int powerUI = (power * 100) / 33;
             tfPowerField.setText(String.valueOf(powerUI));
             
-            // Botão para atualizar potência (tamanho reduzido)
-            JButton btnAtualizarPotencia = new JButton("Atualizar Potência");
-            btnAtualizarPotencia.setPreferredSize(new java.awt.Dimension(120, 30)); // Tamanho reduzido
-            btnAtualizarPotencia.setMaximumSize(new java.awt.Dimension(120, 30));
+            // Botão para atualizar potência com emoji de load
+            JButton btnAtualizarPotencia = new JButton("⚙️");
+            btnAtualizarPotencia.setPreferredSize(new java.awt.Dimension(40, 30)); // Tamanho reduzido para o emoji
+            btnAtualizarPotencia.setMaximumSize(new java.awt.Dimension(40, 30));
             btnAtualizarPotencia.setFont(new java.awt.Font(btnAtualizarPotencia.getFont().getName(), 
-                java.awt.Font.PLAIN, 10)); // Fonte menor
+                java.awt.Font.PLAIN, 16)); // Fonte maior para o emoji
             btnAtualizarPotencia.addActionListener(e -> {
                 String powerText = tfPowerField.getText().trim();
                 int powerUIValue;
@@ -1536,8 +1527,7 @@ public class Test {
             pDestinoLocal.add(lbDestinoLocalLabel, BorderLayout.NORTH);
             pDestinoLocal.add(lbDestinoLocal, BorderLayout.CENTER);
 
-            // Adicionar Conexão e campos ao painel esquerdo
-            pMainContent.add(pConn);
+            // Adicionar campos ao painel esquerdo
             pMainContent.add(pApiToken);
             pMainContent.add(pPower);
             pMainContent.add(pTag);
@@ -1550,8 +1540,9 @@ public class Test {
             JPanel pRightPanel = new JPanel(new BorderLayout());
             pRightPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             // Limitar a metade da interface para não sobrepor os campos da esquerda (responsivo)
-            pRightPanel.setPreferredSize(new java.awt.Dimension(400, 0));
-            pRightPanel.setMinimumSize(new java.awt.Dimension(300, 0));
+            // Tamanho maior horizontalmente, mas não passa da metade (600px = metade de 1200px)
+            pRightPanel.setPreferredSize(new java.awt.Dimension(550, 0));
+            pRightPanel.setMinimumSize(new java.awt.Dimension(400, 0));
             pRightPanel.setMaximumSize(new java.awt.Dimension(600, Integer.MAX_VALUE));
             
             // Painel para a imagem (logo) no topo direito
@@ -1602,7 +1593,7 @@ public class Test {
                         System.err.println("Erro ao carregar imagem do sistema de arquivos: " + e2.getMessage());
                     }
                 }
-            } catch (Exception e) {
+                } catch (Exception e) {
                 System.err.println("Erro ao carregar imagem: " + e.getMessage());
             }
             
@@ -1623,7 +1614,7 @@ public class Test {
             
             // Método para atualizar o histórico na interface
             Runnable atualizarHistoricoUI = () -> {
-                SwingUtilities.invokeLater(() -> {
+                    SwingUtilities.invokeLater(() -> {
                     java.util.List<TagHistorico> historico = getHistoricoTags();
                     historicoListModel.clear();
                     // Adicionar as últimas 100 entradas (mais recentes primeiro)
@@ -1684,13 +1675,7 @@ public class Test {
             uiNotifier = new UiNotifier() {
                 @Override
                 public void onConnectStatus(boolean connected) {
-                    if (connected) {
-                        lbConn.setText("ON");
-                        lbConn.setForeground(Color.GREEN);
-                    } else {
-                        lbConn.setText("OFF");
-                        lbConn.setForeground(Color.RED);
-                    }
+                    // Campo Conexão removido - método mantido para compatibilidade
                 }
 
                 @Override
