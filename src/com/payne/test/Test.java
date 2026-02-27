@@ -546,6 +546,54 @@ public class Test {
         return null;
     }
 
+    /* Verifica se o campo "dados" (array) está vazio no JSON */
+    private static boolean isDadosArrayEmpty(String body) {
+        if (body == null || body.trim().isEmpty()) return true;
+        
+        // Procurar pelo campo "dados"
+        int key = body.indexOf("\"dados\"");
+        if (key < 0) {
+            // Se não encontrar "dados", considerar como vazio (erro)
+            return true;
+        }
+        
+        // Procurar pelo valor após "dados":
+        int colon = body.indexOf(':', key);
+        if (colon < 0) return true;
+        
+        // Pular espaços após os dois pontos
+        int valueStart = colon + 1;
+        while (valueStart < body.length() && Character.isWhitespace(body.charAt(valueStart))) {
+            valueStart++;
+        }
+        
+        if (valueStart >= body.length()) return true;
+        
+        // Verificar se é um array vazio []
+        String remaining = body.substring(valueStart);
+        if (remaining.startsWith("[]")) {
+            return true; // Array vazio
+        }
+        
+        // Verificar se é null
+        if (remaining.startsWith("null")) {
+            return true; // null também é considerado vazio
+        }
+        
+        // Se começa com [, verificar se tem conteúdo
+        if (remaining.startsWith("[")) {
+            // Procurar pelo fechamento do array
+            int bracketEnd = remaining.indexOf(']', 1);
+            if (bracketEnd > 1) {
+                // Verificar se há conteúdo entre os colchetes (ignorando espaços)
+                String content = remaining.substring(1, bracketEnd).trim();
+                return content.isEmpty();
+            }
+        }
+        
+        return false; // Array não está vazio
+    }
+    
     private static String extractFirstErrorCode(String body) {
         if (body == null) return null;
         try {
@@ -874,13 +922,17 @@ public class Test {
                 // System.out.println("HTTP response: " + responseBody);
                 boolean httpOk = (code >= 200 && code < 300);
                 boolean bodyErr = bodyHasNonEmptyErrors(responseBody);
-                boolean success = httpOk && !bodyErr;
+                boolean dadosVazio = isDadosArrayEmpty(responseBody);
+                // Considerar erro se houver erros no corpo OU se o array "dados" estiver vazio
+                boolean success = httpOk && !bodyErr && !dadosVazio;
 
                 String msg;
                 if (bodyErr) {
                     String em = extractFirstErrorMessage(responseBody);
                     String ec = extractFirstErrorCode(responseBody);
                     msg = (em != null ? em : "Erro(s) no corpo") + (ec != null ? " (" + ec + ")" : "");
+                } else if (dadosVazio) {
+                    msg = "Não foi encontrado movimentação para o tag lido";
                 } else {
                     msg = "HTTP " + code;
                 }
