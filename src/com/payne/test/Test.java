@@ -1392,7 +1392,8 @@ public class Test {
             lbApiToken.setAlignmentX(Component.LEFT_ALIGNMENT);
             JTextField tfApiTokenField = new JTextField(30);
             tfApiTokenField.setAlignmentX(Component.LEFT_ALIGNMENT);
-            tfApiTokenField.setMaximumSize(new Dimension(Integer.MAX_VALUE, tfApiTokenField.getPreferredSize().height));
+            // Limitar largura máxima do campo de API Token
+            tfApiTokenField.setMaximumSize(new Dimension(400, tfApiTokenField.getPreferredSize().height));
             
             // Tentar carregar apikey do arquivo .env
             java.util.Map<String, String> envMap = loadEnvFile();
@@ -1528,7 +1529,7 @@ public class Test {
             // Painel direito com histórico de tags (abaixo do logo)
             JPanel pRightPanel = new JPanel(new BorderLayout());
             pRightPanel.setBorder(BorderFactory.createTitledBorder("Histórico de Tags"));
-            pRightPanel.setPreferredSize(new java.awt.Dimension(400, 0));
+            pRightPanel.setPreferredSize(new java.awt.Dimension(550, 0));
             
             // Lista para exibir o histórico
             javax.swing.DefaultListModel<String> historicoListModel = new javax.swing.DefaultListModel<>();
