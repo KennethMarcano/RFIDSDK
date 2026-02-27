@@ -65,6 +65,7 @@ public class Test {
     private static final String ENDPOINT_URL_MOVIMENTACAO = "https://fulle.eship.com.br/v3/?api&funcao=webServicePostMovimentacaoObrigatoria";
     private static final String ENDPOINT_URL_EQUIPAMENTO = "https://fulle.eship.com.br/v3/?api&funcao=webServiceGetEquipamento";
     private static final String ENDPOINT_URL_ESTRUTURA_LOCAL = "https://fulle.eship.com.br/v3/?api&funcao=webServiceGetEstruturaLocal";
+    private static final String ENDPOINT_URL_CONSULTAR_MOVIMENTACAO = "https://fulle.eship.com.br/v3/?api&funcao=webServiceGetMovimentacaoObrigatoria";
     private static final String API_TOKEN = "P";/* configure aqui (ex.: "eyJ...")
     /* HTTP/REST Config ↑↑↑ */
 
@@ -257,6 +258,17 @@ public class Test {
                 .append("\"codigoIdentificador\":\"").append(escapeJson(safeString(codigoIdentificador))).append("\",")
                 .append("\"tipoMovimento\":\"").append(escapeJson(safeString(tipoMovimento))).append("\",")
                 .append("\"nivelOperacao\":\"").append(escapeJson(safeString(nivelOperacao))).append("\"")
+                .append("}");
+        return sb.toString();
+    }
+    
+    /* Nova função para construir JSON body simplificado - apenas codigoIdentificador */
+    private static String buildConsultarMovimentacaoJsonBody(String codigoIdentificador) {
+        // Adicionar "02" no início do código identificador
+        String codigoComPrefixo = "(02)" + safeString(codigoIdentificador);
+        StringBuilder sb = new StringBuilder(128);
+        sb.append("{")
+                .append("\"codigoIdentificador\":\"").append(escapeJson(codigoComPrefixo)).append("\"")
                 .append("}");
         return sb.toString();
     }
@@ -971,24 +983,7 @@ public class Test {
         }
         System.out.println("Nova tag ou tag com erro anterior - processando envio");
         
-        String codArmazem = getUiCodArmazem();
-        String equipamentoId = getUiEquipamentoId();
-        String destinoLocalId = getUiDestinoLocalId();
-        System.out.println("codArmazem: " + codArmazem);
-        System.out.println("equipamentoId: " + equipamentoId);
-        System.out.println("destinoLocalId: " + destinoLocalId);
-        
-        if (codArmazem == null || codArmazem.trim().isEmpty()
-                || equipamentoId == null || equipamentoId.trim().isEmpty()
-                || destinoLocalId == null || destinoLocalId.trim().isEmpty()) {
-            String msg = "Preencha Código Armazém, Equipamento e Destino Local";
-            System.err.println("ERROR tag=" + codeForUi + " " + msg);
-            if (uiNotifier != null) {
-                UiNotifier n = uiNotifier;
-                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
-            }
-            return;
-        }
+        // Não precisa mais validar campos - apenas envia a tag
         boolean offered = httpQueue.offer(codeForUi);
         if (!offered) {
             String msg = "Fila cheia. Descartando leitura.";
@@ -1011,49 +1006,28 @@ public class Test {
     private static synchronized void startHttpWorkerIfNeeded() {
         if (httpWorkerStarted) return;
         httpWorkerStarted = true;
-        System.out.println("HTTP Worker iniciado - aguardando tags para envio via webServicePostMovimentacaoObrigatoria");
+        System.out.println("HTTP Worker iniciado - aguardando tags para envio via webServiceGetMovimentacaoObrigatoria");
         Thread t = new Thread(() -> {
             while (true) {
                 try {
                     String code = httpQueue.take();
                     System.out.println("========================================");
                     System.out.println("Processando tag da fila: " + code);
-                    String codArmazem = getUiCodArmazem();
-                    String equipamentoId = getUiEquipamentoId();
-                    String destinoLocalId = getUiDestinoLocalId();
-                    if (codArmazem == null || codArmazem.trim().isEmpty()
-                            || equipamentoId == null || equipamentoId.trim().isEmpty()
-                            || destinoLocalId == null || destinoLocalId.trim().isEmpty()) {
-                        String msg = "Campos obrigatórios não preenchidos (codArmazem, equipamentoId, destinoLocalId)";
-                        System.err.println("ERROR: " + msg);
-                        if (uiNotifier != null) {
-                            UiNotifier n = uiNotifier;
-                            SwingUtilities.invokeLater(() -> n.onApiResult(false, code, msg));
-                        }
-                        continue;
-                    }
-                    String tipoMovimento = getUiTipoMovimento();
-                    String nivelOperacao = getUiNivelOperacao();
-                    // sequenciamento: número aleatório entre 1 e 10
-                    int sequenciamentoNum = (int)(Math.random() * 10) + 1;
-                    String sequenciamento = String.valueOf(sequenciamentoNum);
-                    System.out.println("Enviando para: " + ENDPOINT_URL_MOVIMENTACAO);
-                    System.out.println("codArmazem: " + codArmazem);
-                    System.out.println("equipamentoId: " + equipamentoId);
-                    System.out.println("destinoLocalId: " + destinoLocalId);
-                    System.out.println("sequenciamento: " + sequenciamento);
-                    System.out.println("codigoIdentificador: " + code);
-                    System.out.println("tipoMovimento: " + tipoMovimento);
-                    System.out.println("nivelOperacao: " + nivelOperacao);
-                    final String body = buildMovimentacaoJsonBody(codArmazem, equipamentoId, destinoLocalId, 
-                                                                  sequenciamento, code, tipoMovimento, nivelOperacao);
+                    
+                    // Construir JSON body simplificado - apenas codigoIdentificador com prefixo "02"
+                    String codigoComPrefixo = "(02)" + code;
+                    System.out.println("Enviando para: " + ENDPOINT_URL_CONSULTAR_MOVIMENTACAO);
+                    System.out.println("codigoIdentificador (com prefixo 02): " + codigoComPrefixo);
+                    
+                    final String body = buildConsultarMovimentacaoJsonBody(code);
                     final Map<String, String> headers = buildDefaultHeaders();
+                    
                     // Atualizar status de conexão para ON quando requisição é feita
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
                         SwingUtilities.invokeLater(() -> n.onConnectStatus(true));
                     }
-                    postJson(ENDPOINT_URL_MOVIMENTACAO, body, headers, code);
+                    postJson(ENDPOINT_URL_CONSULTAR_MOVIMENTACAO, body, headers, code);
                     System.out.println("========================================");
                 } catch (InterruptedException ie) {
                     break;
@@ -1270,54 +1244,6 @@ public class Test {
             pApiToken.add(lbApiToken);
             pApiToken.add(tfApiTokenField);
 
-            // Campo codArmazem
-            JPanel pCodArmazem = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbCodArmazem = new JLabel("Código Armazém:");
-            JTextField tfCodArmazemField = new JTextField(22);
-            pCodArmazem.add(lbCodArmazem);
-            pCodArmazem.add(tfCodArmazemField);
-
-            // Select Equipamento
-            JPanel pEquipamento = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbEquipamento = new JLabel("Equipamento:");
-            JComboBox<EquipamentoItem> cbEquipamentoField = new JComboBox<>();
-            JLabel lbStatusEquipamentoField = new JLabel("(aguardando...)");
-            lbStatusEquipamentoField.setForeground(Color.GRAY);
-            pEquipamento.add(lbEquipamento);
-            pEquipamento.add(cbEquipamentoField);
-            pEquipamento.add(lbStatusEquipamentoField);
-
-            // Select Destino Local
-            JPanel pDestinoLocal = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbDestinoLocal = new JLabel("Destino Local:");
-            JComboBox<EstruturaLocalItem> cbDestinoLocalField = new JComboBox<>();
-            JLabel lbStatusDestinoLocalField = new JLabel("(aguardando...)");
-            lbStatusDestinoLocalField.setForeground(Color.GRAY);
-            pDestinoLocal.add(lbDestinoLocal);
-            pDestinoLocal.add(cbDestinoLocalField);
-            pDestinoLocal.add(lbStatusDestinoLocalField);
-
-            // Botão para atualizar alternativas
-            JPanel pBtnAtualizar = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JButton btnAtualizarAlternativasField = new JButton("Atualizar Alternativas");
-            pBtnAtualizar.add(btnAtualizarAlternativasField);
-
-            // Campo tipoMovimento
-            JPanel pTipoMovimento = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbTipoMovimento = new JLabel("Tipo Movimento:");
-            JTextField tfTipoMovimentoField = new JTextField(22);
-            tfTipoMovimentoField.setText("0");
-            pTipoMovimento.add(lbTipoMovimento);
-            pTipoMovimento.add(tfTipoMovimentoField);
-
-            // Campo nivelOperacao
-            JPanel pNivelOperacao = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbNivelOperacao = new JLabel("Nível Operação:");
-            JTextField tfNivelOperacaoField = new JTextField(22);
-            tfNivelOperacaoField.setText("1");
-            pNivelOperacao.add(lbNivelOperacao);
-            pNivelOperacao.add(tfNivelOperacaoField);
-
             // Campo Power
             JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT));
             JLabel lbPower = new JLabel("Potência (1-33):");
@@ -1375,12 +1301,6 @@ public class Test {
             btnAtualizarPotencia.setVisible(true);
 
             pMainContent.add(pApiToken);
-            pMainContent.add(pCodArmazem);
-            pMainContent.add(pEquipamento);
-            pMainContent.add(pDestinoLocal);
-            pMainContent.add(pBtnAtualizar);
-            pMainContent.add(pTipoMovimento);
-            pMainContent.add(pNivelOperacao);
             pMainContent.add(pPower);
             pMainContent.add(lbTag);
             pMainContent.add(lbApi);
@@ -1397,90 +1317,7 @@ public class Test {
             jf.setVisible(true);
 
             tfApiToken = tfApiTokenField;
-            tfCodArmazem = tfCodArmazemField;
-            cbEquipamento = cbEquipamentoField;
-            cbDestinoLocal = cbDestinoLocalField;
-            tfTipoMovimento = tfTipoMovimentoField;
-            tfNivelOperacao = tfNivelOperacaoField;
             tfPower = tfPowerField;
-            lbStatusEquipamento = lbStatusEquipamentoField;
-            lbStatusDestinoLocal = lbStatusDestinoLocalField;
-            btnAtualizarAlternativas = btnAtualizarAlternativasField;
-
-            // Método para carregar equipamentos
-            Runnable loadEquipamentos = () -> {
-                SwingUtilities.invokeLater(() -> {
-                    lbStatusEquipamentoField.setText("Carregando...");
-                    lbStatusEquipamentoField.setForeground(Color.BLUE);
-                });
-                try {
-                    java.util.List<EquipamentoItem> equipamentos = fetchEquipamentos();
-                    SwingUtilities.invokeLater(() -> {
-                        cbEquipamentoField.removeAllItems();
-                        for (EquipamentoItem item : equipamentos) {
-                            cbEquipamentoField.addItem(item);
-                        }
-                        if (equipamentos.isEmpty()) {
-                            System.err.println("Nenhum equipamento encontrado");
-                        }
-                    });
-                } catch (Exception e) {
-                    System.err.println("Erro ao carregar equipamentos: " + e.getMessage());
-                    SwingUtilities.invokeLater(() -> {
-                        lbStatusEquipamentoField.setText("ERRO: " + e.getMessage());
-                        lbStatusEquipamentoField.setForeground(Color.RED);
-                    });
-                }
-            };
-
-            // Método para carregar estruturas locais
-            Runnable loadEstruturas = () -> {
-                SwingUtilities.invokeLater(() -> {
-                    lbStatusDestinoLocalField.setText("Carregando...");
-                    lbStatusDestinoLocalField.setForeground(Color.BLUE);
-                });
-                try {
-                    java.util.List<EstruturaLocalItem> estruturas = fetchEstruturasLocais();
-                    SwingUtilities.invokeLater(() -> {
-                        cbDestinoLocalField.removeAllItems();
-                        for (EstruturaLocalItem item : estruturas) {
-                            cbDestinoLocalField.addItem(item);
-                        }
-                        if (estruturas.isEmpty()) {
-                            System.err.println("Nenhuma estrutura local encontrada");
-                        }
-                    });
-                } catch (Exception e) {
-                    System.err.println("Erro ao carregar estruturas locais: " + e.getMessage());
-                    SwingUtilities.invokeLater(() -> {
-                        lbStatusDestinoLocalField.setText("ERRO: " + e.getMessage());
-                        lbStatusDestinoLocalField.setForeground(Color.RED);
-                    });
-                }
-            };
-
-            // Método para atualizar todas as alternativas
-            Runnable atualizarAlternativas = () -> {
-                btnAtualizarAlternativasField.setEnabled(false);
-                btnAtualizarAlternativasField.setText("Atualizando...");
-                new Thread(() -> {
-                    loadEquipamentos.run();
-                    loadEstruturas.run();
-                    SwingUtilities.invokeLater(() -> {
-                        btnAtualizarAlternativasField.setEnabled(true);
-                        btnAtualizarAlternativasField.setText("Atualizar Alternativas");
-                    });
-                }, "atualizar-alternativas").start();
-            };
-
-            // Adicionar listener ao botão
-            btnAtualizarAlternativasField.addActionListener(e -> atualizarAlternativas.run());
-
-            // Carregar dados dos selects em thread separada ao iniciar
-            new Thread(() -> {
-                loadEquipamentos.run();
-                loadEstruturas.run();
-            }, "load-inicial").start();
 
             uiNotifier = new UiNotifier() {
                 @Override
@@ -1506,7 +1343,7 @@ public class Test {
                     String tagAtual = safeString(code).trim();
                     boolean ehTagComSucesso = ultimaTagTeveSucesso && ultimaTagComSucesso != null && ultimaTagComSucesso.equals(tagAtual);
                     if (!ehTagComSucesso) {
-                        lbApi.setText("API: aguardando resposta...");
+                    lbApi.setText("API: aguardando resposta...");
                     }
                     // Se for tag com sucesso, mantém a última mensagem de sucesso
                 }
