@@ -1021,7 +1021,9 @@ public class Test {
                     String ec = extractFirstErrorCode(responseBody);
                     msg = (em != null ? em : "Erro(s) no corpo") + (ec != null ? " (" + ec + ")" : "");
                 } else if (dadosVazio) {
-                    msg = "Não foi encontrado movimentação para o tag lido";
+                    // Adicionar prefixo "(02)" ao código da tag
+                    String codigoComPrefixo = "(02)" + codeForUi;
+                    msg = "Não foi encontrado movimentação para o codigo " + codigoComPrefixo;
                 } else {
                     msg = "HTTP " + code;
                 }
