@@ -1416,7 +1416,6 @@ public class Test {
             javax.swing.JScrollPane scrollHistorico = new javax.swing.JScrollPane(historicoList);
             scrollHistorico.setVerticalScrollBarPolicy(javax.swing.JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
             scrollHistorico.setHorizontalScrollBarPolicy(javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-            pRightPanel.add(scrollHistorico, BorderLayout.CENTER);
             
             // Método para atualizar o histórico na interface
             Runnable atualizarHistoricoUI = () -> {
@@ -1436,6 +1435,22 @@ public class Test {
                     }
                 });
             };
+            
+            // Painel superior com botão para limpar histórico
+            JPanel pHistoricoTop = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            JButton btnLimparHistorico = new JButton("Limpar Histórico");
+            btnLimparHistorico.addActionListener(e -> {
+                // Limpar o histórico
+                synchronized (historicoTags) {
+                    historicoTags.clear();
+                }
+                // Atualizar a interface
+                atualizarHistoricoUI.run();
+                System.out.println("Histórico de tags limpo");
+            });
+            pHistoricoTop.add(btnLimparHistorico);
+            pRightPanel.add(pHistoricoTop, BorderLayout.NORTH);
+            pRightPanel.add(scrollHistorico, BorderLayout.CENTER);
             
             // Atualizar histórico inicialmente
             atualizarHistoricoUI.run();
