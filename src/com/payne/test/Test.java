@@ -1390,11 +1390,10 @@ public class Test {
             lbApi.setAlignmentX(Component.LEFT_ALIGNMENT);
 
             // Campo API Token (Autorização)
-            JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+            JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
             pApiToken.setAlignmentX(Component.LEFT_ALIGNMENT);
             JLabel lbApiToken = new JLabel("Autorização (API Token):");
             JTextField tfApiTokenField = new JTextField(30);
-            tfApiTokenField.setMaximumSize(new Dimension(Integer.MAX_VALUE, tfApiTokenField.getPreferredSize().height));
             
             // Tentar carregar apikey do arquivo .env
             java.util.Map<String, String> envMap = loadEnvFile();
@@ -1407,9 +1406,11 @@ public class Test {
             }
             pApiToken.add(lbApiToken);
             pApiToken.add(tfApiTokenField);
+            // Definir tamanho máximo após adicionar componentes
+            pApiToken.setMaximumSize(new Dimension(Integer.MAX_VALUE, pApiToken.getPreferredSize().height));
 
             // Campo Power
-            JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+            JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
             pPower.setAlignmentX(Component.LEFT_ALIGNMENT);
             JLabel lbPower = new JLabel("Potência (0-100):");
             JTextField tfPowerField = new JTextField(5);
@@ -1475,6 +1476,8 @@ public class Test {
             pPower.add(lbPower);
             pPower.add(tfPowerField);
             pPower.add(btnAtualizarPotencia);
+            // Definir tamanho máximo após adicionar componentes
+            pPower.setMaximumSize(new Dimension(Integer.MAX_VALUE, pPower.getPreferredSize().height));
             
             // Garantir que o painel Power está visível
             pPower.setVisible(true);
@@ -1484,11 +1487,11 @@ public class Test {
 
             // Adicionar componentes com espaçamento fixo e pequeno
             pMainContent.add(pApiToken);
-            pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
+            pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Autorização e Potência
             pMainContent.add(pPower);
             pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
             pMainContent.add(lbTag);
-            pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
+            pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Tag e API
             pMainContent.add(lbApi);
             // Adicionar componente flexível no final para empurrar tudo para o topo
             pMainContent.add(Box.createVerticalGlue());
