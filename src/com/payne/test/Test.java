@@ -1383,71 +1383,20 @@ public class Test {
             jf.setSize(1200, 600); // Aumentado para acomodar o histórico à direita
             jf.setLayout(new BorderLayout());
             
-            // Painel superior com Conexão à esquerda e logo à direita
-            JPanel pTopPanel = new JPanel(new BorderLayout());
-            pTopPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            // Painel esquerdo com Conexão e todos os campos
+            JPanel pLeftPanel = new JPanel(new BorderLayout());
+            pLeftPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             
-            // Campo Conexão à esquerda
-            JLabel lbConn = new JLabel("Conexão: OFF");
-            lbConn.setForeground(Color.RED);
-            pTopPanel.add(lbConn, BorderLayout.WEST);
-            
-            // Painel para a imagem no canto superior direito
-            JPanel pImagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            pImagePanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-            try {
-                java.net.URL imageUrl = null;
-                // Tentar diferentes caminhos possíveis
-                String[] possiblePaths = {
-                    "/resources/images.png",
-                    "resources/images.png",
-                    "/images.png",
-                    "images.png"
-                };
-                
-                for (String path : possiblePaths) {
-                    imageUrl = Test.class.getResource(path);
-                    if (imageUrl == null) {
-                        imageUrl = Test.class.getClassLoader().getResource(path);
-                    }
-                    if (imageUrl != null) {
-                        break;
-                    }
-                }
-                
-                if (imageUrl != null) {
-                    ImageIcon imageIcon = new ImageIcon(imageUrl);
-                    Image image = imageIcon.getImage();
-                    // Redimensionar a imagem se necessário (opcional, ajuste conforme necessário)
-                    Image scaledImage = image.getScaledInstance(100, 100, Image.SCALE_SMOOTH);
-                    ImageIcon scaledIcon = new ImageIcon(scaledImage);
-                    JLabel lbImage = new JLabel(scaledIcon);
-                    pImagePanel.add(lbImage);
-                } else {
-                    // Tentar carregar do sistema de arquivos como fallback
-                    try {
-                        java.io.File imageFile = new java.io.File("src/resources/images.png");
-                        if (imageFile.exists()) {
-                            ImageIcon imageIcon = new ImageIcon(imageFile.getAbsolutePath());
-                            Image image = imageIcon.getImage();
-                            Image scaledImage = image.getScaledInstance(100, 100, Image.SCALE_SMOOTH);
-                            ImageIcon scaledIcon = new ImageIcon(scaledImage);
-                            JLabel lbImage = new JLabel(scaledIcon);
-                            pImagePanel.add(lbImage);
-                        } else {
-                            System.err.println("Imagem não encontrada em nenhum dos caminhos tentados");
-                        }
-                    } catch (Exception e2) {
-                        System.err.println("Erro ao carregar imagem do sistema de arquivos: " + e2.getMessage());
-                    }
-                }
-            } catch (Exception e) {
-                System.err.println("Erro ao carregar imagem: " + e.getMessage());
-            }
-            pTopPanel.add(pImagePanel, BorderLayout.EAST);
-            
-            // Painel principal com o conteúdo existente
+            // Painel de conteúdo da esquerda
             JPanel pMainContent = new JPanel(new GridLayout(0, 1)); // 0 = número de linhas automático
+            
+            // Campo Conexão - Rótulo acima, valor abaixo
+            JPanel pConn = new JPanel(new BorderLayout());
+            JLabel lbConnLabel = new JLabel("Conexão:");
+            JLabel lbConn = new JLabel("OFF");
+            lbConn.setForeground(Color.RED);
+            pConn.add(lbConnLabel, BorderLayout.NORTH);
+            pConn.add(lbConn, BorderLayout.CENTER);
 
             // Campo API Token (Autorização) - Rótulo acima, input abaixo
             JPanel pApiToken = new JPanel(new BorderLayout());
@@ -1562,17 +1511,76 @@ public class Test {
             pDestinoLocal.add(lbDestinoLocalLabel, BorderLayout.NORTH);
             pDestinoLocal.add(lbDestinoLocal, BorderLayout.CENTER);
 
+            // Adicionar Conexão e campos ao painel esquerdo
+            pMainContent.add(pConn);
             pMainContent.add(pApiToken);
             pMainContent.add(pPower);
             pMainContent.add(pTag);
             pMainContent.add(pApi);
             pMainContent.add(pDestinoLocal);
             
-            // Painel direito com histórico de tags (abaixo do logo)
+            pLeftPanel.add(pMainContent, BorderLayout.CENTER);
+            
+            // Painel direito com logo e histórico
             JPanel pRightPanel = new JPanel(new BorderLayout());
-            pRightPanel.setBorder(BorderFactory.createTitledBorder("Histórico de Tags"));
-            // Ocupar metade da largura da interface (1200px / 2 = 600px)
-            pRightPanel.setPreferredSize(new java.awt.Dimension(600, 0));
+            pRightPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            pRightPanel.setPreferredSize(new java.awt.Dimension(700, 0)); // Um pouco maior horizontalmente
+            
+            // Painel para a imagem (logo) no topo direito
+            JPanel pImagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            pImagePanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+            try {
+                java.net.URL imageUrl = null;
+                // Tentar diferentes caminhos possíveis
+                String[] possiblePaths = {
+                    "/resources/images.png",
+                    "resources/images.png",
+                    "/images.png",
+                    "images.png"
+                };
+                
+                for (String path : possiblePaths) {
+                    imageUrl = Test.class.getResource(path);
+                    if (imageUrl == null) {
+                        imageUrl = Test.class.getClassLoader().getResource(path);
+                    }
+                    if (imageUrl != null) {
+                        break;
+                    }
+                }
+                
+                if (imageUrl != null) {
+                    ImageIcon imageIcon = new ImageIcon(imageUrl);
+                    Image image = imageIcon.getImage();
+                    Image scaledImage = image.getScaledInstance(100, 100, Image.SCALE_SMOOTH);
+                    ImageIcon scaledIcon = new ImageIcon(scaledImage);
+                    JLabel lbImage = new JLabel(scaledIcon);
+                    pImagePanel.add(lbImage);
+                } else {
+                    // Tentar carregar do sistema de arquivos como fallback
+                    try {
+                        java.io.File imageFile = new java.io.File("src/resources/images.png");
+                        if (imageFile.exists()) {
+                            ImageIcon imageIcon = new ImageIcon(imageFile.getAbsolutePath());
+                            Image image = imageIcon.getImage();
+                            Image scaledImage = image.getScaledInstance(100, 100, Image.SCALE_SMOOTH);
+                            ImageIcon scaledIcon = new ImageIcon(scaledImage);
+                            JLabel lbImage = new JLabel(scaledIcon);
+                            pImagePanel.add(lbImage);
+                        } else {
+                            System.err.println("Imagem não encontrada em nenhum dos caminhos tentados");
+                        }
+                    } catch (Exception e2) {
+                        System.err.println("Erro ao carregar imagem do sistema de arquivos: " + e2.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Erro ao carregar imagem: " + e.getMessage());
+            }
+            
+            // Painel do histórico
+            JPanel pHistoricoPanel = new JPanel(new BorderLayout());
+            pHistoricoPanel.setBorder(BorderFactory.createTitledBorder("Histórico de Tags"));
             
             // Lista para exibir o histórico
             javax.swing.DefaultListModel<String> historicoListModel = new javax.swing.DefaultListModel<>();
@@ -1617,15 +1625,18 @@ public class Test {
                 System.out.println("Histórico de tags limpo");
             });
             pHistoricoTop.add(btnLimparHistorico);
-            pRightPanel.add(pHistoricoTop, BorderLayout.NORTH);
-            pRightPanel.add(scrollHistorico, BorderLayout.CENTER);
+            pHistoricoPanel.add(pHistoricoTop, BorderLayout.NORTH);
+            pHistoricoPanel.add(scrollHistorico, BorderLayout.CENTER);
+            
+            // Adicionar logo e histórico ao painel direito
+            pRightPanel.add(pImagePanel, BorderLayout.NORTH);
+            pRightPanel.add(pHistoricoPanel, BorderLayout.CENTER);
             
             // Atualizar histórico inicialmente
             atualizarHistoricoUI.run();
             
             // Adicionar os painéis ao JFrame
-            jf.add(pTopPanel, BorderLayout.NORTH);
-            jf.add(pMainContent, BorderLayout.CENTER);
+            jf.add(pLeftPanel, BorderLayout.WEST);
             jf.add(pRightPanel, BorderLayout.EAST);
             
             // Forçar atualização do layout para garantir que todos os componentes sejam exibidos
@@ -1645,10 +1656,10 @@ public class Test {
                 @Override
                 public void onConnectStatus(boolean connected) {
                     if (connected) {
-                        lbConn.setText("Conexão: ON");
+                        lbConn.setText("ON");
                         lbConn.setForeground(Color.GREEN);
                     } else {
-                        lbConn.setText("Conexão: OFF");
+                        lbConn.setText("OFF");
                         lbConn.setForeground(Color.RED);
                     }
                 }
