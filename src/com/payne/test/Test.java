@@ -86,7 +86,7 @@ public class Test {
         void onConnectStatus(boolean connected);
         void onReadingStatus(boolean reading);
         void onTagDetected(String code);
-        void onApiResult(boolean success, String code, String message);
+        void onApiResult(boolean success, String code, String message, String destinoLocalDescricao);
     }
     private static volatile UiNotifier uiNotifier;
     private static volatile JTextField tfIdRecebimento;
@@ -604,6 +604,95 @@ public class Test {
         }
         return null;
     }
+    
+    /* Extrai a descrição do destino local do primeiro objeto do array "dados" */
+    private static String extractDestinoLocalDescricao(String body) {
+        if (body == null || body.trim().isEmpty()) return null;
+        
+        try {
+            // Procurar pelo array "dados"
+            int dadosKey = body.indexOf("\"dados\"");
+            if (dadosKey < 0) return null;
+            
+            // Procurar pelo início do array após "dados":
+            int colon = body.indexOf(':', dadosKey);
+            if (colon < 0) return null;
+            
+            // Pular espaços após os dois pontos
+            int valueStart = colon + 1;
+            while (valueStart < body.length() && Character.isWhitespace(body.charAt(valueStart))) {
+                valueStart++;
+            }
+            
+            if (valueStart >= body.length()) return null;
+            
+            // Verificar se começa com [
+            if (body.charAt(valueStart) != '[') return null;
+            
+            // Procurar pelo primeiro objeto no array (entre { e })
+            int firstObjStart = body.indexOf('{', valueStart);
+            if (firstObjStart < 0) return null;
+            
+            // Procurar pelo fechamento do primeiro objeto
+            int braceCount = 0;
+            int firstObjEnd = -1;
+            for (int i = firstObjStart; i < body.length(); i++) {
+                char c = body.charAt(i);
+                if (c == '{') braceCount++;
+                else if (c == '}') {
+                    braceCount--;
+                    if (braceCount == 0) {
+                        firstObjEnd = i;
+                        break;
+                    }
+                }
+            }
+            
+            if (firstObjEnd < 0) return null;
+            
+            // Extrair o primeiro objeto
+            String firstObject = body.substring(firstObjStart, firstObjEnd + 1);
+            
+            // Procurar por "destinoLocal" dentro do primeiro objeto
+            int destinoLocalKey = firstObject.indexOf("\"destinoLocal\"");
+            if (destinoLocalKey < 0) return null;
+            
+            // Procurar pelo objeto destinoLocal (entre { e })
+            int destinoLocalStart = firstObject.indexOf('{', destinoLocalKey);
+            if (destinoLocalStart < 0) return null;
+            
+            // Procurar pelo fechamento do objeto destinoLocal
+            braceCount = 0;
+            int destinoLocalEnd = -1;
+            for (int i = destinoLocalStart; i < firstObject.length(); i++) {
+                char c = firstObject.charAt(i);
+                if (c == '{') braceCount++;
+                else if (c == '}') {
+                    braceCount--;
+                    if (braceCount == 0) {
+                        destinoLocalEnd = i;
+                        break;
+                    }
+                }
+            }
+            
+            if (destinoLocalEnd < 0) return null;
+            
+            // Extrair o objeto destinoLocal
+            String destinoLocalObj = firstObject.substring(destinoLocalStart, destinoLocalEnd + 1);
+            
+            // Procurar por "descricao" dentro do objeto destinoLocal
+            Pattern descricaoPattern = Pattern.compile("\"descricao\"\\s*:\\s*\"(.*?)\"");
+            Matcher descricaoMatcher = descricaoPattern.matcher(destinoLocalObj);
+            if (descricaoMatcher.find()) {
+                return descricaoMatcher.group(1);
+            }
+        } catch (Throwable e) {
+            System.err.println("Erro ao extrair descrição do destino local: " + e.getMessage());
+        }
+        
+        return null;
+    }
     /* ------------------ API body validation helpers (end) ------------------ */
 
     /* ---------------------- Classes auxiliares para selects ---------------------- */
@@ -956,9 +1045,12 @@ public class Test {
                         System.out.println("Tag não adicionada ao histórico (mesma tag da última com sucesso): " + codeForUi);
                     }
                     
+                    // Extrair descrição do destino local do primeiro objeto do array "dados"
+                    String destinoLocalDescricao = extractDestinoLocalDescricao(responseBody);
+                    
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
-                        SwingUtilities.invokeLater(() -> n.onApiResult(true, codeForUi, msg));
+                        SwingUtilities.invokeLater(() -> n.onApiResult(true, codeForUi, msg, destinoLocalDescricao));
                     }
                     System.out.println("OK tag=" + codeForUi + " " + msg);
                 } else {
@@ -974,7 +1066,7 @@ public class Test {
                     
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
-                        SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
+                        SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg, null));
                     }
                     System.err.println("ERROR tag=" + codeForUi + " " + msg);
                 }
@@ -995,7 +1087,7 @@ public class Test {
                 System.err.println("NOTA: Timeout HTTP não afeta a conexão com a antena");
                 if (uiNotifier != null) {
                     UiNotifier n = uiNotifier;
-                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "Timeout na conexão HTTP"));
+                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "Timeout na conexão HTTP", null));
                 }
                 // Timeout HTTP não deve afetar a conexão com a antena
                 break;
@@ -1015,7 +1107,7 @@ public class Test {
                 System.err.println("NOTA: Erro de conexão HTTP não afeta a conexão com a antena");
                 if (uiNotifier != null) {
                     UiNotifier n = uiNotifier;
-                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "Erro de conexão HTTP"));
+                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, "Erro de conexão HTTP", null));
                 }
                 // Erro de conexão HTTP não deve afetar a conexão com a antena
                 break;
@@ -1036,7 +1128,7 @@ public class Test {
                 e.printStackTrace();
                 if (uiNotifier != null) {
                     UiNotifier n = uiNotifier;
-                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, e.getMessage()));
+                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, e.getMessage(), null));
                 }
                 // Erros HTTP não devem afetar a conexão com a antena
                 break;
@@ -1063,7 +1155,7 @@ public class Test {
             System.err.println("ERROR tag=" + codeForUi + " " + msg);
             if (uiNotifier != null) {
                 UiNotifier n = uiNotifier;
-                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
+                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg, null));
             }
             return;
         }
@@ -1121,7 +1213,7 @@ public class Test {
             System.err.println("ERROR tag=" + codeForUi + " " + msg);
             if (uiNotifier != null) {
                 UiNotifier n = uiNotifier;
-                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
+                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg, null));
             }
         } else {
             System.out.println("Tag adicionada à fila para envio");
@@ -1357,6 +1449,7 @@ public class Test {
 
             JLabel lbTag = new JLabel("Última tag: -");
             JLabel lbApi = new JLabel("API: -");
+            JLabel lbDestinoLocal = new JLabel("Destino Local: -");
 
             // Campo API Token (Autorização)
             JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -1452,6 +1545,7 @@ public class Test {
             pMainContent.add(pPower);
             pMainContent.add(lbTag);
             pMainContent.add(lbApi);
+            pMainContent.add(lbDestinoLocal);
             
             // Painel direito com histórico de tags (abaixo do logo)
             JPanel pRightPanel = new JPanel(new BorderLayout());
@@ -1555,8 +1649,17 @@ public class Test {
                 }
 
                 @Override
-                public void onApiResult(boolean success, String code, String message) {
+                public void onApiResult(boolean success, String code, String message, String destinoLocalDescricao) {
                     lbApi.setText("API (" + code + "): " + (success ? "OK" : "ERRO") + " - " + message);
+                    // Atualizar destino local se houver sucesso e descrição disponível
+                    if (success && destinoLocalDescricao != null && !destinoLocalDescricao.trim().isEmpty()) {
+                        lbDestinoLocal.setText("Destino Local: " + destinoLocalDescricao);
+                        lbDestinoLocal.setForeground(Color.BLACK);
+                    } else if (!success) {
+                        // Limpar destino local em caso de erro
+                        lbDestinoLocal.setText("Destino Local: -");
+                        lbDestinoLocal.setForeground(Color.BLACK);
+                    }
                     // Atualizar histórico na interface quando houver resultado da API
                     atualizarHistoricoRef.run();
                 }
