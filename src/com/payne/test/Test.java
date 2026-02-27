@@ -495,25 +495,36 @@ public class Test {
     private static boolean bodyHasNonEmptyErrors(String body) {
         if (body == null || body.trim().isEmpty()) return false;
         
-        // Procurar pelo campo "erro" ou "erros"
-        int keyErro = body.indexOf("\"erro\"");
+        // Procurar pelo campo "erros" (plural) - estrutura: "erros": [...]
         int keyErros = body.indexOf("\"erros\"");
-        int key = -1;
         
-        // Priorizar "erro" (singular), depois "erros" (plural)
-        if (keyErro >= 0) {
-            key = keyErro;
-        } else if (keyErros >= 0) {
-            key = keyErros;
+        // Se não encontrar "erros", verificar se existe "erro" (singular)
+        if (keyErros < 0) {
+            int keyErro = body.indexOf("\"erro\"");
+            if (keyErro < 0) {
+                // Se não encontrar "erro" nem "erros", assumir que não há erros (sucesso)
+                return false;
+            }
+            // Se encontrou "erro" (singular), verificar se tem conteúdo
+            int colon = body.indexOf(':', keyErro);
+            if (colon < 0) return false;
+            
+            int valueStart = colon + 1;
+            while (valueStart < body.length() && Character.isWhitespace(body.charAt(valueStart))) {
+                valueStart++;
+            }
+            if (valueStart >= body.length()) return false;
+            
+            String remaining = body.substring(valueStart);
+            if (remaining.startsWith("null")) {
+                return false; // null significa sem erros
+            }
+            // Se é um objeto ou string não vazia, há erro
+            return !remaining.startsWith("[]") && remaining.trim().length() > 0;
         }
         
-        if (key < 0) {
-            // Se não encontrar "erro" nem "erros", assumir que não há erros
-            return false;
-        }
-        
-        // Procurar pelo valor após "erro" ou "erros":
-        int colon = body.indexOf(':', key);
+        // Encontrou "erros", verificar o valor
+        int colon = body.indexOf(':', keyErros);
         if (colon < 0) return false;
         
         // Pular espaços após os dois pontos
@@ -524,39 +535,58 @@ public class Test {
         
         if (valueStart >= body.length()) return false;
         
-        // Verificar se é null (sem erros)
+        // Verificar o valor após "erros:"
         String remaining = body.substring(valueStart);
+        
+        // Se é null, não há erros
         if (remaining.startsWith("null")) {
-            return false; // null significa sem erros - sucesso
+            return false;
         }
         
-        // Verificar se é um array vazio [] (sem erros)
+        // Se é um array vazio [], não há erros
         if (remaining.startsWith("[]")) {
-            return false; // array vazio significa sem erros - sucesso
+            return false;
         }
         
-        // Verificar se é uma string vazia "" (sem erros)
-        if (remaining.startsWith("\"\"")) {
-            return false; // string vazia significa sem erros - sucesso
-        }
-        
-        // Verificar se é um array com conteúdo
+        // Se é um array com conteúdo, verificar se tem pelo menos um objeto com "erro"
         if (remaining.startsWith("[")) {
-            int rb = body.indexOf(']', valueStart);
-            if (rb < 0) return false;
-            String inside = body.substring(valueStart + 1, rb).trim();
-            // Se o array tem conteúdo, há erros
-            return inside.length() > 0;
-        }
-        
-        // Se chegou aqui e não é null, array vazio nem string vazia, pode haver erro
-        // Verificar se é uma string não vazia (há erro)
-        if (remaining.startsWith("\"")) {
-            int endQuote = remaining.indexOf('"', 1);
-            if (endQuote > 1) {
-                String errorValue = remaining.substring(1, endQuote);
-                return errorValue.length() > 0; // Se tem conteúdo, há erro
+            // Procurar pelo fechamento do array
+            int bracketEnd = body.indexOf(']', valueStart);
+            if (bracketEnd < 0) return false;
+            
+            // Extrair o conteúdo do array
+            String arrayContent = body.substring(valueStart + 1, bracketEnd).trim();
+            
+            // Se o array está vazio (apenas espaços), não há erros
+            if (arrayContent.isEmpty()) {
+                return false;
             }
+            
+            // Verificar se há pelo menos um objeto com "erro" dentro do array
+            // Estrutura esperada: [{"erro": {"mensagem": "...", "codigo": "..."}}]
+            // Procurar por "erro" dentro do conteúdo do array
+            int erroKey = arrayContent.indexOf("\"erro\"");
+            if (erroKey >= 0) {
+                // Encontrou "erro" dentro do array, verificar se tem conteúdo
+                int erroColon = arrayContent.indexOf(':', erroKey);
+                if (erroColon >= 0) {
+                    int erroValueStart = erroColon + 1;
+                    while (erroValueStart < arrayContent.length() && Character.isWhitespace(arrayContent.charAt(erroValueStart))) {
+                        erroValueStart++;
+                    }
+                    if (erroValueStart < arrayContent.length()) {
+                        String erroValue = arrayContent.substring(erroValueStart).trim();
+                        // Se o valor de "erro" não é null e tem conteúdo, há erro
+                        if (!erroValue.startsWith("null") && erroValue.length() > 0) {
+                            return true; // Há erro
+                        }
+                    }
+                }
+            }
+            
+            // Se o array tem conteúdo mas não encontrou "erro" estruturado,
+            // verificar se há qualquer conteúdo não vazio
+            return arrayContent.length() > 0;
         }
         
         // Por padrão, se não conseguimos identificar, assumir que não há erros
