@@ -598,10 +598,50 @@ public class Test {
         try {
             Pattern p = Pattern.compile("\"mensagem\"\\s*:\\s*\"(.*?)\"", Pattern.DOTALL);
             Matcher m = p.matcher(body);
-            if (m.find()) return m.group(1);
+            if (m.find()) {
+                String mensagem = m.group(1);
+                // Tratar sequências Unicode escapadas (ex: \u00e1 para á)
+                mensagem = decodeUnicodeEscapes(mensagem);
+                // Tratar outras sequências de escape JSON
+                mensagem = unescapeJsonString(mensagem);
+                return mensagem;
+            }
         } catch (Throwable ignored) {
         }
         return null;
+    }
+    
+    /* Decodifica sequências Unicode escapadas (ex: \u00e1 -> á) */
+    private static String decodeUnicodeEscapes(String str) {
+        if (str == null) return null;
+        try {
+            // Procurar por sequências \uXXXX
+            Pattern unicodePattern = Pattern.compile("\\\\u([0-9a-fA-F]{4})");
+            Matcher matcher = unicodePattern.matcher(str);
+            StringBuffer sb = new StringBuffer();
+            while (matcher.find()) {
+                String hex = matcher.group(1);
+                int codePoint = Integer.parseInt(hex, 16);
+                matcher.appendReplacement(sb, new String(Character.toChars(codePoint)));
+            }
+            matcher.appendTail(sb);
+            return sb.toString();
+        } catch (Exception e) {
+            return str; // Retornar original se houver erro
+        }
+    }
+    
+    /* Remove escapes JSON comuns */
+    private static String unescapeJsonString(String str) {
+        if (str == null) return null;
+        return str.replace("\\\"", "\"")
+                  .replace("\\\\", "\\")
+                  .replace("\\/", "/")
+                  .replace("\\b", "\b")
+                  .replace("\\f", "\f")
+                  .replace("\\n", "\n")
+                  .replace("\\r", "\r")
+                  .replace("\\t", "\t");
     }
 
     /* Verifica se o campo "dados" (array) está vazio no JSON */
@@ -749,14 +789,16 @@ public class Test {
             if (code >= 200 && code < 300) {
                 try (java.io.InputStream is = conn.getInputStream()) {
                     if (is != null) {
-                        try (java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(is, StandardCharsets.UTF_8))) {
-                            String line;
-                            StringBuilder rsb = new StringBuilder();
-                            while ((line = br.readLine()) != null) {
-                                rsb.append(line).append('\n');
-                            }
-                            return rsb.toString().trim();
+                        // Garantir que a leitura seja feita com UTF-8
+                        // Ler todos os bytes primeiro para garantir codificação correta
+                        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                        byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        while ((bytesRead = is.read(buffer)) != -1) {
+                            baos.write(buffer, 0, bytesRead);
                         }
+                        // Converter bytes para string usando UTF-8
+                        return new String(baos.toByteArray(), StandardCharsets.UTF_8).trim();
                     }
                 }
             }
@@ -966,14 +1008,16 @@ public class Test {
                 String responseBody = "";
                 try (java.io.InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream()) {
                     if (is != null) {
-                        try (java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(is, StandardCharsets.UTF_8))) {
-                            String line;
-                            StringBuilder rsb = new StringBuilder();
-                            while ((line = br.readLine()) != null) {
-                                rsb.append(line).append('\n');
-                            }
-                            responseBody = rsb.toString().trim();
+                        // Garantir que a leitura seja feita com UTF-8
+                        // Ler todos os bytes primeiro para garantir codificação correta
+                        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                        byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        while ((bytesRead = is.read(buffer)) != -1) {
+                            baos.write(buffer, 0, bytesRead);
                         }
+                        // Converter bytes para string usando UTF-8
+                        responseBody = new String(baos.toByteArray(), StandardCharsets.UTF_8).trim();
                     }
                 } catch (Exception ignored) {
                 }
