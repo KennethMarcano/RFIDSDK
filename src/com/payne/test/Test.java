@@ -1383,18 +1383,23 @@ public class Test {
             JFrame jf = new JFrame("RFID Linux Status - Movimentação Obrigatória");
             jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             jf.setAlwaysOnTop(true);
-            jf.setSize(1200, 600); // Aumentado para acomodar o histórico à direita
+            // Tamanho mínimo e preferencial para responsividade
+            jf.setMinimumSize(new java.awt.Dimension(800, 500));
+            jf.setPreferredSize(new java.awt.Dimension(1200, 600));
+            jf.setSize(1200, 600);
             jf.setLayout(new BorderLayout());
             
             // Painel esquerdo com Conexão e todos os campos
             JPanel pLeftPanel = new JPanel(new BorderLayout());
             pLeftPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             
-            // Painel de conteúdo da esquerda
-            JPanel pMainContent = new JPanel(new GridLayout(0, 1)); // 0 = número de linhas automático
+            // Painel de conteúdo da esquerda com espaçamento reduzido
+            JPanel pMainContent = new JPanel(new GridLayout(0, 1, 0, 3)); // gap vertical de 3px entre campos
+            pMainContent.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             
             // Campo Conexão - Rótulo acima, valor abaixo
             JPanel pConn = new JPanel(new BorderLayout());
+            pConn.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             JLabel lbConnLabel = new JLabel("Conexão:");
             JLabel lbConn = new JLabel("OFF");
             lbConn.setForeground(Color.RED);
@@ -1403,6 +1408,7 @@ public class Test {
 
             // Campo API Token (Autorização) - Rótulo acima, valor abaixo (apenas informativo)
             JPanel pApiToken = new JPanel(new BorderLayout());
+            pApiToken.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             JLabel lbApiToken = new JLabel("Autorização (API Token):");
             JLabel lbApiTokenValue = new JLabel("-");
             
@@ -1420,15 +1426,21 @@ public class Test {
 
             // Campo Power - Rótulo acima, input abaixo, botão abaixo do input
             JPanel pPower = new JPanel(new BorderLayout());
+            pPower.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             JLabel lbPower = new JLabel("Potência (0-100):");
             JTextField tfPowerField = new JTextField(5);
+            tfPowerField.setPreferredSize(new java.awt.Dimension(80, 25)); // Tamanho fixo para o input
             // Converter valor interno (0-33) para valor da interface (0-100)
             // power = 33 (máximo) -> 100 na interface
             int powerUI = (power * 100) / 33;
             tfPowerField.setText(String.valueOf(powerUI));
             
-            // Botão para atualizar potência
+            // Botão para atualizar potência (tamanho reduzido)
             JButton btnAtualizarPotencia = new JButton("Atualizar Potência");
+            btnAtualizarPotencia.setPreferredSize(new java.awt.Dimension(120, 30)); // Tamanho reduzido
+            btnAtualizarPotencia.setMaximumSize(new java.awt.Dimension(120, 30));
+            btnAtualizarPotencia.setFont(new java.awt.Font(btnAtualizarPotencia.getFont().getName(), 
+                java.awt.Font.PLAIN, 10)); // Fonte menor
             btnAtualizarPotencia.addActionListener(e -> {
                 String powerText = tfPowerField.getText().trim();
                 int powerUIValue;
@@ -1483,10 +1495,13 @@ public class Test {
             
             // Painel para input e botão (botão abaixo do input)
             JPanel pPowerContent = new JPanel(new BorderLayout());
-            JPanel pPowerInput = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            pPowerContent.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0)); // Espaçamento mínimo
+            JPanel pPowerInput = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // Sem gaps
             pPowerInput.add(tfPowerField);
+            JPanel pPowerButton = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // Sem gaps
+            pPowerButton.add(btnAtualizarPotencia);
             pPowerContent.add(pPowerInput, BorderLayout.NORTH);
-            pPowerContent.add(btnAtualizarPotencia, BorderLayout.CENTER);
+            pPowerContent.add(pPowerButton, BorderLayout.CENTER);
             
             pPower.add(lbPower, BorderLayout.NORTH);
             pPower.add(pPowerContent, BorderLayout.CENTER);
@@ -1499,6 +1514,7 @@ public class Test {
 
             // Campo Última Tag - Rótulo acima, valor abaixo
             JPanel pTag = new JPanel(new BorderLayout());
+            pTag.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             JLabel lbTagLabel = new JLabel("Última Tag:");
             JLabel lbTag = new JLabel("-");
             pTag.add(lbTagLabel, BorderLayout.NORTH);
@@ -1506,6 +1522,7 @@ public class Test {
 
             // Campo API - Rótulo acima, valor abaixo
             JPanel pApi = new JPanel(new BorderLayout());
+            pApi.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             JLabel lbApiLabel = new JLabel("API:");
             JLabel lbApi = new JLabel("-");
             pApi.add(lbApiLabel, BorderLayout.NORTH);
@@ -1513,6 +1530,7 @@ public class Test {
 
             // Campo Destino Local - Rótulo acima, valor abaixo
             JPanel pDestinoLocal = new JPanel(new BorderLayout());
+            pDestinoLocal.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             JLabel lbDestinoLocalLabel = new JLabel("Destino Local:");
             JLabel lbDestinoLocal = new JLabel("-");
             pDestinoLocal.add(lbDestinoLocalLabel, BorderLayout.NORTH);
@@ -1531,8 +1549,9 @@ public class Test {
             // Painel direito com logo e histórico
             JPanel pRightPanel = new JPanel(new BorderLayout());
             pRightPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            // Limitar a metade da interface (1200px / 2 = 600px) para não sobrepor os campos da esquerda
-            pRightPanel.setPreferredSize(new java.awt.Dimension(600, 0));
+            // Limitar a metade da interface para não sobrepor os campos da esquerda (responsivo)
+            pRightPanel.setPreferredSize(new java.awt.Dimension(400, 0));
+            pRightPanel.setMinimumSize(new java.awt.Dimension(300, 0));
             pRightPanel.setMaximumSize(new java.awt.Dimension(600, Integer.MAX_VALUE));
             
             // Painel para a imagem (logo) no topo direito
