@@ -99,7 +99,7 @@ public class Test {
     private static volatile JComboBox<EstruturaLocalItem> cbDestinoLocal;
     private static volatile JTextField tfTipoMovimento;
     private static volatile JTextField tfNivelOperacao;
-    private static volatile JTextField tfApiToken;
+    private static volatile JLabel lbApiTokenValue;
     private static volatile JTextField tfPower;
     private static volatile JLabel lbStatusEquipamento;
     private static volatile JLabel lbStatusDestinoLocal;
@@ -246,12 +246,15 @@ public class Test {
     }
 
     private static String getUiApiToken() {
-        if (tfApiToken != null) {
-            return safeString(tfApiToken.getText()).trim();
+        if (lbApiTokenValue != null) {
+            String token = safeString(lbApiTokenValue.getText()).trim();
+            if (!token.isEmpty() && !token.equals("-")) {
+                return token;
+            }
         }
         String v = System.getProperty("apiToken");
         if (v == null || v.trim().isEmpty()) v = System.getenv("API_TOKEN");
-        // Se não encontrar no input nem nas propriedades, usa a constante como fallback
+        // Se não encontrar no label nem nas propriedades, usa a constante como fallback
         return v == null ? (API_TOKEN != null ? API_TOKEN.trim() : "") : v.trim();
     }
 
@@ -1398,22 +1401,22 @@ public class Test {
             pConn.add(lbConnLabel, BorderLayout.NORTH);
             pConn.add(lbConn, BorderLayout.CENTER);
 
-            // Campo API Token (Autorização) - Rótulo acima, input abaixo
+            // Campo API Token (Autorização) - Rótulo acima, valor abaixo (apenas informativo)
             JPanel pApiToken = new JPanel(new BorderLayout());
             JLabel lbApiToken = new JLabel("Autorização (API Token):");
-            JTextField tfApiTokenField = new JTextField(30);
+            JLabel lbApiTokenValue = new JLabel("-");
             
             // Tentar carregar apikey do arquivo .env
             java.util.Map<String, String> envMap = loadEnvFile();
             String apikeyFromEnv = envMap.get("apikey");
             if (apikeyFromEnv != null && !apikeyFromEnv.trim().isEmpty()) {
-                tfApiTokenField.setText(apikeyFromEnv.trim());
+                lbApiTokenValue.setText(apikeyFromEnv.trim());
                 System.out.println("API Key carregada do arquivo .env");
             } else if (API_TOKEN != null && !API_TOKEN.trim().isEmpty() && !API_TOKEN.equals("P")) {
-                tfApiTokenField.setText(API_TOKEN);
+                lbApiTokenValue.setText(API_TOKEN);
             }
             pApiToken.add(lbApiToken, BorderLayout.NORTH);
-            pApiToken.add(tfApiTokenField, BorderLayout.CENTER);
+            pApiToken.add(lbApiTokenValue, BorderLayout.CENTER);
 
             // Campo Power - Rótulo acima, input e botão abaixo
             JPanel pPower = new JPanel(new BorderLayout());
@@ -1524,7 +1527,9 @@ public class Test {
             // Painel direito com logo e histórico
             JPanel pRightPanel = new JPanel(new BorderLayout());
             pRightPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            pRightPanel.setPreferredSize(new java.awt.Dimension(700, 0)); // Um pouco maior horizontalmente
+            // Limitar a metade da interface (1200px / 2 = 600px) para não sobrepor os campos da esquerda
+            pRightPanel.setPreferredSize(new java.awt.Dimension(600, 0));
+            pRightPanel.setMaximumSize(new java.awt.Dimension(600, Integer.MAX_VALUE));
             
             // Painel para a imagem (logo) no topo direito
             JPanel pImagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -1646,7 +1651,8 @@ public class Test {
             jf.setLocationRelativeTo(null);
             jf.setVisible(true);
 
-            tfApiToken = tfApiTokenField;
+            // Armazenar referências para uso posterior
+            lbApiTokenValue = lbApiTokenValue; // Label do API Token (apenas informativo)
             tfPower = tfPowerField;
             
             // Armazenar referência para atualizar histórico quando novas tags forem adicionadas
