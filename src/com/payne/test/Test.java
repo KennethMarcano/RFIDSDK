@@ -122,6 +122,52 @@ public class Test {
     
     /* Flag para indicar se a última tag teve sucesso */
     private static volatile boolean ultimaTagTeveSucesso = false;
+    
+    /* Classe para representar uma entrada no histórico de tags */
+    private static class TagHistorico {
+        private final String tag;
+        private final long timestamp;
+        private final boolean sucesso;
+        private final String mensagem;
+        
+        public TagHistorico(String tag, boolean sucesso, String mensagem) {
+            this.tag = tag;
+            this.timestamp = System.currentTimeMillis();
+            this.sucesso = sucesso;
+            this.mensagem = mensagem;
+        }
+        
+        public String getTag() { return tag; }
+        public long getTimestamp() { return timestamp; }
+        public boolean isSucesso() { return sucesso; }
+        public String getMensagem() { return mensagem; }
+        
+        @Override
+        public String toString() {
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+            return String.format("[%s] Tag: %s | %s | %s", 
+                sdf.format(new java.util.Date(timestamp)), 
+                tag, 
+                sucesso ? "SUCESSO" : "ERRO", 
+                mensagem);
+        }
+    }
+    
+    /* Lista thread-safe para armazenar histórico de tags */
+    private static final java.util.List<TagHistorico> historicoTags = 
+        java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+    
+    /* Método para obter uma cópia do histórico de tags (thread-safe) */
+    public static java.util.List<TagHistorico> getHistoricoTags() {
+        synchronized (historicoTags) {
+            return new java.util.ArrayList<>(historicoTags);
+        }
+    }
+    
+    /* Método para obter o tamanho do histórico */
+    public static int getHistoricoTagsSize() {
+        return historicoTags.size();
+    }
 
     private static String getUiIdRecebimento() {
         if (tfIdRecebimento != null) {
@@ -846,8 +892,18 @@ public class Test {
                 if (success) {
                     gpioSetHighPulse(); /* pulso em sucesso */
                     // Marcar que a última tag teve sucesso
+                    String ultimaTagComSucessoAnterior = ultimaTagComSucesso;
                     ultimaTagComSucesso = codeForUi;
                     ultimaTagTeveSucesso = true;
+                    
+                    // Adicionar ao histórico apenas se não for a mesma tag que a última com sucesso
+                    if (ultimaTagComSucessoAnterior == null || !ultimaTagComSucessoAnterior.equals(codeForUi)) {
+                        historicoTags.add(new TagHistorico(codeForUi, true, msg));
+                        System.out.println("Tag adicionada ao histórico (SUCESSO): " + codeForUi);
+                    } else {
+                        System.out.println("Tag não adicionada ao histórico (mesma tag da última com sucesso): " + codeForUi);
+                    }
+                    
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
                         SwingUtilities.invokeLater(() -> n.onApiResult(true, codeForUi, msg));
@@ -859,6 +915,11 @@ public class Test {
                         ultimaTagTeveSucesso = false;
                         ultimaTagComSucesso = null;
                     }
+                    
+                    // Adicionar ao histórico sempre que houver erro (todas as tentativas)
+                    historicoTags.add(new TagHistorico(codeForUi, false, msg));
+                    System.out.println("Tag adicionada ao histórico (ERRO): " + codeForUi);
+                    
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
                         SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
@@ -872,6 +933,12 @@ public class Test {
                     ultimaTagTeveSucesso = false;
                     ultimaTagComSucesso = null;
                 }
+                
+                // Adicionar ao histórico sempre que houver erro (todas as tentativas)
+                String errorMsg = "Timeout na conexão HTTP: " + e.getMessage();
+                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg));
+                System.out.println("Tag adicionada ao histórico (ERRO - Timeout): " + codeForUi);
+                
                 System.err.println("HTTP post timeout: " + e.getMessage());
                 System.err.println("NOTA: Timeout HTTP não afeta a conexão com a antena");
                 if (uiNotifier != null) {
@@ -886,6 +953,12 @@ public class Test {
                     ultimaTagTeveSucesso = false;
                     ultimaTagComSucesso = null;
                 }
+                
+                // Adicionar ao histórico sempre que houver erro (todas as tentativas)
+                String errorMsg = "Erro de conexão HTTP: " + e.getMessage();
+                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg));
+                System.out.println("Tag adicionada ao histórico (ERRO - Conexão): " + codeForUi);
+                
                 System.err.println("HTTP post connection error: " + e.getMessage());
                 System.err.println("NOTA: Erro de conexão HTTP não afeta a conexão com a antena");
                 if (uiNotifier != null) {
@@ -900,6 +973,12 @@ public class Test {
                     ultimaTagTeveSucesso = false;
                     ultimaTagComSucesso = null;
                 }
+                
+                // Adicionar ao histórico sempre que houver erro (todas as tentativas)
+                String errorMsg = "Erro HTTP: " + e.getMessage();
+                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg));
+                System.out.println("Tag adicionada ao histórico (ERRO - Exceção): " + codeForUi);
+                
                 System.err.println("HTTP post error: " + e.getMessage());
                 System.err.println("NOTA: Erro HTTP não afeta a conexão com a antena");
                 e.printStackTrace();
@@ -1023,8 +1102,8 @@ public class Test {
                     final Map<String, String> headers = buildDefaultHeaders();
                     
                     // Atualizar status de conexão para ON quando requisição é feita
-                    if (uiNotifier != null) {
-                        UiNotifier n = uiNotifier;
+                        if (uiNotifier != null) {
+                            UiNotifier n = uiNotifier;
                         SwingUtilities.invokeLater(() -> n.onConnectStatus(true));
                     }
                     postJson(ENDPOINT_URL_CONSULTAR_MOVIMENTACAO, body, headers, code);
@@ -1155,7 +1234,7 @@ public class Test {
             JFrame jf = new JFrame("RFID Linux Status - Movimentação Obrigatória");
             jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             jf.setAlwaysOnTop(true);
-            jf.setSize(800, 600);
+            jf.setSize(1200, 600); // Aumentado para acomodar o histórico à direita
             jf.setLayout(new BorderLayout());
             
             // Painel superior com Conexão à esquerda e logo à direita
@@ -1246,45 +1325,62 @@ public class Test {
 
             // Campo Power
             JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbPower = new JLabel("Potência (1-33):");
+            JLabel lbPower = new JLabel("Potência (0-100):");
             JTextField tfPowerField = new JTextField(5);
-            tfPowerField.setText(String.valueOf(power));
+            // Converter valor interno (0-33) para valor da interface (0-100)
+            // power = 33 (máximo) -> 100 na interface
+            int powerUI = (power * 100) / 33;
+            tfPowerField.setText(String.valueOf(powerUI));
             
             // Botão para atualizar potência
             JButton btnAtualizarPotencia = new JButton("Atualizar Potência");
             btnAtualizarPotencia.addActionListener(e -> {
                 String powerText = tfPowerField.getText().trim();
-                int powerValue;
+                int powerUIValue;
                 
-                // Se campo vazio ou valor 0, usar potência máxima (33)
+                // Se campo vazio ou valor 0, usar potência máxima (100 na interface = 33 no módulo)
                 if (powerText.isEmpty() || powerText.equals("0")) {
-                    powerValue = 33;
-                    tfPowerField.setText("33");
+                    powerUIValue = 100;
+                    tfPowerField.setText("100");
                 } else {
                     try {
-                        powerValue = Integer.parseInt(powerText);
+                        powerUIValue = Integer.parseInt(powerText);
                     } catch (NumberFormatException ex) {
                         // Se não for número válido, usar potência máxima
-                        powerValue = 33;
-                        tfPowerField.setText("33");
-                        System.err.println("Valor inválido - usando potência máxima (33)");
+                        powerUIValue = 100;
+                        tfPowerField.setText("100");
+                        System.err.println("Valor inválido - usando potência máxima (100)");
                     }
                 }
                 
                 // Validar e aplicar potência
-                if (powerValue >= 1 && powerValue <= 33) {
-                    power = (byte) powerValue;
+                if (powerUIValue >= 0 && powerUIValue <= 100) {
+                    // Converter valor da interface (0-100) para valor do módulo (1-33)
+                    // Fórmula: valor_módulo = (valor_interface * 33) / 100
+                    byte powerModule;
+                    if (powerUIValue == 0) {
+                        // Se 0 na interface, usar energia máxima (33 no módulo)
+                        powerModule = 33;
+                    } else {
+                        powerModule = (byte) Math.round((powerUIValue * 33.0) / 100.0);
+                        // Garantir que não seja menor que 1 (mínimo do módulo)
+                        if (powerModule < 1) {
+                            powerModule = 1;
+                        }
+                    }
+                    power = powerModule;
                     // Atualizar power no módulo se estiver conectado
                     updatePowerIfConnected();
-                    System.out.println("Potência atualizada para: " + power);
+                    System.out.println("Potência atualizada: " + powerUIValue + "% (interface) = " + power + " (módulo)");
                 } else {
                     // Se estiver fora do range, usar potência máxima
                     power = 33;
-                    tfPowerField.setText("33");
+                    powerUIValue = 100;
+                    tfPowerField.setText("100");
                     updatePowerIfConnected();
-                    System.err.println("Potência fora do range - usando potência máxima (33)");
+                    System.err.println("Potência fora do range - usando potência máxima (100)");
                     javax.swing.JOptionPane.showMessageDialog(null, 
-                        "Potência deve estar entre 1 e 33. Usando potência máxima (33).", 
+                        "Potência deve estar entre 0 e 100. Usando potência máxima (100).", 
                         "Valor Ajustado", 
                         javax.swing.JOptionPane.INFORMATION_MESSAGE);
                 }
@@ -1305,9 +1401,49 @@ public class Test {
             pMainContent.add(lbTag);
             pMainContent.add(lbApi);
             
+            // Painel direito com histórico de tags (abaixo do logo)
+            JPanel pRightPanel = new JPanel(new BorderLayout());
+            pRightPanel.setBorder(BorderFactory.createTitledBorder("Histórico de Tags"));
+            pRightPanel.setPreferredSize(new java.awt.Dimension(400, 0));
+            
+            // Lista para exibir o histórico
+            javax.swing.DefaultListModel<String> historicoListModel = new javax.swing.DefaultListModel<>();
+            javax.swing.JList<String> historicoList = new javax.swing.JList<>(historicoListModel);
+            historicoList.setFont(new java.awt.Font("Monospaced", java.awt.Font.PLAIN, 10));
+            historicoList.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+            
+            // ScrollPane para a lista
+            javax.swing.JScrollPane scrollHistorico = new javax.swing.JScrollPane(historicoList);
+            scrollHistorico.setVerticalScrollBarPolicy(javax.swing.JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+            scrollHistorico.setHorizontalScrollBarPolicy(javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+            pRightPanel.add(scrollHistorico, BorderLayout.CENTER);
+            
+            // Método para atualizar o histórico na interface
+            Runnable atualizarHistoricoUI = () -> {
+                SwingUtilities.invokeLater(() -> {
+                    java.util.List<TagHistorico> historico = getHistoricoTags();
+                    historicoListModel.clear();
+                    // Adicionar as últimas 100 entradas (mais recentes primeiro)
+                    int inicio = Math.max(0, historico.size() - 100);
+                    for (int i = historico.size() - 1; i >= inicio; i--) {
+                        TagHistorico entrada = historico.get(i);
+                        historicoListModel.addElement(entrada.toString());
+                    }
+                    // Auto-scroll para o topo (mais recente)
+                    if (historicoListModel.getSize() > 0) {
+                        historicoList.setSelectedIndex(0);
+                        historicoList.ensureIndexIsVisible(0);
+                    }
+                });
+            };
+            
+            // Atualizar histórico inicialmente
+            atualizarHistoricoUI.run();
+            
             // Adicionar os painéis ao JFrame
             jf.add(pTopPanel, BorderLayout.NORTH);
             jf.add(pMainContent, BorderLayout.CENTER);
+            jf.add(pRightPanel, BorderLayout.EAST);
             
             // Forçar atualização do layout para garantir que todos os componentes sejam exibidos
             jf.revalidate();
@@ -1318,6 +1454,9 @@ public class Test {
 
             tfApiToken = tfApiTokenField;
             tfPower = tfPowerField;
+            
+            // Armazenar referência para atualizar histórico quando novas tags forem adicionadas
+            final Runnable atualizarHistoricoRef = atualizarHistoricoUI;
 
             uiNotifier = new UiNotifier() {
                 @Override
@@ -1351,6 +1490,8 @@ public class Test {
                 @Override
                 public void onApiResult(boolean success, String code, String message) {
                     lbApi.setText("API (" + code + "): " + (success ? "OK" : "ERRO") + " - " + message);
+                    // Atualizar histórico na interface quando houver resultado da API
+                    atualizarHistoricoRef.run();
                 }
             };
 
