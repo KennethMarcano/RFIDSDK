@@ -99,7 +99,7 @@ public class Test {
     private static volatile JComboBox<EstruturaLocalItem> cbDestinoLocal;
     private static volatile JTextField tfTipoMovimento;
     private static volatile JTextField tfNivelOperacao;
-    private static volatile JLabel lbApiTokenValue;
+    private static volatile JTextField tfApiToken;
     private static volatile JTextField tfPower;
     private static volatile JLabel lbStatusEquipamento;
     private static volatile JLabel lbStatusDestinoLocal;
@@ -246,16 +246,13 @@ public class Test {
     }
 
     private static String getUiApiToken() {
-        // Buscar diretamente do arquivo .env ou variáveis de ambiente/propriedades
-        java.util.Map<String, String> envMap = loadEnvFile();
-        String apikeyFromEnv = envMap.get("apikey");
-        if (apikeyFromEnv != null && !apikeyFromEnv.trim().isEmpty()) {
-            return apikeyFromEnv.trim();
+        if (tfApiToken != null) {
+            return safeString(tfApiToken.getText()).trim();
         }
         String v = System.getProperty("apiToken");
         if (v == null || v.trim().isEmpty()) v = System.getenv("API_TOKEN");
-        // Se não encontrar, usa a constante como fallback
-        return v == null ? (API_TOKEN != null && !API_TOKEN.equals("P") ? API_TOKEN.trim() : "") : v.trim();
+        // Se não encontrar no input nem nas propriedades, usa a constante como fallback
+        return v == null ? (API_TOKEN != null ? API_TOKEN.trim() : "") : v.trim();
     }
 
     private static InventoryParam param = new InventoryParam();
@@ -596,7 +593,7 @@ public class Test {
         
         return false; // Array não está vazio
     }
-
+    
     private static String extractFirstErrorCode(String body) {
         if (body == null) return null;
         try {
@@ -1383,55 +1380,107 @@ public class Test {
             JFrame jf = new JFrame("RFID Linux Status - Movimentação Obrigatória");
             jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             jf.setAlwaysOnTop(true);
-            // Tamanho mínimo e preferencial para responsividade
-            jf.setMinimumSize(new java.awt.Dimension(800, 500));
-            jf.setPreferredSize(new java.awt.Dimension(1200, 600));
-            jf.setSize(1200, 600);
+            jf.setSize(1200, 600); // Aumentado para acomodar o histórico à direita
             jf.setLayout(new BorderLayout());
             
-            // Painel esquerdo com Conexão e todos os campos
-            JPanel pLeftPanel = new JPanel(new BorderLayout());
-            pLeftPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            // Painel superior com Conexão à esquerda e logo à direita
+            JPanel pTopPanel = new JPanel(new BorderLayout());
+            pTopPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             
-            // Painel de conteúdo da esquerda com espaçamento reduzido
-            JPanel pMainContent = new JPanel(new GridLayout(0, 1, 0, 3)); // gap vertical de 3px entre campos
-            pMainContent.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+            // Campo Conexão à esquerda
+            JLabel lbConn = new JLabel("Conexão: OFF");
+            lbConn.setForeground(Color.RED);
+            pTopPanel.add(lbConn, BorderLayout.WEST);
             
-            // Campo API Token (Autorização) - Rótulo acima, valor abaixo (apenas informativo)
-            JPanel pApiToken = new JPanel(new BorderLayout());
-            pApiToken.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+            // Painel para a imagem no canto superior direito
+            JPanel pImagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            pImagePanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+            try {
+                java.net.URL imageUrl = null;
+                // Tentar diferentes caminhos possíveis
+                String[] possiblePaths = {
+                    "/resources/images.png",
+                    "resources/images.png",
+                    "/images.png",
+                    "images.png"
+                };
+                
+                for (String path : possiblePaths) {
+                    imageUrl = Test.class.getResource(path);
+                    if (imageUrl == null) {
+                        imageUrl = Test.class.getClassLoader().getResource(path);
+                    }
+                    if (imageUrl != null) {
+                        break;
+                    }
+                }
+                
+                if (imageUrl != null) {
+                    ImageIcon imageIcon = new ImageIcon(imageUrl);
+                    Image image = imageIcon.getImage();
+                    // Redimensionar a imagem se necessário (opcional, ajuste conforme necessário)
+                    Image scaledImage = image.getScaledInstance(100, 100, Image.SCALE_SMOOTH);
+                    ImageIcon scaledIcon = new ImageIcon(scaledImage);
+                    JLabel lbImage = new JLabel(scaledIcon);
+                    pImagePanel.add(lbImage);
+                } else {
+                    // Tentar carregar do sistema de arquivos como fallback
+                    try {
+                        java.io.File imageFile = new java.io.File("src/resources/images.png");
+                        if (imageFile.exists()) {
+                            ImageIcon imageIcon = new ImageIcon(imageFile.getAbsolutePath());
+                            Image image = imageIcon.getImage();
+                            Image scaledImage = image.getScaledInstance(100, 100, Image.SCALE_SMOOTH);
+                            ImageIcon scaledIcon = new ImageIcon(scaledImage);
+                            JLabel lbImage = new JLabel(scaledIcon);
+                            pImagePanel.add(lbImage);
+                        } else {
+                            System.err.println("Imagem não encontrada em nenhum dos caminhos tentados");
+                        }
+                    } catch (Exception e2) {
+                        System.err.println("Erro ao carregar imagem do sistema de arquivos: " + e2.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Erro ao carregar imagem: " + e.getMessage());
+            }
+            pTopPanel.add(pImagePanel, BorderLayout.EAST);
+            
+            // Painel principal com o conteúdo existente
+            JPanel pMainContent = new JPanel(new GridLayout(0, 1)); // 0 = número de linhas automático
+
+            JLabel lbTag = new JLabel("Última tag: -");
+            JLabel lbApi = new JLabel("API: -");
+            JLabel lbDestinoLocal = new JLabel("Destino Local: -");
+
+            // Campo API Token (Autorização)
+            JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT));
             JLabel lbApiToken = new JLabel("Autorização (API Token):");
-            JLabel lbApiTokenValue = new JLabel("-");
+            JTextField tfApiTokenField = new JTextField(30);
             
             // Tentar carregar apikey do arquivo .env
             java.util.Map<String, String> envMap = loadEnvFile();
             String apikeyFromEnv = envMap.get("apikey");
             if (apikeyFromEnv != null && !apikeyFromEnv.trim().isEmpty()) {
-                lbApiTokenValue.setText(apikeyFromEnv.trim());
+                tfApiTokenField.setText(apikeyFromEnv.trim());
                 System.out.println("API Key carregada do arquivo .env");
             } else if (API_TOKEN != null && !API_TOKEN.trim().isEmpty() && !API_TOKEN.equals("P")) {
-                lbApiTokenValue.setText(API_TOKEN);
+                tfApiTokenField.setText(API_TOKEN);
             }
-            pApiToken.add(lbApiToken, BorderLayout.NORTH);
-            pApiToken.add(lbApiTokenValue, BorderLayout.CENTER);
+            pApiToken.add(lbApiToken);
+            pApiToken.add(tfApiTokenField);
 
-            // Campo Power - Rótulo acima, input abaixo, botão abaixo do input
-            JPanel pPower = new JPanel(new BorderLayout());
-            pPower.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+            // Campo Power
+            JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT));
             JLabel lbPower = new JLabel("Potência (0-100):");
             JTextField tfPowerField = new JTextField(5);
-            tfPowerField.setPreferredSize(new java.awt.Dimension(80, 25)); // Tamanho fixo para o input
             // Converter valor interno (0-33) para valor da interface (0-100)
             // power = 33 (máximo) -> 100 na interface
             int powerUI = (power * 100) / 33;
             tfPowerField.setText(String.valueOf(powerUI));
             
-            // Botão para atualizar potência com emoji de load
-            JButton btnAtualizarPotencia = new JButton("⚙️");
-            btnAtualizarPotencia.setPreferredSize(new java.awt.Dimension(40, 30)); // Tamanho reduzido para o emoji
-            btnAtualizarPotencia.setMaximumSize(new java.awt.Dimension(40, 30));
-            btnAtualizarPotencia.setFont(new java.awt.Font(btnAtualizarPotencia.getFont().getName(), 
-                java.awt.Font.PLAIN, 16)); // Fonte maior para o emoji
+            // Botão para atualizar potência
+            JButton btnAtualizarPotencia = new JButton("Atualizar Potência");
             btnAtualizarPotencia.addActionListener(e -> {
                 String powerText = tfPowerField.getText().trim();
                 int powerUIValue;
@@ -1484,18 +1533,9 @@ public class Test {
                 }
             });
             
-            // Painel para input e botão (botão abaixo do input)
-            JPanel pPowerContent = new JPanel(new BorderLayout());
-            pPowerContent.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0)); // Espaçamento mínimo
-            JPanel pPowerInput = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // Sem gaps
-            pPowerInput.add(tfPowerField);
-            JPanel pPowerButton = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // Sem gaps
-            pPowerButton.add(btnAtualizarPotencia);
-            pPowerContent.add(pPowerInput, BorderLayout.NORTH);
-            pPowerContent.add(pPowerButton, BorderLayout.CENTER);
-            
-            pPower.add(lbPower, BorderLayout.NORTH);
-            pPower.add(pPowerContent, BorderLayout.CENTER);
+            pPower.add(lbPower);
+            pPower.add(tfPowerField);
+            pPower.add(btnAtualizarPotencia);
             
             // Garantir que o painel Power está visível
             pPower.setVisible(true);
@@ -1503,103 +1543,16 @@ public class Test {
             tfPowerField.setVisible(true);
             btnAtualizarPotencia.setVisible(true);
 
-            // Campo Última Tag - Rótulo acima, valor abaixo
-            JPanel pTag = new JPanel(new BorderLayout());
-            pTag.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-            JLabel lbTagLabel = new JLabel("Última Tag:");
-            JLabel lbTag = new JLabel("-");
-            pTag.add(lbTagLabel, BorderLayout.NORTH);
-            pTag.add(lbTag, BorderLayout.CENTER);
-
-            // Campo API - Rótulo acima, valor abaixo
-            JPanel pApi = new JPanel(new BorderLayout());
-            pApi.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-            JLabel lbApiLabel = new JLabel("API:");
-            JLabel lbApi = new JLabel("-");
-            pApi.add(lbApiLabel, BorderLayout.NORTH);
-            pApi.add(lbApi, BorderLayout.CENTER);
-
-            // Campo Destino Local - Rótulo acima, valor abaixo
-            JPanel pDestinoLocal = new JPanel(new BorderLayout());
-            pDestinoLocal.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-            JLabel lbDestinoLocalLabel = new JLabel("Destino Local:");
-            JLabel lbDestinoLocal = new JLabel("-");
-            pDestinoLocal.add(lbDestinoLocalLabel, BorderLayout.NORTH);
-            pDestinoLocal.add(lbDestinoLocal, BorderLayout.CENTER);
-
-            // Adicionar campos ao painel esquerdo
             pMainContent.add(pApiToken);
             pMainContent.add(pPower);
-            pMainContent.add(pTag);
-            pMainContent.add(pApi);
-            pMainContent.add(pDestinoLocal);
+            pMainContent.add(lbTag);
+            pMainContent.add(lbApi);
+            pMainContent.add(lbDestinoLocal);
             
-            pLeftPanel.add(pMainContent, BorderLayout.CENTER);
-            
-            // Painel direito com logo e histórico
+            // Painel direito com histórico de tags (abaixo do logo)
             JPanel pRightPanel = new JPanel(new BorderLayout());
-            pRightPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            // Limitar a metade da interface para não sobrepor os campos da esquerda (responsivo)
-            // Tamanho maior horizontalmente, mas não passa da metade (600px = metade de 1200px)
-            pRightPanel.setPreferredSize(new java.awt.Dimension(550, 0));
-            pRightPanel.setMinimumSize(new java.awt.Dimension(400, 0));
-            pRightPanel.setMaximumSize(new java.awt.Dimension(600, Integer.MAX_VALUE));
-            
-            // Painel para a imagem (logo) no topo direito
-            JPanel pImagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            pImagePanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
-            try {
-                java.net.URL imageUrl = null;
-                // Tentar diferentes caminhos possíveis
-                String[] possiblePaths = {
-                    "/resources/images.png",
-                    "resources/images.png",
-                    "/images.png",
-                    "images.png"
-                };
-                
-                for (String path : possiblePaths) {
-                    imageUrl = Test.class.getResource(path);
-                    if (imageUrl == null) {
-                        imageUrl = Test.class.getClassLoader().getResource(path);
-                    }
-                    if (imageUrl != null) {
-                        break;
-                    }
-                }
-                
-                if (imageUrl != null) {
-                    ImageIcon imageIcon = new ImageIcon(imageUrl);
-                    Image image = imageIcon.getImage();
-                    Image scaledImage = image.getScaledInstance(100, 100, Image.SCALE_SMOOTH);
-                    ImageIcon scaledIcon = new ImageIcon(scaledImage);
-                    JLabel lbImage = new JLabel(scaledIcon);
-                    pImagePanel.add(lbImage);
-                } else {
-                    // Tentar carregar do sistema de arquivos como fallback
-                    try {
-                        java.io.File imageFile = new java.io.File("src/resources/images.png");
-                        if (imageFile.exists()) {
-                            ImageIcon imageIcon = new ImageIcon(imageFile.getAbsolutePath());
-                            Image image = imageIcon.getImage();
-                            Image scaledImage = image.getScaledInstance(100, 100, Image.SCALE_SMOOTH);
-                            ImageIcon scaledIcon = new ImageIcon(scaledImage);
-                            JLabel lbImage = new JLabel(scaledIcon);
-                            pImagePanel.add(lbImage);
-                        } else {
-                            System.err.println("Imagem não encontrada em nenhum dos caminhos tentados");
-                        }
-                    } catch (Exception e2) {
-                        System.err.println("Erro ao carregar imagem do sistema de arquivos: " + e2.getMessage());
-                    }
-                }
-                } catch (Exception e) {
-                System.err.println("Erro ao carregar imagem: " + e.getMessage());
-            }
-            
-            // Painel do histórico
-            JPanel pHistoricoPanel = new JPanel(new BorderLayout());
-            pHistoricoPanel.setBorder(BorderFactory.createTitledBorder("Histórico de Tags"));
+            pRightPanel.setBorder(BorderFactory.createTitledBorder("Histórico de Tags"));
+            pRightPanel.setPreferredSize(new java.awt.Dimension(400, 0));
             
             // Lista para exibir o histórico
             javax.swing.DefaultListModel<String> historicoListModel = new javax.swing.DefaultListModel<>();
@@ -1614,7 +1567,7 @@ public class Test {
             
             // Método para atualizar o histórico na interface
             Runnable atualizarHistoricoUI = () -> {
-                    SwingUtilities.invokeLater(() -> {
+                SwingUtilities.invokeLater(() -> {
                     java.util.List<TagHistorico> historico = getHistoricoTags();
                     historicoListModel.clear();
                     // Adicionar as últimas 100 entradas (mais recentes primeiro)
@@ -1644,18 +1597,15 @@ public class Test {
                 System.out.println("Histórico de tags limpo");
             });
             pHistoricoTop.add(btnLimparHistorico);
-            pHistoricoPanel.add(pHistoricoTop, BorderLayout.NORTH);
-            pHistoricoPanel.add(scrollHistorico, BorderLayout.CENTER);
-            
-            // Adicionar logo e histórico ao painel direito
-            pRightPanel.add(pImagePanel, BorderLayout.NORTH);
-            pRightPanel.add(pHistoricoPanel, BorderLayout.CENTER);
+            pRightPanel.add(pHistoricoTop, BorderLayout.NORTH);
+            pRightPanel.add(scrollHistorico, BorderLayout.CENTER);
             
             // Atualizar histórico inicialmente
             atualizarHistoricoUI.run();
             
             // Adicionar os painéis ao JFrame
-            jf.add(pLeftPanel, BorderLayout.WEST);
+            jf.add(pTopPanel, BorderLayout.NORTH);
+            jf.add(pMainContent, BorderLayout.CENTER);
             jf.add(pRightPanel, BorderLayout.EAST);
             
             // Forçar atualização do layout para garantir que todos os componentes sejam exibidos
@@ -1665,8 +1615,7 @@ public class Test {
             jf.setLocationRelativeTo(null);
             jf.setVisible(true);
 
-            // Armazenar referências para uso posterior
-            lbApiTokenValue = lbApiTokenValue; // Label do API Token (apenas informativo)
+            tfApiToken = tfApiTokenField;
             tfPower = tfPowerField;
             
             // Armazenar referência para atualizar histórico quando novas tags forem adicionadas
@@ -1675,7 +1624,13 @@ public class Test {
             uiNotifier = new UiNotifier() {
                 @Override
                 public void onConnectStatus(boolean connected) {
-                    // Campo Conexão removido - método mantido para compatibilidade
+                    if (connected) {
+                        lbConn.setText("Conexão: ON");
+                        lbConn.setForeground(Color.GREEN);
+                    } else {
+                        lbConn.setText("Conexão: OFF");
+                        lbConn.setForeground(Color.RED);
+                    }
                 }
 
                 @Override
@@ -1685,26 +1640,26 @@ public class Test {
 
                 @Override
                 public void onTagDetected(String code) {
-                    lbTag.setText(code);
+                    lbTag.setText("Última tag: " + code);
                     // Só mostrar "aguardando resposta" se não for tag duplicada com sucesso
                     String tagAtual = safeString(code).trim();
                     boolean ehTagComSucesso = ultimaTagTeveSucesso && ultimaTagComSucesso != null && ultimaTagComSucesso.equals(tagAtual);
                     if (!ehTagComSucesso) {
-                        lbApi.setText("aguardando resposta...");
+                    lbApi.setText("API: aguardando resposta...");
                     }
                     // Se for tag com sucesso, mantém a última mensagem de sucesso
                 }
 
                 @Override
                 public void onApiResult(boolean success, String code, String message, String destinoLocalDescricao) {
-                    lbApi.setText((success ? "OK" : "ERRO") + " - " + message);
+                    lbApi.setText("API (" + code + "): " + (success ? "OK" : "ERRO") + " - " + message);
                     // Atualizar destino local se houver sucesso e descrição disponível
                     if (success && destinoLocalDescricao != null && !destinoLocalDescricao.trim().isEmpty()) {
-                        lbDestinoLocal.setText(destinoLocalDescricao);
+                        lbDestinoLocal.setText("Destino Local: " + destinoLocalDescricao);
                         lbDestinoLocal.setForeground(Color.BLACK);
                     } else if (!success) {
                         // Limpar destino local em caso de erro
-                        lbDestinoLocal.setText("-");
+                        lbDestinoLocal.setText("Destino Local: -");
                         lbDestinoLocal.setForeground(Color.BLACK);
                     }
                     // Atualizar histórico na interface quando houver resultado da API
