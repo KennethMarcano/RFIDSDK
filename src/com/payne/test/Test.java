@@ -1309,7 +1309,7 @@ public class Test {
         String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
         if (!os.contains("linux")) return;
         SwingUtilities.invokeLater(() -> {
-            JFrame jf = new JFrame("RFID Linux Status - Movimentação Obrigatória");
+            JFrame jf = new JFrame("RFID eship");
             jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             jf.setAlwaysOnTop(true);
             jf.setSize(1200, 600); // Aumentado para acomodar o histórico à direita
