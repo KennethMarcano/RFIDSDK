@@ -1384,16 +1384,15 @@ public class Test {
             pMainContent.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             pMainContent.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-            JLabel lbTag = new JLabel("Última tag: -");
-            lbTag.setAlignmentX(Component.LEFT_ALIGNMENT);
-            JLabel lbApi = new JLabel("API: -");
-            lbApi.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-            // Campo API Token (Autorização)
-            JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            // Campo API Token (Autorização) - Rótulo acima do campo
+            JPanel pApiToken = new JPanel();
+            pApiToken.setLayout(new BoxLayout(pApiToken, BoxLayout.Y_AXIS));
             pApiToken.setAlignmentX(Component.LEFT_ALIGNMENT);
             JLabel lbApiToken = new JLabel("Autorização (API Token):");
+            lbApiToken.setAlignmentX(Component.LEFT_ALIGNMENT);
             JTextField tfApiTokenField = new JTextField(30);
+            tfApiTokenField.setAlignmentX(Component.LEFT_ALIGNMENT);
+            tfApiTokenField.setMaximumSize(new Dimension(Integer.MAX_VALUE, tfApiTokenField.getPreferredSize().height));
             
             // Tentar carregar apikey do arquivo .env
             java.util.Map<String, String> envMap = loadEnvFile();
@@ -1405,14 +1404,20 @@ public class Test {
                 tfApiTokenField.setText(API_TOKEN);
             }
             pApiToken.add(lbApiToken);
+            pApiToken.add(Box.createVerticalStrut(2)); // Pequeno espaçamento entre rótulo e campo
             pApiToken.add(tfApiTokenField);
-            // Definir tamanho máximo após adicionar componentes
             pApiToken.setMaximumSize(new Dimension(Integer.MAX_VALUE, pApiToken.getPreferredSize().height));
 
-            // Campo Power
-            JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            // Campo Power - Rótulo acima do campo e botão
+            JPanel pPower = new JPanel();
+            pPower.setLayout(new BoxLayout(pPower, BoxLayout.Y_AXIS));
             pPower.setAlignmentX(Component.LEFT_ALIGNMENT);
             JLabel lbPower = new JLabel("Potência (0-100):");
+            lbPower.setAlignmentX(Component.LEFT_ALIGNMENT);
+            
+            // Painel para campo e botão lado a lado
+            JPanel pPowerInput = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            pPowerInput.setAlignmentX(Component.LEFT_ALIGNMENT);
             JTextField tfPowerField = new JTextField(5);
             // Converter valor interno (0-33) para valor da interface (0-100)
             // power = 33 (máximo) -> 100 na interface
@@ -1473,10 +1478,11 @@ public class Test {
                 }
             });
             
+            pPowerInput.add(tfPowerField);
+            pPowerInput.add(btnAtualizarPotencia);
             pPower.add(lbPower);
-            pPower.add(tfPowerField);
-            pPower.add(btnAtualizarPotencia);
-            // Definir tamanho máximo após adicionar componentes
+            pPower.add(Box.createVerticalStrut(2)); // Pequeno espaçamento entre rótulo e campo
+            pPower.add(pPowerInput);
             pPower.setMaximumSize(new Dimension(Integer.MAX_VALUE, pPower.getPreferredSize().height));
             
             // Garantir que o painel Power está visível
@@ -1485,14 +1491,37 @@ public class Test {
             tfPowerField.setVisible(true);
             btnAtualizarPotencia.setVisible(true);
 
+            // Labels informativos - Rótulo acima do valor
+            JPanel pTag = new JPanel();
+            pTag.setLayout(new BoxLayout(pTag, BoxLayout.Y_AXIS));
+            pTag.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JLabel lbTagLabel = new JLabel("Última tag:");
+            lbTagLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JLabel lbTag = new JLabel("-");
+            lbTag.setAlignmentX(Component.LEFT_ALIGNMENT);
+            pTag.add(lbTagLabel);
+            pTag.add(Box.createVerticalStrut(2));
+            pTag.add(lbTag);
+            
+            JPanel pApi = new JPanel();
+            pApi.setLayout(new BoxLayout(pApi, BoxLayout.Y_AXIS));
+            pApi.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JLabel lbApiLabel = new JLabel("API:");
+            lbApiLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JLabel lbApi = new JLabel("-");
+            lbApi.setAlignmentX(Component.LEFT_ALIGNMENT);
+            pApi.add(lbApiLabel);
+            pApi.add(Box.createVerticalStrut(2));
+            pApi.add(lbApi);
+
             // Adicionar componentes com espaçamento fixo e pequeno
             pMainContent.add(pApiToken);
             pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Autorização e Potência
             pMainContent.add(pPower);
             pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
-            pMainContent.add(lbTag);
+            pMainContent.add(pTag);
             pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Tag e API
-            pMainContent.add(lbApi);
+            pMainContent.add(pApi);
             // Adicionar componente flexível no final para empurrar tudo para o topo
             pMainContent.add(Box.createVerticalGlue());
             
@@ -1587,19 +1616,19 @@ public class Test {
 
                 @Override
                 public void onTagDetected(String code) {
-                    lbTag.setText("Última tag: " + code);
+                    lbTag.setText(code);
                     // Só mostrar "aguardando resposta" se não for tag duplicada com sucesso
                     String tagAtual = safeString(code).trim();
                     boolean ehTagComSucesso = ultimaTagTeveSucesso && ultimaTagComSucesso != null && ultimaTagComSucesso.equals(tagAtual);
                     if (!ehTagComSucesso) {
-                    lbApi.setText("API: aguardando resposta...");
+                        lbApi.setText("aguardando resposta...");
                     }
                     // Se for tag com sucesso, mantém a última mensagem de sucesso
                 }
 
                 @Override
                 public void onApiResult(boolean success, String code, String message) {
-                    lbApi.setText("API (" + code + "): " + (success ? "OK" : "ERRO") + " - " + message);
+                    lbApi.setText((success ? "OK" : "ERRO") + " - " + message);
                     // Atualizar histórico na interface quando houver resultado da API
                     atualizarHistoricoRef.run();
                 }
