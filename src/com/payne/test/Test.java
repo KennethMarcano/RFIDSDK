@@ -17,6 +17,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.BufferedReader;
@@ -1380,20 +1382,21 @@ public class Test {
             JFrame jf = new JFrame("RFID Linux Status - Movimentação Obrigatória");
             jf.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             jf.setAlwaysOnTop(true);
-            jf.setSize(1200, 600); // Aumentado para acomodar o histórico à direita
-            jf.setLayout(new BorderLayout());
+            jf.setSize(1400, 700); // Tamanho otimizado para apresentação
+            jf.setLayout(new BorderLayout(5, 5)); // Espaçamento mínimo entre componentes
             
             // Painel superior com Conexão à esquerda e logo à direita
             JPanel pTopPanel = new JPanel(new BorderLayout());
-            pTopPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            pTopPanel.setBorder(BorderFactory.createEmptyBorder(8, 10, 5, 10)); // Reduzido padding vertical
             
             // Campo Conexão à esquerda
             JLabel lbConn = new JLabel("Conexão: OFF");
             lbConn.setForeground(Color.RED);
+            lbConn.setFont(lbConn.getFont().deriveFont(Font.BOLD, 12f));
             pTopPanel.add(lbConn, BorderLayout.WEST);
             
             // Painel para a imagem no canto superior direito
-            JPanel pImagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            JPanel pImagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
             pImagePanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             try {
                 java.net.URL imageUrl = null;
@@ -1446,18 +1449,27 @@ public class Test {
             }
             pTopPanel.add(pImagePanel, BorderLayout.EAST);
             
-            // Painel principal com o conteúdo existente
-            JPanel pMainContent = new JPanel(new GridLayout(0, 1)); // 0 = número de linhas automático
-
-            JLabel lbTag = new JLabel("Última tag: -");
-            JLabel lbApi = new JLabel("API: -");
-            JLabel lbDestinoLocal = new JLabel("Destino Local: -");
-
-            // Campo API Token (Autorização)
-            JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel lbApiToken = new JLabel("Autorização (API Token):");
-            JTextField tfApiTokenField = new JTextField(30);
+            // Painel principal com GridBagLayout para controle fino do espaçamento
+            JPanel pMainContent = new JPanel(new GridBagLayout());
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.anchor = GridBagConstraints.WEST;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.insets = new Insets(3, 10, 3, 10); // Espaçamento vertical reduzido (top, left, bottom, right)
+            gbc.weightx = 1.0;
             
+            // Campo API Token (Autorização)
+            gbc.gridx = 0;
+            gbc.gridy = 0;
+            gbc.gridwidth = 1;
+            JLabel lbApiToken = new JLabel("Autorização (API Token):");
+            lbApiToken.setFont(lbApiToken.getFont().deriveFont(Font.PLAIN, 11f));
+            pMainContent.add(lbApiToken, gbc);
+            
+            gbc.gridx = 1;
+            gbc.gridwidth = 2;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            JTextField tfApiTokenField = new JTextField(25);
+            tfApiTokenField.setFont(tfApiTokenField.getFont().deriveFont(Font.PLAIN, 11f));
             // Tentar carregar apikey do arquivo .env
             java.util.Map<String, String> envMap = loadEnvFile();
             String apikeyFromEnv = envMap.get("apikey");
@@ -1467,25 +1479,34 @@ public class Test {
             } else if (API_TOKEN != null && !API_TOKEN.trim().isEmpty() && !API_TOKEN.equals("P")) {
                 tfApiTokenField.setText(API_TOKEN);
             }
-            pApiToken.add(lbApiToken);
-            pApiToken.add(tfApiTokenField);
+            pMainContent.add(tfApiTokenField, gbc);
 
             // Campo Power
-            JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            gbc.gridx = 0;
+            gbc.gridy = 1;
+            gbc.gridwidth = 1;
             JLabel lbPower = new JLabel("Potência (0-100):");
+            lbPower.setFont(lbPower.getFont().deriveFont(Font.PLAIN, 11f));
+            pMainContent.add(lbPower, gbc);
+            
+            gbc.gridx = 1;
+            gbc.gridwidth = 1;
+            gbc.fill = GridBagConstraints.NONE;
             JTextField tfPowerField = new JTextField(5);
+            tfPowerField.setFont(tfPowerField.getFont().deriveFont(Font.PLAIN, 11f));
             // Converter valor interno (0-33) para valor da interface (0-100)
-            // power = 33 (máximo) -> 100 na interface
             int powerUI = (power * 100) / 33;
             tfPowerField.setText(String.valueOf(powerUI));
+            pMainContent.add(tfPowerField, gbc);
             
-            // Botão para atualizar potência
+            gbc.gridx = 2;
+            gbc.insets = new Insets(3, 5, 3, 10);
             JButton btnAtualizarPotencia = new JButton("Atualizar Potência");
+            btnAtualizarPotencia.setFont(btnAtualizarPotencia.getFont().deriveFont(Font.PLAIN, 10f));
             btnAtualizarPotencia.addActionListener(e -> {
                 String powerText = tfPowerField.getText().trim();
                 int powerUIValue;
                 
-                // Se campo vazio ou valor 0, usar potência máxima (100 na interface = 33 no módulo)
                 if (powerText.isEmpty() || powerText.equals("0")) {
                     powerUIValue = 100;
                     tfPowerField.setText("100");
@@ -1493,34 +1514,26 @@ public class Test {
                     try {
                         powerUIValue = Integer.parseInt(powerText);
                     } catch (NumberFormatException ex) {
-                        // Se não for número válido, usar potência máxima
                         powerUIValue = 100;
                         tfPowerField.setText("100");
                         System.err.println("Valor inválido - usando potência máxima (100)");
                     }
                 }
                 
-                // Validar e aplicar potência
                 if (powerUIValue >= 0 && powerUIValue <= 100) {
-                    // Converter valor da interface (0-100) para valor do módulo (1-33)
-                    // Fórmula: valor_módulo = (valor_interface * 33) / 100
                     byte powerModule;
                     if (powerUIValue == 0) {
-                        // Se 0 na interface, usar energia máxima (33 no módulo)
                         powerModule = 33;
                     } else {
                         powerModule = (byte) Math.round((powerUIValue * 33.0) / 100.0);
-                        // Garantir que não seja menor que 1 (mínimo do módulo)
                         if (powerModule < 1) {
                             powerModule = 1;
                         }
                     }
                     power = powerModule;
-                    // Atualizar power no módulo se estiver conectado
                     updatePowerIfConnected();
                     System.out.println("Potência atualizada: " + powerUIValue + "% (interface) = " + power + " (módulo)");
                 } else {
-                    // Se estiver fora do range, usar potência máxima
                     power = 33;
                     powerUIValue = 100;
                     tfPowerField.setText("100");
@@ -1532,38 +1545,58 @@ public class Test {
                         javax.swing.JOptionPane.INFORMATION_MESSAGE);
                 }
             });
-            
-            pPower.add(lbPower);
-            pPower.add(tfPowerField);
-            pPower.add(btnAtualizarPotencia);
-            
-            // Garantir que o painel Power está visível
-            pPower.setVisible(true);
-            lbPower.setVisible(true);
-            tfPowerField.setVisible(true);
-            btnAtualizarPotencia.setVisible(true);
+            pMainContent.add(btnAtualizarPotencia, gbc);
 
-            pMainContent.add(pApiToken);
-            pMainContent.add(pPower);
-            pMainContent.add(lbTag);
-            pMainContent.add(lbApi);
-            pMainContent.add(lbDestinoLocal);
+            // Labels de status com espaçamento reduzido
+            gbc.gridx = 0;
+            gbc.gridy = 2;
+            gbc.gridwidth = 3;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.insets = new Insets(8, 10, 2, 10); // Mais espaço antes dos status
+            JLabel lbTag = new JLabel("Última tag: -");
+            lbTag.setFont(lbTag.getFont().deriveFont(Font.BOLD, 12f));
+            pMainContent.add(lbTag, gbc);
             
-            // Painel direito com histórico de tags (abaixo do logo)
+            gbc.gridy = 3;
+            gbc.insets = new Insets(2, 10, 2, 10);
+            JLabel lbApi = new JLabel("API: -");
+            lbApi.setFont(lbApi.getFont().deriveFont(Font.PLAIN, 11f));
+            pMainContent.add(lbApi, gbc);
+            
+            gbc.gridy = 4;
+            JLabel lbDestinoLocal = new JLabel("Destino Local: -");
+            lbDestinoLocal.setFont(lbDestinoLocal.getFont().deriveFont(Font.PLAIN, 11f));
+            pMainContent.add(lbDestinoLocal, gbc);
+            
+            // Adicionar padding interno ao painel principal
+            pMainContent.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
+            
+            // Painel direito com histórico de tags - usando proporção responsiva
             JPanel pRightPanel = new JPanel(new BorderLayout());
-            pRightPanel.setBorder(BorderFactory.createTitledBorder("Histórico de Tags"));
-            pRightPanel.setPreferredSize(new java.awt.Dimension(400, 0));
+            pRightPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(), 
+                "Histórico de Movimentação",
+                javax.swing.border.TitledBorder.LEFT,
+                javax.swing.border.TitledBorder.TOP,
+                new Font("SansSerif", Font.BOLD, 12)
+            ));
+            // Usar proporção máxima de 50% da largura total
+            pRightPanel.setPreferredSize(new java.awt.Dimension(
+                (int)(jf.getWidth() * 0.48), 0
+            ));
             
             // Lista para exibir o histórico
             javax.swing.DefaultListModel<String> historicoListModel = new javax.swing.DefaultListModel<>();
             javax.swing.JList<String> historicoList = new javax.swing.JList<>(historicoListModel);
             historicoList.setFont(new java.awt.Font("Monospaced", java.awt.Font.PLAIN, 10));
             historicoList.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+            historicoList.setBackground(new Color(250, 250, 250)); // Fundo suave
             
             // ScrollPane para a lista
             javax.swing.JScrollPane scrollHistorico = new javax.swing.JScrollPane(historicoList);
             scrollHistorico.setVerticalScrollBarPolicy(javax.swing.JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
             scrollHistorico.setHorizontalScrollBarPolicy(javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+            scrollHistorico.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
             
             // Método para atualizar o histórico na interface
             Runnable atualizarHistoricoUI = () -> {
@@ -1585,14 +1618,14 @@ public class Test {
             };
             
             // Painel superior com botão para limpar histórico
-            JPanel pHistoricoTop = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            JPanel pHistoricoTop = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 3));
+            pHistoricoTop.setBorder(BorderFactory.createEmptyBorder(3, 5, 3, 5));
             JButton btnLimparHistorico = new JButton("Limpar Histórico");
+            btnLimparHistorico.setFont(btnLimparHistorico.getFont().deriveFont(Font.PLAIN, 10f));
             btnLimparHistorico.addActionListener(e -> {
-                // Limpar o histórico
                 synchronized (historicoTags) {
                     historicoTags.clear();
                 }
-                // Atualizar a interface
                 atualizarHistoricoUI.run();
                 System.out.println("Histórico de tags limpo");
             });
@@ -1603,12 +1636,32 @@ public class Test {
             // Atualizar histórico inicialmente
             atualizarHistoricoUI.run();
             
+            // Usar JSplitPane para divisão responsiva (permite redimensionamento)
+            JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, pMainContent, pRightPanel);
+            splitPane.setDividerLocation((int)(jf.getWidth() * 0.52)); // 52% para esquerda, 48% para direita
+            splitPane.setResizeWeight(0.52); // Mantém proporção ao redimensionar
+            splitPane.setDividerSize(5);
+            splitPane.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+            splitPane.setOneTouchExpandable(false);
+            
             // Adicionar os painéis ao JFrame
             jf.add(pTopPanel, BorderLayout.NORTH);
-            jf.add(pMainContent, BorderLayout.CENTER);
-            jf.add(pRightPanel, BorderLayout.EAST);
+            jf.add(splitPane, BorderLayout.CENTER);
             
-            // Forçar atualização do layout para garantir que todos os componentes sejam exibidos
+            // Listener para ajustar proporção do histórico ao redimensionar
+            jf.addComponentListener(new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    int frameWidth = jf.getWidth();
+                    int maxHistoricoWidth = (int)(frameWidth * 0.50); // Máximo 50% da largura
+                    int currentDivider = splitPane.getDividerLocation();
+                    if (currentDivider < frameWidth - maxHistoricoWidth) {
+                        splitPane.setDividerLocation(frameWidth - maxHistoricoWidth);
+                    }
+                }
+            });
+            
+            // Forçar atualização do layout
             jf.revalidate();
             jf.repaint();
             
