@@ -1449,26 +1449,26 @@ public class Test {
             }
             pTopPanel.add(pImagePanel, BorderLayout.EAST);
             
-            // Painel principal com GridBagLayout para controle fino do espaçamento
+            // Painel principal com grid dinâmico (máximo 3 colunas)
+            // Cada campo será um painel com label acima e componente abaixo
             JPanel pMainContent = new JPanel(new GridBagLayout());
             GridBagConstraints gbc = new GridBagConstraints();
-            gbc.anchor = GridBagConstraints.WEST;
+            gbc.anchor = GridBagConstraints.NORTHWEST;
             gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.insets = new Insets(3, 10, 3, 10); // Espaçamento vertical reduzido (top, left, bottom, right)
+            gbc.insets = new Insets(5, 10, 5, 10);
             gbc.weightx = 1.0;
+            gbc.weighty = 0.0;
             
-            // Campo API Token (Autorização)
-            gbc.gridx = 0;
-            gbc.gridy = 0;
-            gbc.gridwidth = 1;
+            // Lista de campos para distribuição dinâmica no grid
+            java.util.List<JPanel> camposList = new java.util.ArrayList<>();
+            
+            // Campo 1: Autorização (API Token)
+            JPanel pCampoApiToken = new JPanel(new BorderLayout(0, 3));
+            pCampoApiToken.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             JLabel lbApiToken = new JLabel("Autorização (API Token):");
             lbApiToken.setFont(lbApiToken.getFont().deriveFont(Font.PLAIN, 11f));
-            pMainContent.add(lbApiToken, gbc);
-            
-            gbc.gridx = 1;
-            gbc.gridwidth = 2;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            JTextField tfApiTokenField = new JTextField(25);
+            pCampoApiToken.add(lbApiToken, BorderLayout.NORTH);
+            JTextField tfApiTokenField = new JTextField();
             tfApiTokenField.setFont(tfApiTokenField.getFont().deriveFont(Font.PLAIN, 11f));
             // Tentar carregar apikey do arquivo .env
             java.util.Map<String, String> envMap = loadEnvFile();
@@ -1479,28 +1479,20 @@ public class Test {
             } else if (API_TOKEN != null && !API_TOKEN.trim().isEmpty() && !API_TOKEN.equals("P")) {
                 tfApiTokenField.setText(API_TOKEN);
             }
-            pMainContent.add(tfApiTokenField, gbc);
+            pCampoApiToken.add(tfApiTokenField, BorderLayout.CENTER);
+            camposList.add(pCampoApiToken);
 
-            // Campo Power
-            gbc.gridx = 0;
-            gbc.gridy = 1;
-            gbc.gridwidth = 1;
+            // Campo 2: Potência
+            JPanel pCampoPower = new JPanel(new BorderLayout(0, 3));
+            pCampoPower.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
             JLabel lbPower = new JLabel("Potência (0-100):");
             lbPower.setFont(lbPower.getFont().deriveFont(Font.PLAIN, 11f));
-            pMainContent.add(lbPower, gbc);
-            
-            gbc.gridx = 1;
-            gbc.gridwidth = 1;
-            gbc.fill = GridBagConstraints.NONE;
+            pCampoPower.add(lbPower, BorderLayout.NORTH);
+            JPanel pPowerInput = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
             JTextField tfPowerField = new JTextField(5);
             tfPowerField.setFont(tfPowerField.getFont().deriveFont(Font.PLAIN, 11f));
-            // Converter valor interno (0-33) para valor da interface (0-100)
             int powerUI = (power * 100) / 33;
             tfPowerField.setText(String.valueOf(powerUI));
-            pMainContent.add(tfPowerField, gbc);
-            
-            gbc.gridx = 2;
-            gbc.insets = new Insets(3, 5, 3, 10);
             JButton btnAtualizarPotencia = new JButton("Atualizar Potência");
             btnAtualizarPotencia.setFont(btnAtualizarPotencia.getFont().deriveFont(Font.PLAIN, 10f));
             btnAtualizarPotencia.addActionListener(e -> {
@@ -1545,45 +1537,88 @@ public class Test {
                         javax.swing.JOptionPane.INFORMATION_MESSAGE);
                 }
             });
-            pMainContent.add(btnAtualizarPotencia, gbc);
+            pPowerInput.add(tfPowerField);
+            pPowerInput.add(btnAtualizarPotencia);
+            pCampoPower.add(pPowerInput, BorderLayout.CENTER);
+            camposList.add(pCampoPower);
 
-            // Labels de status com espaçamento reduzido
-            gbc.gridx = 0;
-            gbc.gridy = 2;
-            gbc.gridwidth = 3;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.insets = new Insets(8, 10, 2, 10); // Mais espaço antes dos status
-            JLabel lbTag = new JLabel("Última tag: -");
+            // Campo 3: Última tag (somente leitura)
+            JPanel pCampoTag = new JPanel(new BorderLayout(0, 3));
+            pCampoTag.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+            JLabel lbTagLabel = new JLabel("Última tag:");
+            lbTagLabel.setFont(lbTagLabel.getFont().deriveFont(Font.PLAIN, 11f));
+            pCampoTag.add(lbTagLabel, BorderLayout.NORTH);
+            JLabel lbTag = new JLabel("-");
             lbTag.setFont(lbTag.getFont().deriveFont(Font.BOLD, 12f));
-            pMainContent.add(lbTag, gbc);
-            
-            gbc.gridy = 3;
-            gbc.insets = new Insets(2, 10, 2, 10);
-            JLabel lbApi = new JLabel("API: -");
+            lbTag.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLoweredBevelBorder(),
+                BorderFactory.createEmptyBorder(3, 5, 3, 5)
+            ));
+            pCampoTag.add(lbTag, BorderLayout.CENTER);
+            camposList.add(pCampoTag);
+
+            // Campo 4: API (somente leitura)
+            JPanel pCampoApi = new JPanel(new BorderLayout(0, 3));
+            pCampoApi.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+            JLabel lbApiLabel = new JLabel("API:");
+            lbApiLabel.setFont(lbApiLabel.getFont().deriveFont(Font.PLAIN, 11f));
+            pCampoApi.add(lbApiLabel, BorderLayout.NORTH);
+            JLabel lbApi = new JLabel("-");
             lbApi.setFont(lbApi.getFont().deriveFont(Font.PLAIN, 11f));
-            pMainContent.add(lbApi, gbc);
-            
-            gbc.gridy = 4;
-            JLabel lbDestinoLocal = new JLabel("Destino Local: -");
+            lbApi.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLoweredBevelBorder(),
+                BorderFactory.createEmptyBorder(3, 5, 3, 5)
+            ));
+            pCampoApi.add(lbApi, BorderLayout.CENTER);
+            camposList.add(pCampoApi);
+
+            // Campo 5: Destino Local (somente leitura)
+            JPanel pCampoDestino = new JPanel(new BorderLayout(0, 3));
+            pCampoDestino.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+            JLabel lbDestinoLabel = new JLabel("Destino Local:");
+            lbDestinoLabel.setFont(lbDestinoLabel.getFont().deriveFont(Font.PLAIN, 11f));
+            pCampoDestino.add(lbDestinoLabel, BorderLayout.NORTH);
+            JLabel lbDestinoLocal = new JLabel("-");
             lbDestinoLocal.setFont(lbDestinoLocal.getFont().deriveFont(Font.PLAIN, 11f));
-            pMainContent.add(lbDestinoLocal, gbc);
+            lbDestinoLocal.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLoweredBevelBorder(),
+                BorderFactory.createEmptyBorder(3, 5, 3, 5)
+            ));
+            pCampoDestino.add(lbDestinoLocal, BorderLayout.CENTER);
+            camposList.add(pCampoDestino);
+            
+            // Distribuir campos dinamicamente no grid (máximo 3 colunas)
+            final int MAX_COLUNAS = 3;
+            int totalCampos = camposList.size();
+            int colunaAtual = 0;
+            int linhaAtual = 0;
+            
+            for (JPanel campo : camposList) {
+                gbc.gridx = colunaAtual;
+                gbc.gridy = linhaAtual;
+                gbc.gridwidth = 1;
+                pMainContent.add(campo, gbc);
+                
+                colunaAtual++;
+                if (colunaAtual >= MAX_COLUNAS) {
+                    colunaAtual = 0;
+                    linhaAtual++;
+                }
+            }
             
             // Adicionar padding interno ao painel principal
             pMainContent.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
             
-            // Painel direito com histórico de tags - usando proporção responsiva
-            JPanel pRightPanel = new JPanel(new BorderLayout());
-            pRightPanel.setBorder(BorderFactory.createTitledBorder(
+            // Painel inferior com histórico de tags (ocupa toda a largura)
+            JPanel pHistoricoPanel = new JPanel(new BorderLayout());
+            pHistoricoPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(), 
                 "Histórico de Movimentação",
                 javax.swing.border.TitledBorder.LEFT,
                 javax.swing.border.TitledBorder.TOP,
                 new Font("SansSerif", Font.BOLD, 12)
             ));
-            // Usar proporção máxima de 50% da largura total
-            pRightPanel.setPreferredSize(new java.awt.Dimension(
-                (int)(jf.getWidth() * 0.48), 0
-            ));
+            pHistoricoPanel.setPreferredSize(new java.awt.Dimension(0, 250)); // Altura preferida
             
             // Lista para exibir o histórico
             javax.swing.DefaultListModel<String> historicoListModel = new javax.swing.DefaultListModel<>();
@@ -1630,36 +1665,16 @@ public class Test {
                 System.out.println("Histórico de tags limpo");
             });
             pHistoricoTop.add(btnLimparHistorico);
-            pRightPanel.add(pHistoricoTop, BorderLayout.NORTH);
-            pRightPanel.add(scrollHistorico, BorderLayout.CENTER);
+            pHistoricoPanel.add(pHistoricoTop, BorderLayout.NORTH);
+            pHistoricoPanel.add(scrollHistorico, BorderLayout.CENTER);
             
             // Atualizar histórico inicialmente
             atualizarHistoricoUI.run();
             
-            // Usar JSplitPane para divisão responsiva (permite redimensionamento)
-            JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, pMainContent, pRightPanel);
-            splitPane.setDividerLocation((int)(jf.getWidth() * 0.52)); // 52% para esquerda, 48% para direita
-            splitPane.setResizeWeight(0.52); // Mantém proporção ao redimensionar
-            splitPane.setDividerSize(5);
-            splitPane.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-            splitPane.setOneTouchExpandable(false);
-            
             // Adicionar os painéis ao JFrame
             jf.add(pTopPanel, BorderLayout.NORTH);
-            jf.add(splitPane, BorderLayout.CENTER);
-            
-            // Listener para ajustar proporção do histórico ao redimensionar
-            jf.addComponentListener(new ComponentAdapter() {
-                @Override
-                public void componentResized(ComponentEvent e) {
-                    int frameWidth = jf.getWidth();
-                    int maxHistoricoWidth = (int)(frameWidth * 0.50); // Máximo 50% da largura
-                    int currentDivider = splitPane.getDividerLocation();
-                    if (currentDivider < frameWidth - maxHistoricoWidth) {
-                        splitPane.setDividerLocation(frameWidth - maxHistoricoWidth);
-                    }
-                }
-            });
+            jf.add(pMainContent, BorderLayout.CENTER);
+            jf.add(pHistoricoPanel, BorderLayout.SOUTH);
             
             // Forçar atualização do layout
             jf.revalidate();
@@ -1693,26 +1708,26 @@ public class Test {
 
                 @Override
                 public void onTagDetected(String code) {
-                    lbTag.setText("Última tag: " + code);
+                    lbTag.setText(code != null ? code : "-");
                     // Só mostrar "aguardando resposta" se não for tag duplicada com sucesso
                     String tagAtual = safeString(code).trim();
                     boolean ehTagComSucesso = ultimaTagTeveSucesso && ultimaTagComSucesso != null && ultimaTagComSucesso.equals(tagAtual);
                     if (!ehTagComSucesso) {
-                    lbApi.setText("API: aguardando resposta...");
+                        lbApi.setText("aguardando resposta...");
                     }
                     // Se for tag com sucesso, mantém a última mensagem de sucesso
                 }
 
                 @Override
                 public void onApiResult(boolean success, String code, String message, String destinoLocalDescricao) {
-                    lbApi.setText("API (" + code + "): " + (success ? "OK" : "ERRO") + " - " + message);
+                    lbApi.setText((success ? "OK" : "ERRO") + " - " + message);
                     // Atualizar destino local se houver sucesso e descrição disponível
                     if (success && destinoLocalDescricao != null && !destinoLocalDescricao.trim().isEmpty()) {
-                        lbDestinoLocal.setText("Destino Local: " + destinoLocalDescricao);
+                        lbDestinoLocal.setText(destinoLocalDescricao);
                         lbDestinoLocal.setForeground(Color.BLACK);
                     } else if (!success) {
                         // Limpar destino local em caso de erro
-                        lbDestinoLocal.setText("Destino Local: -");
+                        lbDestinoLocal.setText("-");
                         lbDestinoLocal.setForeground(Color.BLACK);
                     }
                     // Atualizar histórico na interface quando houver resultado da API
