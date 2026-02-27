@@ -1378,16 +1378,23 @@ public class Test {
             }
             pTopPanel.add(pImagePanel, BorderLayout.EAST);
             
-            // Painel principal com o conteúdo existente
-            JPanel pMainContent = new JPanel(new GridLayout(0, 1)); // 0 = número de linhas automático
+            // Painel principal com o conteúdo existente - usando BoxLayout para espaçamento compacto
+            JPanel pMainContent = new JPanel();
+            pMainContent.setLayout(new BoxLayout(pMainContent, BoxLayout.Y_AXIS));
+            pMainContent.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            pMainContent.setAlignmentX(Component.LEFT_ALIGNMENT);
 
             JLabel lbTag = new JLabel("Última tag: -");
+            lbTag.setAlignmentX(Component.LEFT_ALIGNMENT);
             JLabel lbApi = new JLabel("API: -");
+            lbApi.setAlignmentX(Component.LEFT_ALIGNMENT);
 
             // Campo API Token (Autorização)
-            JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JPanel pApiToken = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+            pApiToken.setAlignmentX(Component.LEFT_ALIGNMENT);
             JLabel lbApiToken = new JLabel("Autorização (API Token):");
             JTextField tfApiTokenField = new JTextField(30);
+            tfApiTokenField.setMaximumSize(new Dimension(Integer.MAX_VALUE, tfApiTokenField.getPreferredSize().height));
             
             // Tentar carregar apikey do arquivo .env
             java.util.Map<String, String> envMap = loadEnvFile();
@@ -1402,7 +1409,8 @@ public class Test {
             pApiToken.add(tfApiTokenField);
 
             // Campo Power
-            JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+            pPower.setAlignmentX(Component.LEFT_ALIGNMENT);
             JLabel lbPower = new JLabel("Potência (0-100):");
             JTextField tfPowerField = new JTextField(5);
             // Converter valor interno (0-33) para valor da interface (0-100)
@@ -1474,10 +1482,16 @@ public class Test {
             tfPowerField.setVisible(true);
             btnAtualizarPotencia.setVisible(true);
 
+            // Adicionar componentes com espaçamento fixo e pequeno
             pMainContent.add(pApiToken);
+            pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
             pMainContent.add(pPower);
+            pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
             pMainContent.add(lbTag);
+            pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
             pMainContent.add(lbApi);
+            // Adicionar componente flexível no final para empurrar tudo para o topo
+            pMainContent.add(Box.createVerticalGlue());
             
             // Painel direito com histórico de tags (abaixo do logo)
             JPanel pRightPanel = new JPanel(new BorderLayout());
