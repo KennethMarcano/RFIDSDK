@@ -443,28 +443,71 @@ public class Test {
     /* ---------------------- GPIO Pi4J v2 helpers ---------------------- */
     private static void gpioInitIfLinux() {
         String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
-        if (!os.contains("linux")) return;
+        if (!os.contains("linux")) {
+            System.out.println("GPIO: Sistema não é Linux - GPIO não será inicializado");
+            return;
+        }
+        
+        System.out.println("========================================");
+        System.out.println("Inicializando GPIO" + GPIO_PIN_BCM + " com Pi4J v2...");
+        
         try {
             // Inicializar Pi4J
+            System.out.println("Criando contexto Pi4J...");
             pi4jContext = com.pi4j.Pi4J.newAutoContext();
+            System.out.println("Contexto Pi4J criado com sucesso");
             
-            // Criar configuração para GPIO21 como saída digital
-            var config = com.pi4j.io.gpio.digital.DigitalOutput.newConfigBuilder(pi4jContext)
-                    .id("GPIO" + GPIO_PIN_BCM)
-                    .name("Tag Detection LED")
-                    .address(GPIO_PIN_BCM)
-                    .shutdown(com.pi4j.io.gpio.digital.DigitalState.LOW)
-                    .initial(com.pi4j.io.gpio.digital.DigitalState.LOW)
-                    .provider("pigpio-digital-output");
+            // Tentar diferentes providers em ordem de preferência
+            String[] providers = {"pigpio-digital-output", "linuxfs-digital-output"};
+            Exception lastException = null;
             
-            // Criar o output digital
-            gpioOutput = pi4jContext.create(config);
-            System.out.println("GPIO" + GPIO_PIN_BCM + " inicializado como saída (Pi4J v2)");
+            for (String provider : providers) {
+                try {
+                    System.out.println("Tentando inicializar GPIO" + GPIO_PIN_BCM + " com provider: " + provider);
+                    
+                    // Criar configuração para GPIO21 como saída digital
+                    var config = com.pi4j.io.gpio.digital.DigitalOutput.newConfigBuilder(pi4jContext)
+                            .id("GPIO" + GPIO_PIN_BCM)
+                            .name("Tag Detection LED")
+                            .address(GPIO_PIN_BCM)
+                            .shutdown(com.pi4j.io.gpio.digital.DigitalState.LOW)
+                            .initial(com.pi4j.io.gpio.digital.DigitalState.LOW)
+                            .provider(provider);
+                    
+                    // Criar o output digital
+                    gpioOutput = pi4jContext.create(config);
+                    System.out.println("GPIO" + GPIO_PIN_BCM + " inicializado com sucesso usando provider: " + provider);
+                    System.out.println("========================================");
+                    return; // Sucesso, sair do loop
+                } catch (Exception e) {
+                    System.err.println("Falha ao inicializar com provider " + provider + ": " + e.getMessage());
+                    lastException = e;
+                    // Continuar para o próximo provider
+                }
+            }
+            
+            // Se chegou aqui, nenhum provider funcionou
+            throw lastException != null ? lastException : new Exception("Nenhum provider GPIO disponível");
+            
         } catch (Exception e) {
-            System.err.println("GPIO Pi4J v2 init error: " + e.getMessage());
+            System.err.println("========================================");
+            System.err.println("ERRO: GPIO Pi4J v2 não pôde ser inicializado");
+            System.err.println("Motivo: " + e.getMessage());
+            System.err.println("");
+            System.err.println("Possíveis causas:");
+            System.err.println("1. Pi4J v2 não está no classpath");
+            System.err.println("2. pigpiod não está rodando (execute: sudo systemctl start pigpiod)");
+            System.err.println("3. Permissões insuficientes (execute como root ou adicione usuário ao grupo gpio)");
+            System.err.println("4. GPIO" + GPIO_PIN_BCM + " não está disponível ou já está em uso");
+            System.err.println("========================================");
             e.printStackTrace();
             gpioOutput = null;
-            pi4jContext = null;
+            if (pi4jContext != null) {
+                try {
+                    pi4jContext.shutdown();
+                } catch (Exception ignored) {}
+                pi4jContext = null;
+            }
         }
     }
     
@@ -494,8 +537,24 @@ public class Test {
     /* Alternar estado do GPIO (para teste) */
     private static void gpioToggle() {
         if (gpioOutput == null) {
-            System.err.println("GPIO não inicializado");
-            return;
+            System.err.println("========================================");
+            System.err.println("ERRO: GPIO" + GPIO_PIN_BCM + " não está inicializado");
+            System.err.println("");
+            System.err.println("Possíveis causas:");
+            System.err.println("1. Pi4J v2 não está no classpath - verifique se as dependências foram adicionadas");
+            System.err.println("2. pigpiod não está rodando - execute: sudo systemctl start pigpiod");
+            System.err.println("3. Permissões insuficientes - execute como root ou adicione usuário ao grupo gpio");
+            System.err.println("4. Erro durante inicialização - verifique os logs acima");
+            System.err.println("");
+            System.err.println("Tentando reinicializar...");
+            System.err.println("========================================");
+            // Tentar reinicializar
+            gpioInitIfLinux();
+            if (gpioOutput == null) {
+                System.err.println("Reinicialização falhou - GPIO não disponível");
+                return;
+            }
+            System.out.println("GPIO reinicializado com sucesso!");
         }
         try {
             com.pi4j.io.gpio.digital.DigitalState currentState = gpioOutput.state();
