@@ -691,7 +691,6 @@ public class Test {
     private static String decodeUnicodeEscapes(String str) {
         if (str == null) return null;
         try {
-            // Procurar por sequências \uXXXX
             Pattern unicodePattern = Pattern.compile("\\\\u([0-9a-fA-F]{4})");
             Matcher matcher = unicodePattern.matcher(str);
             StringBuffer sb = new StringBuffer();
