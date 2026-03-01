@@ -37,6 +37,11 @@ import java.nio.file.StandardOpenOption;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+// Pi4J v2 imports
+import com.pi4j.Pi4J;
+import com.pi4j.io.gpio.digital.DigitalOutput;
+import com.pi4j.io.gpio.digital.DigitalState;
+
 public class Test {
     /* Verbose console logs */
     private static final boolean VERBOSE = false;
@@ -69,17 +74,11 @@ public class Test {
     private static final String API_TOKEN = "P";/* configure aqui (ex.: "eyJ...")
     /* HTTP/REST Config ↑↑↑ */
 
-    /* GPIO sysfs (Raspberry Pi) ↓↓↓
-     * IMPORTANTE: "GPIO29" em Pi4J/WiringPi corresponde ao BCM 21.
-     * Portanto, no sysfs usaremos gpio21.
-     */
-    private static final int GPIO_PIN_BCM = 21; /* mapeado de GPIO29 (WiringPi) -> BCM21 */
-    private static final Path SYSFS_EXPORT = Paths.get("/sys/class/gpio/export");
-    private static final Path SYSFS_UNEXPORT = Paths.get("/sys/class/gpio/unexport");
-    private static final Path SYSFS_GPIO_DIR = Paths.get("/sys/class/gpio/gpio" + GPIO_PIN_BCM);
-    private static final Path SYSFS_GPIO_DIRECTION = SYSFS_GPIO_DIR.resolve("direction");
-    private static final Path SYSFS_GPIO_VALUE = SYSFS_GPIO_DIR.resolve("value");
-    /* GPIO sysfs ↑↑↑ */
+    /* GPIO Pi4J v2 (Raspberry Pi) ↓↓↓ */
+    private static final int GPIO_PIN_BCM = 21; /* GPIO21 (BCM numbering) */
+    private static DigitalOutput gpioOutput = null;
+    private static Pi4J pi4j = null;
+    /* GPIO Pi4J v2 ↑↑↑ */
 
     /* UI notifier (Linux) */
     private interface UiNotifier {
@@ -444,51 +443,95 @@ public class Test {
         }
     }
 
-    /* ---------------------- GPIO sysfs helpers ---------------------- */
+    /* ---------------------- GPIO Pi4J v2 helpers ---------------------- */
     private static void gpioInitIfLinux() {
         String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
         if (!os.contains("linux")) return;
         try {
-            if (!Files.exists(SYSFS_GPIO_DIR)) {
-                Files.write(SYSFS_EXPORT, String.valueOf(GPIO_PIN_BCM).getBytes(StandardCharsets.US_ASCII),
-                        StandardOpenOption.WRITE);
-                /* aguarda o kernel criar a pasta */
-                for (int i = 0; i < 10 && !Files.exists(SYSFS_GPIO_DIR); i++) {
-                    try { Thread.sleep(10); } catch (InterruptedException ignored) {}
-                }
-            }
-            if (Files.exists(SYSFS_GPIO_DIRECTION)) {
-                Files.write(SYSFS_GPIO_DIRECTION, "out".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
-            }
-            if (Files.exists(SYSFS_GPIO_VALUE)) {
-                Files.write(SYSFS_GPIO_VALUE, "0".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
-            }
+            // Inicializar Pi4J
+            pi4j = Pi4J.newAutoContext();
+            
+            // Criar configuração para GPIO21 como saída digital
+            var config = DigitalOutput.newConfigBuilder(pi4j)
+                    .id("GPIO" + GPIO_PIN_BCM)
+                    .name("Tag Detection LED")
+                    .address(GPIO_PIN_BCM)
+                    .shutdown(DigitalState.LOW)
+                    .initial(DigitalState.LOW)
+                    .provider("pigpio-digital-output");
+            
+            // Criar o output digital
+            gpioOutput = pi4j.dio().create(config);
+            System.out.println("GPIO" + GPIO_PIN_BCM + " inicializado como saída (Pi4J v2)");
         } catch (Exception e) {
-            System.err.println("GPIO sysfs init error: " + e.getMessage());
+            System.err.println("GPIO Pi4J v2 init error: " + e.getMessage());
+            e.printStackTrace();
+            gpioOutput = null;
+            pi4j = null;
         }
     }
-
-    private static void gpioSetHighPulse() {
-        String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
-        if (!os.contains("linux")) return;
+    
+    /* Piscar LED quando tag é detectada */
+    private static void gpioBlinkOnTagDetected() {
+        if (gpioOutput == null) return;
         try {
-            if (!Files.exists(SYSFS_GPIO_VALUE)) return;
-            Files.write(SYSFS_GPIO_VALUE, "1".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
+            // Ativar o LED
+            gpioOutput.high();
+            // Desativar após 100ms em thread separada
             new Thread(() -> {
                 try {
-                    Thread.sleep(300);
+                    Thread.sleep(100);
+                    if (gpioOutput != null) {
+                        gpioOutput.low();
+                    }
                 } catch (InterruptedException ignored) {
+                } catch (Exception e) {
+                    System.err.println("Erro ao desativar GPIO: " + e.getMessage());
                 }
-                try {
-                    Files.write(SYSFS_GPIO_VALUE, "0".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
-                } catch (Exception ignored) {
-                }
-            }, "gpio29-success-pulse").start();
+            }, "gpio-tag-blink").start();
         } catch (Exception e) {
-            System.err.println("GPIO sysfs write error: " + e.getMessage());
+            System.err.println("GPIO blink error: " + e.getMessage());
         }
     }
-    /* -------------------- GPIO sysfs helpers (end) -------------------- */
+    
+    /* Alternar estado do GPIO (para teste) */
+    private static void gpioToggle() {
+        if (gpioOutput == null) {
+            System.err.println("GPIO não inicializado");
+            return;
+        }
+        try {
+            DigitalState currentState = gpioOutput.state();
+            if (currentState == DigitalState.HIGH) {
+                gpioOutput.low();
+                System.out.println("GPIO" + GPIO_PIN_BCM + " desativado");
+            } else {
+                gpioOutput.high();
+                System.out.println("GPIO" + GPIO_PIN_BCM + " ativado");
+            }
+        } catch (Exception e) {
+            System.err.println("GPIO toggle error: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    /* Limpar recursos GPIO */
+    private static void gpioShutdown() {
+        try {
+            if (gpioOutput != null) {
+                gpioOutput.low();
+                gpioOutput.shutdown(DigitalState.LOW);
+                gpioOutput = null;
+            }
+            if (pi4j != null) {
+                pi4j.shutdown();
+                pi4j = null;
+            }
+        } catch (Exception e) {
+            System.err.println("GPIO shutdown error: " + e.getMessage());
+        }
+    }
+    /* -------------------- GPIO Pi4J v2 helpers (end) -------------------- */
 
     /* ---------------------- Linux serial helpers ---------------------- */
     private static String resolveLinuxPortByScan() {
@@ -1090,7 +1133,7 @@ public class Test {
                 }
                 
                 if (success) {
-                    gpioSetHighPulse(); /* pulso em sucesso */
+                    // GPIO será ativado quando tag for detectada, não aqui
                     // Marcar que a última tag teve sucesso
                     ultimaTagComSucesso = codeForUi;
                     ultimaTagTeveSucesso = true;
@@ -1676,6 +1719,22 @@ public class Test {
             tfPowerField.setVisible(true);
             btnAtualizarPotencia.setVisible(true);
 
+            // Botão de teste GPIO
+            JPanel pGpioTest = new JPanel();
+            pGpioTest.setLayout(new BoxLayout(pGpioTest, BoxLayout.Y_AXIS));
+            pGpioTest.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JLabel lbGpioTest = new JLabel("Teste GPIO21:");
+            lbGpioTest.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JButton btnTestGpio = new JButton("Alternar GPIO21");
+            btnTestGpio.setAlignmentX(Component.LEFT_ALIGNMENT);
+            btnTestGpio.addActionListener(e -> {
+                gpioToggle();
+            });
+            pGpioTest.add(lbGpioTest);
+            pGpioTest.add(Box.createVerticalStrut(2));
+            pGpioTest.add(btnTestGpio);
+            pGpioTest.setMaximumSize(new Dimension(Integer.MAX_VALUE, pGpioTest.getPreferredSize().height));
+
             // Labels informativos - Rótulo acima do valor
             JPanel pTag = new JPanel();
             pTag.setLayout(new BoxLayout(pTag, BoxLayout.Y_AXIS));
@@ -1703,6 +1762,8 @@ public class Test {
             pMainContent.add(pApiToken);
             pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Autorização e Potência
             pMainContent.add(pPower);
+            pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Potência e GPIO
+            pMainContent.add(pGpioTest);
             pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
             pMainContent.add(pTag);
             pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Tag e API
@@ -1822,6 +1883,7 @@ public class Test {
             jf.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosed(WindowEvent e) {
+                    gpioShutdown();
                     System.exit(0);
                 }
             });
@@ -2460,6 +2522,9 @@ public class Test {
                             if ("0".equals(code.trim())) {
                                 return;
                             }
+                            
+                            // Piscar LED quando tag é detectada
+                            gpioBlinkOnTagDetected();
                             
                             // Atualizar status de conexão para ON quando tag é detectada
                             if (uiNotifier != null) {
