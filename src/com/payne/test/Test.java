@@ -37,10 +37,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-// Pi4J v2 imports
-import com.pi4j.Pi4J;
-import com.pi4j.io.gpio.digital.DigitalOutput;
-import com.pi4j.io.gpio.digital.DigitalState;
+// Pi4J v2 imports - usar nomes completos para evitar problemas de import até dependências estarem no classpath
 
 public class Test {
     /* Verbose console logs */
@@ -76,8 +73,8 @@ public class Test {
 
     /* GPIO Pi4J v2 (Raspberry Pi) ↓↓↓ */
     private static final int GPIO_PIN_BCM = 21; /* GPIO21 (BCM numbering) */
-    private static DigitalOutput gpioOutput = null;
-    private static Pi4J pi4j = null;
+    private static com.pi4j.io.gpio.digital.DigitalOutput gpioOutput = null;
+    private static com.pi4j.context.Context pi4jContext = null;
     /* GPIO Pi4J v2 ↑↑↑ */
 
     /* UI notifier (Linux) */
@@ -449,25 +446,25 @@ public class Test {
         if (!os.contains("linux")) return;
         try {
             // Inicializar Pi4J
-            pi4j = Pi4J.newAutoContext();
+            pi4jContext = com.pi4j.Pi4J.newAutoContext();
             
             // Criar configuração para GPIO21 como saída digital
-            var config = DigitalOutput.newConfigBuilder(pi4j)
+            var config = com.pi4j.io.gpio.digital.DigitalOutput.newConfigBuilder(pi4jContext)
                     .id("GPIO" + GPIO_PIN_BCM)
                     .name("Tag Detection LED")
                     .address(GPIO_PIN_BCM)
-                    .shutdown(DigitalState.LOW)
-                    .initial(DigitalState.LOW)
+                    .shutdown(com.pi4j.io.gpio.digital.DigitalState.LOW)
+                    .initial(com.pi4j.io.gpio.digital.DigitalState.LOW)
                     .provider("pigpio-digital-output");
             
             // Criar o output digital
-            gpioOutput = pi4j.dio().create(config);
+            gpioOutput = pi4jContext.dio().create(config);
             System.out.println("GPIO" + GPIO_PIN_BCM + " inicializado como saída (Pi4J v2)");
         } catch (Exception e) {
             System.err.println("GPIO Pi4J v2 init error: " + e.getMessage());
             e.printStackTrace();
             gpioOutput = null;
-            pi4j = null;
+            pi4jContext = null;
         }
     }
     
@@ -501,8 +498,8 @@ public class Test {
             return;
         }
         try {
-            DigitalState currentState = gpioOutput.state();
-            if (currentState == DigitalState.HIGH) {
+            com.pi4j.io.gpio.digital.DigitalState currentState = gpioOutput.state();
+            if (currentState == com.pi4j.io.gpio.digital.DigitalState.HIGH) {
                 gpioOutput.low();
                 System.out.println("GPIO" + GPIO_PIN_BCM + " desativado");
             } else {
@@ -520,12 +517,11 @@ public class Test {
         try {
             if (gpioOutput != null) {
                 gpioOutput.low();
-                gpioOutput.shutdown(DigitalState.LOW);
                 gpioOutput = null;
             }
-            if (pi4j != null) {
-                pi4j.shutdown();
-                pi4j = null;
+            if (pi4jContext != null) {
+                pi4jContext.shutdown();
+                pi4jContext = null;
             }
         } catch (Exception e) {
             System.err.println("GPIO shutdown error: " + e.getMessage());
