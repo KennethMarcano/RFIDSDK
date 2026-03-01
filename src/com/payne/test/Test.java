@@ -444,7 +444,7 @@ public class Test {
         if (!os.contains("linux")) return;
         try {
             Process p = Runtime.getRuntime().exec(
-                new String[]{"gpioset", "--chip", "gpiochip0", GPIO_PIN_BCM + "=" + value}
+                new String[]{"gpioset", "-t 0", "--chip", "gpiochip0", GPIO_PIN_BCM + "=" + value}
             );
             p.waitFor();
             if (p.exitValue() != 0) {
