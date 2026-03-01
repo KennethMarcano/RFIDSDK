@@ -458,7 +458,7 @@ public class Test {
                     .provider("pigpio-digital-output");
             
             // Criar o output digital
-            gpioOutput = pi4jContext.dio().create(config);
+            gpioOutput = pi4jContext.create(config);
             System.out.println("GPIO" + GPIO_PIN_BCM + " inicializado como saída (Pi4J v2)");
         } catch (Exception e) {
             System.err.println("GPIO Pi4J v2 init error: " + e.getMessage());
