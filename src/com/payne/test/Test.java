@@ -30,10 +30,6 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -69,17 +65,11 @@ public class Test {
     private static final String API_TOKEN = "P";/* configure aqui (ex.: "eyJ...")
     /* HTTP/REST Config ↑↑↑ */
 
-    /* GPIO sysfs (Raspberry Pi) ↓↓↓
-     * IMPORTANTE: "GPIO29" em Pi4J/WiringPi corresponde ao BCM 21.
-     * Portanto, no sysfs usaremos gpio21.
+    /* GPIO (Raspberry Pi) ↓↓↓
+     * GPIO pin BCM para controle via gpioset
      */
-    private static final int GPIO_PIN_BCM = 21; /* mapeado de GPIO29 (WiringPi) -> BCM21 */
-    private static final Path SYSFS_EXPORT = Paths.get("/sys/class/gpio/export");
-    private static final Path SYSFS_UNEXPORT = Paths.get("/sys/class/gpio/unexport");
-    private static final Path SYSFS_GPIO_DIR = Paths.get("/sys/class/gpio/gpio" + GPIO_PIN_BCM);
-    private static final Path SYSFS_GPIO_DIRECTION = SYSFS_GPIO_DIR.resolve("direction");
-    private static final Path SYSFS_GPIO_VALUE = SYSFS_GPIO_DIR.resolve("value");
-    /* GPIO sysfs ↑↑↑ */
+    private static final int GPIO_PIN_BCM = 21; /* GPIO BCM 21 (padrão) */
+    /* GPIO ↑↑↑ */
 
     /* UI notifier (Linux) */
     private interface UiNotifier {
@@ -444,51 +434,73 @@ public class Test {
         }
     }
 
-    /* ---------------------- GPIO sysfs helpers ---------------------- */
-    private static void gpioInitIfLinux() {
+    /* ---------------------- GPIO helpers (gpioset) ---------------------- */
+    /**
+     * Define o estado do GPIO usando gpioset
+     * @param value 0 para LOW, 1 para HIGH
+     */
+    private static void gpioSetValue(int value) {
         String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
         if (!os.contains("linux")) return;
         try {
-            if (!Files.exists(SYSFS_GPIO_DIR)) {
-                Files.write(SYSFS_EXPORT, String.valueOf(GPIO_PIN_BCM).getBytes(StandardCharsets.US_ASCII),
-                        StandardOpenOption.WRITE);
-                /* aguarda o kernel criar a pasta */
-                for (int i = 0; i < 10 && !Files.exists(SYSFS_GPIO_DIR); i++) {
-                    try { Thread.sleep(10); } catch (InterruptedException ignored) {}
-                }
-            }
-            if (Files.exists(SYSFS_GPIO_DIRECTION)) {
-                Files.write(SYSFS_GPIO_DIRECTION, "out".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
-            }
-            if (Files.exists(SYSFS_GPIO_VALUE)) {
-                Files.write(SYSFS_GPIO_VALUE, "0".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
+            Process p = Runtime.getRuntime().exec(
+                new String[]{"gpioset", "--chip", "gpiochip0", GPIO_PIN_BCM + "=" + value}
+            );
+            p.waitFor();
+            if (p.exitValue() != 0) {
+                System.err.println("Erro ao executar gpioset: código de saída " + p.exitValue());
             }
         } catch (Exception e) {
-            System.err.println("GPIO sysfs init error: " + e.getMessage());
+            System.err.println("GPIO gpioset error: " + e.getMessage());
         }
     }
-
-    private static void gpioSetHighPulse() {
+    
+    /**
+     * Faz o LED piscar (HIGH por 300ms, depois LOW)
+     * Usado quando uma tag é detectada do módulo
+     */
+    private static void gpioBlinkLed() {
         String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
         if (!os.contains("linux")) return;
-        try {
-            if (!Files.exists(SYSFS_GPIO_VALUE)) return;
-            Files.write(SYSFS_GPIO_VALUE, "1".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
-            new Thread(() -> {
-                try {
-                    Thread.sleep(300);
-                } catch (InterruptedException ignored) {
-                }
-                try {
-                    Files.write(SYSFS_GPIO_VALUE, "0".getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
-                } catch (Exception ignored) {
-                }
-            }, "gpio29-success-pulse").start();
-        } catch (Exception e) {
-            System.err.println("GPIO sysfs write error: " + e.getMessage());
+        new Thread(() -> {
+            try {
+                // Ligar LED (HIGH)
+                gpioSetValue(1);
+                Thread.sleep(300);
+                // Desligar LED (LOW)
+                gpioSetValue(0);
+            } catch (InterruptedException ignored) {
+            } catch (Exception e) {
+                System.err.println("Erro ao piscar LED: " + e.getMessage());
+            }
+        }, "gpio-led-blink").start();
+    }
+    
+    /**
+     * Alterna o estado do GPIO (para teste)
+     * @return o novo estado (0 ou 1)
+     */
+    private static int gpioToggle() {
+        String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
+        if (!os.contains("linux")) return -1;
+        // Como não podemos ler o estado atual facilmente com gpioset,
+        // vamos usar uma variável para rastrear o estado
+        // Por padrão, começamos com 0 (LOW)
+        synchronized (Test.class) {
+            // Usar uma variável estática para rastrear o estado
+            if (!gpioStateInitialized) {
+                gpioCurrentState = 0;
+                gpioStateInitialized = true;
+            }
+            gpioCurrentState = (gpioCurrentState == 0) ? 1 : 0;
+            gpioSetValue(gpioCurrentState);
+            return gpioCurrentState;
         }
     }
-    /* -------------------- GPIO sysfs helpers (end) -------------------- */
+    
+    private static volatile boolean gpioStateInitialized = false;
+    private static volatile int gpioCurrentState = 0;
+    /* -------------------- GPIO helpers (end) -------------------- */
 
     /* ---------------------- Linux serial helpers ---------------------- */
     private static String resolveLinuxPortByScan() {
@@ -1090,7 +1102,6 @@ public class Test {
                 }
                 
                 if (success) {
-                    gpioSetHighPulse(); /* pulso em sucesso */
                     // Marcar que a última tag teve sucesso
                     ultimaTagComSucesso = codeForUi;
                     ultimaTagTeveSucesso = true;
@@ -1477,7 +1488,6 @@ public class Test {
                 return;
             }
             initLinuxUI();
-            gpioInitIfLinux();
             startHttpWorkerIfNeeded();
             LinuxDemo demo = new LinuxDemo();
             linuxDemoInstance = demo; // Armazenar referência para poder atualizar power
@@ -1676,6 +1686,35 @@ public class Test {
             tfPowerField.setVisible(true);
             btnAtualizarPotencia.setVisible(true);
 
+            // Botão para testar GPIO
+            JPanel pGpioTest = new JPanel();
+            pGpioTest.setLayout(new BoxLayout(pGpioTest, BoxLayout.Y_AXIS));
+            pGpioTest.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JLabel lbGpioTest = new JLabel("Teste GPIO (Pin " + GPIO_PIN_BCM + "):");
+            lbGpioTest.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JButton btnTestGpio = new JButton("Alternar GPIO");
+            btnTestGpio.setAlignmentX(Component.LEFT_ALIGNMENT);
+            btnTestGpio.addActionListener(e -> {
+                int novoEstado = gpioToggle();
+                if (novoEstado >= 0) {
+                    String estadoStr = (novoEstado == 1) ? "HIGH" : "LOW";
+                    System.out.println("GPIO " + GPIO_PIN_BCM + " alternado para: " + estadoStr);
+                    javax.swing.JOptionPane.showMessageDialog(null, 
+                        "GPIO " + GPIO_PIN_BCM + " alterado para " + estadoStr, 
+                        "Teste GPIO", 
+                        javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    javax.swing.JOptionPane.showMessageDialog(null, 
+                        "Erro ao alternar GPIO. Verifique se está executando no Linux.", 
+                        "Erro", 
+                        javax.swing.JOptionPane.ERROR_MESSAGE);
+                }
+            });
+            pGpioTest.add(lbGpioTest);
+            pGpioTest.add(Box.createVerticalStrut(2));
+            pGpioTest.add(btnTestGpio);
+            pGpioTest.setMaximumSize(new Dimension(Integer.MAX_VALUE, pGpioTest.getPreferredSize().height));
+
             // Labels informativos - Rótulo acima do valor
             JPanel pTag = new JPanel();
             pTag.setLayout(new BoxLayout(pTag, BoxLayout.Y_AXIS));
@@ -1703,6 +1742,8 @@ public class Test {
             pMainContent.add(pApiToken);
             pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Autorização e Potência
             pMainContent.add(pPower);
+            pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
+            pMainContent.add(pGpioTest);
             pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
             pMainContent.add(pTag);
             pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Tag e API
@@ -2460,6 +2501,9 @@ public class Test {
                             if ("0".equals(code.trim())) {
                                 return;
                             }
+                            
+                            // Piscar LED quando tag é detectada do módulo
+                            gpioBlinkLed();
                             
                             // Atualizar status de conexão para ON quando tag é detectada
                             if (uiNotifier != null) {
