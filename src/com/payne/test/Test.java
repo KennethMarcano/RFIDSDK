@@ -77,7 +77,7 @@ public class Test {
         void onReadingStatus(boolean reading);
         void onTagDetected(String code);
         void onApiResult(boolean success, String code, String message);
-        void onTagTimestampUpdated(String code);
+        void onTimestampUpdated(String code, String message);
     }
     private static volatile UiNotifier uiNotifier;
     private static volatile JTextField tfIdRecebimento;
@@ -1244,12 +1244,6 @@ public class Test {
                     ultimaTagComSucesso = codeForUi;
                     ultimaTagTeveSucesso = true;
                     
-                    // Piscar LED quando requisição HTTP foi bem-sucedida
-                    gpioBlinkLed();
-                    
-                    // Emitir som do buzzer quando requisição HTTP foi bem-sucedida
-                    pwmBuzzerBeep();
-                    
                     // Adicionar ao histórico de auditoria (para UI)
                     historicoTags.add(new TagHistorico(codeForUi, true, msg));
                     System.out.println("Tag adicionada ao histórico de auditoria (SUCESSO): " + codeForUi);
@@ -1407,7 +1401,7 @@ public class Test {
         new Thread(() -> postJson(ENDPOINT_URL, body, headers, codeForUi), "rfid-http-post").start();
     }
 
-    /* Filtro de leitura: verifica histórico de leitura e adiciona à lista de envio se válido */
+    /* Adiciona tag à lista de envio - validação de tempo será feita no worker HTTP */
     private static void enqueueSend(String codeForUi) {
         System.out.println("========================================");
         System.out.println("Tag detectada: " + codeForUi);
@@ -1420,48 +1414,6 @@ public class Test {
             return;
         }
         
-        // Obter timestamp atual da leitura
-        long timestampAtual = System.currentTimeMillis();
-        
-        // Verificar histórico de LEITURA para esta tag
-        Long timestampUltimaLeitura = null;
-        synchronized (historicoLeitura) {
-            timestampUltimaLeitura = historicoLeitura.get(tagAtual);
-        }
-        
-        boolean deveAdicionarListaEnvio = false;
-        
-        if (timestampUltimaLeitura == null) {
-            // Primeira vez que esta tag é detectada - criar histórico de leitura e adicionar à lista de envio
-            System.out.println("Nova tag detectada - criando histórico de leitura e adicionando à lista de envio");
-            synchronized (historicoLeitura) {
-                historicoLeitura.put(tagAtual, timestampAtual);
-            }
-            deveAdicionarListaEnvio = true;
-        } else {
-            // Tag já existe no histórico de leitura - verificar diferença de tempo
-            long diferencaSegundos = (timestampAtual - timestampUltimaLeitura) / 1000;
-            
-            System.out.println("Tag já existe no histórico de leitura - diferença: " + diferencaSegundos + " segundos");
-            
-            if (diferencaSegundos < TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS) {
-                // Diferença menor que o tempo mínimo - DESCONSIDERAR esta leitura
-                // Apenas atualizar timestamp no histórico de leitura
-                System.out.println("Diferença menor que " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s - leitura DESCONSIDERADA, apenas atualizando timestamp");
-                synchronized (historicoLeitura) {
-                    historicoLeitura.put(tagAtual, timestampAtual);
-                }
-                deveAdicionarListaEnvio = false;
-            } else {
-                // Diferença maior ou igual ao tempo mínimo - leitura válida
-                System.out.println("Diferença maior ou igual a " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s - leitura válida, adicionando à lista de envio");
-                synchronized (historicoLeitura) {
-                    historicoLeitura.put(tagAtual, timestampAtual);
-                }
-                deveAdicionarListaEnvio = true;
-            }
-        }
-        
         // Atualizar UI com a tag detectada
         if (uiNotifier != null) {
             UiNotifier n = uiNotifier;
@@ -1471,21 +1423,17 @@ public class Test {
         // Atualizar última tag lida
         ultimaTagLida = tagAtual;
         
-        if (deveAdicionarListaEnvio) {
-            // Adicionar à fila para envio HTTP (lista de envio)
-            boolean offered = httpQueue.offer(codeForUi);
-            if (!offered) {
-                String msg = "Fila cheia. Descartando leitura.";
-                System.err.println("ERROR tag=" + codeForUi + " " + msg);
-                if (uiNotifier != null) {
-                    UiNotifier n = uiNotifier;
-                    SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
-                }
-            } else {
-                System.out.println("Tag adicionada à lista de envio (será processada pelo worker HTTP)");
+        // Sempre adicionar à fila para envio HTTP - validação de tempo será feita no worker
+        boolean offered = httpQueue.offer(codeForUi);
+        if (!offered) {
+            String msg = "Fila cheia. Descartando leitura.";
+            System.err.println("ERROR tag=" + codeForUi + " " + msg);
+            if (uiNotifier != null) {
+                UiNotifier n = uiNotifier;
+                SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
             }
         } else {
-            System.out.println("Tag não será adicionada à lista de envio - leitura descartada por tempo mínimo");
+            System.out.println("Tag adicionada à lista de envio (será processada pelo worker HTTP)");
         }
         
         System.out.println("========================================");
@@ -1502,6 +1450,9 @@ public class Test {
                     System.out.println("========================================");
                     System.out.println("Processando tag da lista de envio: " + code);
                     
+                    // Obter timestamp atual
+                    long timestampAtual = System.currentTimeMillis();
+                    
                     // Verificar histórico de ENVIO HTTP para esta tag
                     HistoricoEnvio historicoEnvioTag = null;
                     synchronized (historicoEnvio) {
@@ -1515,38 +1466,37 @@ public class Test {
                         System.out.println("Tag não existe no histórico de envio - será enviada pela primeira vez");
                         deveEnviar = true;
                     } else {
-                        // Tag já existe no histórico de envio - verificar se último envio foi sucesso
-                        boolean ultimoEnvioFoiSucesso = historicoEnvioTag.isUltimoEnvioSucesso();
+                        // Tag já existe no histórico de envio - verificar diferença de tempo
+                        long timestampUltimoEnvio = historicoEnvioTag.getTimestampUltimoEnvio();
+                        long diferencaSegundos = (timestampAtual - timestampUltimoEnvio) / 1000;
                         
-                        if (ultimoEnvioFoiSucesso) {
-                            // Último envio foi SUCESSO para ESTA MESMA TAG
-                            // Verificar se a última tag enviada com sucesso foi diferente
-                            // Se foi diferente, pode enviar esta tag (nova tag foi processada entre elas)
-                            if (ultimaTagComSucesso != null && !ultimaTagComSucesso.equals(code)) {
-                                // Última tag com sucesso foi diferente - pode enviar esta tag
-                                System.out.println("Última tag com sucesso foi diferente (" + ultimaTagComSucesso + ") - esta tag será enviada");
-                                deveEnviar = true;
-                            } else {
-                                // Último envio foi SUCESSO para ESTA MESMA TAG - não enviar novamente
-                                System.out.println("Último envio foi SUCESSO para esta tag - NÃO será reenviado (evita duplicata)");
-                                deveEnviar = false;
-                                
-                                // Atualizar timestamp no histórico de leitura para esta tag
-                                long timestampAtual = System.currentTimeMillis();
-                                synchronized (historicoLeitura) {
-                                    historicoLeitura.put(code, timestampAtual);
-                                }
-                                System.out.println("Timestamp atualizado no histórico de leitura para tag: " + code);
-                                
-                                // Notificar UI para atualizar e fazer parpadear o registro
-                                if (uiNotifier != null) {
-                                    UiNotifier n = uiNotifier;
-                                    SwingUtilities.invokeLater(() -> n.onTagTimestampUpdated(code));
-                                }
+                        System.out.println("Tag existe no histórico de envio - último envio há " + diferencaSegundos + " segundos");
+                        
+                        if (diferencaSegundos < TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS) {
+                            // Diferença menor que o tempo mínimo - DESCONSIDERAR este envio
+                            // Atualizar apenas o timestamp no histórico de envio (sem alterar sucesso)
+                            System.out.println("Diferença menor que " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s - envio DESCONSIDERADO, atualizando timestamp no histórico");
+                            
+                            synchronized (historicoEnvio) {
+                                boolean ultimoEnvioSucesso = historicoEnvioTag.isUltimoEnvioSucesso();
+                                historicoEnvioTag.atualizarEnvio(timestampAtual, ultimoEnvioSucesso);
                             }
+                            
+                            // Informar na interface que o timestamp foi atualizado
+                            String msg = "Timestamp atualizado (envio descartado - diferença: " + diferencaSegundos + "s < " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s)";
+                            if (uiNotifier != null) {
+                                UiNotifier n = uiNotifier;
+                                SwingUtilities.invokeLater(() -> n.onTimestampUpdated(code, msg));
+                            }
+                            
+                            // Adicionar ao histórico de auditoria (para UI) - sem envio, apenas atualização
+                            historicoTags.add(new TagHistorico(code, false, msg));
+                            System.out.println("Tag adicionada ao histórico de auditoria (TIMESTAMP ATUALIZADO): " + code);
+                            
+                            deveEnviar = false;
                         } else {
-                            // Último envio foi ERRO para esta tag - enviar novamente (retry)
-                            System.out.println("Último envio foi ERRO para esta tag - será reenviado (retry)");
+                            // Diferença maior ou igual ao tempo mínimo - pode enviar
+                            System.out.println("Diferença maior ou igual a " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s - envio será realizado");
                             deveEnviar = true;
                         }
                     }
@@ -1567,7 +1517,7 @@ public class Test {
                         }
                         postJson(ENDPOINT_URL_CONSULTAR_MOVIMENTACAO, body, headers, code);
                     } else {
-                        System.out.println("Tag não será enviada - último envio foi sucesso para esta mesma tag");
+                        System.out.println("Tag não será enviada - diferença de tempo menor que o mínimo permitido");
                     }
                     System.out.println("========================================");
                 } catch (InterruptedException ie) {
@@ -1953,105 +1903,10 @@ public class Test {
             historicoList.setFont(new java.awt.Font("Monospaced", java.awt.Font.PLAIN, 10));
             historicoList.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
             
-            // Map para rastrear tags que devem parpadear (tag -> contador de parpadeios)
-            final java.util.Map<String, Integer> tagsParaParpadear = 
-                java.util.Collections.synchronizedMap(new java.util.HashMap<>());
-            
-            // ListCellRenderer personalizado para parpadeo
-            historicoList.setCellRenderer(new javax.swing.ListCellRenderer<String>() {
-                @Override
-                public java.awt.Component getListCellRendererComponent(
-                        javax.swing.JList<? extends String> list, String value, int index,
-                        boolean isSelected, boolean cellHasFocus) {
-                    javax.swing.JLabel label = new javax.swing.JLabel(value);
-                    label.setFont(list.getFont());
-                    label.setOpaque(true);
-                    
-                    // Verificar se esta tag deve parpadear
-                    boolean deveParpadear = false;
-                    String tagCode = null;
-                    if (value != null && value.contains("Tag: ")) {
-                        try {
-                            int tagStart = value.indexOf("Tag: ") + 5;
-                            int tagEnd = value.indexOf(" |", tagStart);
-                            if (tagEnd < 0) tagEnd = value.length();
-                            tagCode = value.substring(tagStart, tagEnd).trim();
-                            Integer contador = tagsParaParpadear.get(tagCode);
-                            if (contador != null && contador > 0) {
-                                deveParpadear = true;
-                            }
-                        } catch (Exception e) {
-                            // Ignorar erro de parsing
-                        }
-                    }
-                    
-                    if (isSelected) {
-                        label.setBackground(list.getSelectionBackground());
-                        label.setForeground(list.getSelectionForeground());
-                    } else if (deveParpadear) {
-                        // Efeito de parpadeo: alternar entre amarelo claro e cor normal
-                        Integer contador = tagsParaParpadear.get(tagCode);
-                        if (contador != null && contador > 0) {
-                            // Parpadeo: alternar baseado no contador (ímpar = amarelo, par = normal)
-                            if (contador % 2 == 1) {
-                                label.setBackground(new Color(255, 255, 200)); // Amarelo claro
-                            } else {
-                                label.setBackground(list.getBackground());
-                            }
-                        } else {
-                            label.setBackground(list.getBackground());
-                        }
-                        label.setForeground(list.getForeground());
-                    } else {
-                        label.setBackground(list.getBackground());
-                        label.setForeground(list.getForeground());
-                    }
-                    
-                    return label;
-                }
-            });
-            
-            // Timer para efeito de parpadeo (alterna a cada 200ms, total de 6 vezes = 1.2 segundos)
-            javax.swing.Timer timerParpadeo = new javax.swing.Timer(200, e -> {
-                boolean precisaRepaint = false;
-                synchronized (tagsParaParpadear) {
-                    java.util.Iterator<java.util.Map.Entry<String, Integer>> it = 
-                        tagsParaParpadear.entrySet().iterator();
-                    while (it.hasNext()) {
-                        java.util.Map.Entry<String, Integer> entry = it.next();
-                        int contador = entry.getValue();
-                        if (contador > 0) {
-                            entry.setValue(contador - 1);
-                            precisaRepaint = true;
-                            if (contador - 1 == 0) {
-                                // Remover após completar o parpadeo
-                                it.remove();
-                            }
-                        }
-                    }
-                }
-                if (precisaRepaint) {
-                    historicoList.repaint();
-                }
-            });
-            timerParpadeo.start();
-            
             // ScrollPane para a lista
             javax.swing.JScrollPane scrollHistorico = new javax.swing.JScrollPane(historicoList);
             scrollHistorico.setVerticalScrollBarPolicy(javax.swing.JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
             scrollHistorico.setHorizontalScrollBarPolicy(javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-            
-            // Método para fazer uma tag parpadear na interface
-            final java.util.function.Consumer<String> fazerTagParpadear = (String tagCode) -> {
-                SwingUtilities.invokeLater(() -> {
-                    // Adicionar tag ao map de parpadeo (6 ciclos = 1.2 segundos)
-                    synchronized (tagsParaParpadear) {
-                        tagsParaParpadear.put(tagCode, 6);
-                    }
-                    // Forçar repaint imediato
-                    historicoList.repaint();
-                });
-            };
             
             // Método para atualizar o histórico na interface
             Runnable atualizarHistoricoUI = () -> {
@@ -2108,8 +1963,6 @@ public class Test {
             
             // Armazenar referência para atualizar histórico quando novas tags forem adicionadas
             final Runnable atualizarHistoricoRef = atualizarHistoricoUI;
-            // Armazenar referência para fazer tag parpadear
-            final java.util.function.Consumer<String> fazerTagParpadearRef = fazerTagParpadear;
 
             uiNotifier = new UiNotifier() {
                 @Override
@@ -2148,18 +2001,10 @@ public class Test {
                 }
 
                 @Override
-                public void onTagTimestampUpdated(String code) {
-                    // Piscar LED quando tag repetida atualiza timestamp
-                    gpioBlinkLed();
-                    
-                    // Emitir som do buzzer quando tag repetida atualiza timestamp
-                    pwmBuzzerBeep();
-                    
-                    // Atualizar histórico na interface para refletir o novo timestamp
+                public void onTimestampUpdated(String code, String message) {
+                    lbApi.setText("TIMESTAMP ATUALIZADO - " + message);
+                    // Atualizar histórico na interface quando timestamp for atualizado
                     atualizarHistoricoRef.run();
-                    // Fazer parpadear o registro correspondente na lista
-                    fazerTagParpadearRef.accept(code);
-                    System.out.println("Timestamp atualizado para tag: " + code + " - registro parpadeando na UI");
                 }
             };
 
@@ -2806,6 +2651,12 @@ public class Test {
                             if ("0".equals(code.trim())) {
                                 return;
                             }
+                            
+                            // Piscar LED quando tag é detectada do módulo
+                            gpioBlinkLed();
+                            
+                            // Emitir som do buzzer quando tag é detectada
+                            pwmBuzzerBeep();
                             
                             // Atualizar status de conexão para ON quando tag é detectada
                             if (uiNotifier != null) {
