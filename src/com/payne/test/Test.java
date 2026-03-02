@@ -502,6 +502,139 @@ public class Test {
     private static volatile int gpioCurrentState = 0;
     /* -------------------- GPIO helpers (end) -------------------- */
 
+    /* ---------------------- PWM Buzzer helpers ---------------------- */
+    private static final String PWM_CHIP_PATH = "/sys/class/pwm/pwmchip0";
+    private static final String PWM_CHANNEL = "0";
+    private static final String PWM_BASE_PATH = PWM_CHIP_PATH + "/pwm" + PWM_CHANNEL;
+    private static final long PWM_PERIOD = 1000000L; // 1MHz = 1 segundo em nanosegundos
+    private static final long PWM_DUTY_CYCLE = 500000L; // 50% duty cycle
+    private static final int BUZZER_DURATION_MS = 100; // Duração do som em milissegundos
+    private static volatile boolean pwmInitialized = false;
+    
+    /**
+     * Inicializa o PWM hardware uma única vez no arranque da aplicação
+     * Exporta o canal, configura period e duty_cycle, deixa pronto para uso
+     */
+    private static synchronized void initPwmBuzzer() {
+        String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
+        if (!os.contains("linux")) {
+            System.out.println("PWM Buzzer: Sistema não é Linux - funcionalidade desabilitada");
+            return;
+        }
+        
+        if (pwmInitialized) {
+            return; // Já inicializado
+        }
+        
+        try {
+            java.nio.file.Path exportPath = java.nio.file.Paths.get(PWM_CHIP_PATH + "/export");
+            java.nio.file.Path periodPath = java.nio.file.Paths.get(PWM_BASE_PATH + "/period");
+            java.nio.file.Path dutyCyclePath = java.nio.file.Paths.get(PWM_BASE_PATH + "/duty_cycle");
+            java.nio.file.Path enablePath = java.nio.file.Paths.get(PWM_BASE_PATH + "/enable");
+            
+            // Verificar se o PWM já está exportado
+            if (!java.nio.file.Files.exists(java.nio.file.Paths.get(PWM_BASE_PATH))) {
+                // Exportar o canal PWM
+                System.out.println("PWM Buzzer: Exportando canal " + PWM_CHANNEL);
+                java.nio.file.Files.writeString(exportPath, PWM_CHANNEL, java.nio.charset.StandardCharsets.UTF_8);
+                
+                // Aguardar um pouco para o sistema criar os arquivos
+                Thread.sleep(100);
+            }
+            
+            // Configurar period
+            System.out.println("PWM Buzzer: Configurando period = " + PWM_PERIOD);
+            java.nio.file.Files.writeString(periodPath, String.valueOf(PWM_PERIOD), java.nio.charset.StandardCharsets.UTF_8);
+            
+            // Configurar duty_cycle
+            System.out.println("PWM Buzzer: Configurando duty_cycle = " + PWM_DUTY_CYCLE);
+            java.nio.file.Files.writeString(dutyCyclePath, String.valueOf(PWM_DUTY_CYCLE), java.nio.charset.StandardCharsets.UTF_8);
+            
+            // Garantir que está desabilitado inicialmente
+            java.nio.file.Files.writeString(enablePath, "0", java.nio.charset.StandardCharsets.UTF_8);
+            
+            pwmInitialized = true;
+            System.out.println("PWM Buzzer: Inicializado com sucesso");
+        } catch (Exception e) {
+            System.err.println("PWM Buzzer: Erro ao inicializar - " + e.getMessage());
+            // Não marcar como inicializado se houve erro
+            pwmInitialized = false;
+        }
+    }
+    
+    /**
+     * Ativa o buzzer por um período de tempo
+     * Ativa enable=1, espera X milissegundos, desativa enable=0
+     */
+    private static void pwmBuzzerBeep() {
+        String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
+        if (!os.contains("linux")) return;
+        
+        if (!pwmInitialized) {
+            // Tentar inicializar se ainda não foi feito
+            initPwmBuzzer();
+            if (!pwmInitialized) {
+                return; // Se ainda não conseguiu inicializar, não fazer nada
+            }
+        }
+        
+        // Executar em thread separada para não bloquear
+        new Thread(() -> {
+            try {
+                java.nio.file.Path enablePath = java.nio.file.Paths.get(PWM_BASE_PATH + "/enable");
+                
+                // Ativar buzzer (enable = 1)
+                java.nio.file.Files.writeString(enablePath, "1", java.nio.charset.StandardCharsets.UTF_8);
+                
+                // Esperar X milissegundos
+                Thread.sleep(BUZZER_DURATION_MS);
+                
+                // Desativar buzzer (enable = 0)
+                java.nio.file.Files.writeString(enablePath, "0", java.nio.charset.StandardCharsets.UTF_8);
+            } catch (InterruptedException ignored) {
+                // Se foi interrompido, garantir que o buzzer seja desativado
+                try {
+                    java.nio.file.Path enablePath = java.nio.file.Paths.get(PWM_BASE_PATH + "/enable");
+                    java.nio.file.Files.writeString(enablePath, "0", java.nio.charset.StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    // Ignorar erro ao desativar
+                }
+            } catch (Exception e) {
+                System.err.println("PWM Buzzer: Erro ao emitir som - " + e.getMessage());
+            }
+        }, "pwm-buzzer-beep").start();
+    }
+    
+    /**
+     * Limpa recursos do PWM ao encerrar a aplicação
+     */
+    private static void cleanupPwmBuzzer() {
+        if (!pwmInitialized) return;
+        
+        String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
+        if (!os.contains("linux")) return;
+        
+        try {
+            java.nio.file.Path enablePath = java.nio.file.Paths.get(PWM_BASE_PATH + "/enable");
+            java.nio.file.Path unexportPath = java.nio.file.Paths.get(PWM_CHIP_PATH + "/unexport");
+            
+            // Desativar buzzer
+            if (java.nio.file.Files.exists(enablePath)) {
+                java.nio.file.Files.writeString(enablePath, "0", java.nio.charset.StandardCharsets.UTF_8);
+            }
+            
+            // Unexport do canal (opcional, mas limpa recursos)
+            if (java.nio.file.Files.exists(unexportPath)) {
+                java.nio.file.Files.writeString(unexportPath, PWM_CHANNEL, java.nio.charset.StandardCharsets.UTF_8);
+            }
+            
+            System.out.println("PWM Buzzer: Recursos liberados");
+        } catch (Exception e) {
+            System.err.println("PWM Buzzer: Erro ao limpar recursos - " + e.getMessage());
+        }
+    }
+    /* -------------------- PWM Buzzer helpers (end) -------------------- */
+
     /* ---------------------- Linux serial helpers ---------------------- */
     private static String resolveLinuxPortByScan() {
         try {
@@ -1523,6 +1656,8 @@ public class Test {
                 System.err.println("no com port!");
                 return;
             }
+            // Inicializar PWM Buzzer uma vez no arranque
+            initPwmBuzzer();
             initLinuxUI();
             startHttpWorkerIfNeeded();
             LinuxDemo demo = new LinuxDemo();
@@ -1899,6 +2034,8 @@ public class Test {
             jf.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosed(WindowEvent e) {
+                    // Limpar recursos do PWM antes de sair
+                    cleanupPwmBuzzer();
                     System.exit(0);
                 }
             });
@@ -2540,6 +2677,9 @@ public class Test {
                             
                             // Piscar LED quando tag é detectada do módulo
                             gpioBlinkLed();
+                            
+                            // Emitir som do buzzer quando tag é detectada
+                            pwmBuzzerBeep();
                             
                             // Atualizar status de conexão para ON quando tag é detectada
                             if (uiNotifier != null) {
