@@ -159,13 +159,20 @@ public class Test {
         private final boolean sucesso;
         private final String mensagem;
         private volatile boolean timestampAtualizadoRecentemente; // Flag para indicar atualização recente
+        private final boolean temErroOPE10161; // Flag permanente para indicar erro OPE10161
         
         public TagHistorico(String tag, boolean sucesso, String mensagem) {
+            this(tag, sucesso, mensagem, null);
+        }
+        
+        public TagHistorico(String tag, boolean sucesso, String mensagem, String codigoErro) {
             this.tag = tag;
             this.timestamp = System.currentTimeMillis();
             this.sucesso = sucesso;
             this.mensagem = mensagem;
             this.timestampAtualizadoRecentemente = false;
+            // Verificar se o código de erro é OPE10161
+            this.temErroOPE10161 = (codigoErro != null && codigoErro.equals("OPE10161"));
         }
         
         public String getTag() { return tag; }
@@ -173,6 +180,7 @@ public class Test {
         public boolean isSucesso() { return sucesso; }
         public String getMensagem() { return mensagem; }
         public boolean isTimestampAtualizadoRecentemente() { return timestampAtualizadoRecentemente; }
+        public boolean isTemErroOPE10161() { return temErroOPE10161; }
         
         public void atualizarTimestamp(long novoTimestamp) {
             this.timestamp = novoTimestamp;
@@ -1250,10 +1258,11 @@ public class Test {
                 boolean success = httpOk && !bodyErr;
 
                 String msg;
+                String codigoErro = null;
                 if (bodyErr) {
                     String em = extractFirstErrorMessage(responseBody);
-                    String ec = extractFirstErrorCode(responseBody);
-                    msg = (em != null ? em : "Erro retornado pela API") + (ec != null ? " (" + ec + ")" : "");
+                    codigoErro = extractFirstErrorCode(responseBody);
+                    msg = (em != null ? em : "Erro retornado pela API") + (codigoErro != null ? " (" + codigoErro + ")" : "");
                 } else {
                     msg = "Sucesso";
                 }
@@ -1282,7 +1291,7 @@ public class Test {
                     ultimaTagTeveSucesso = true;
                     
                     // Adicionar ao histórico de auditoria (para UI)
-                    historicoTags.add(new TagHistorico(codeForUi, true, msg));
+                    historicoTags.add(new TagHistorico(codeForUi, true, msg, codigoErro));
                     System.out.println("Tag adicionada ao histórico de auditoria (SUCESSO): " + codeForUi);
                     
                     if (uiNotifier != null) {
@@ -1298,7 +1307,7 @@ public class Test {
                     }
                     
                     // Adicionar ao histórico de auditoria (para UI)
-                    historicoTags.add(new TagHistorico(codeForUi, false, msg));
+                    historicoTags.add(new TagHistorico(codeForUi, false, msg, codigoErro));
                     System.out.println("Tag adicionada ao histórico de auditoria (ERRO): " + codeForUi);
                     
                     if (uiNotifier != null) {
@@ -1329,7 +1338,7 @@ public class Test {
                 
                 // Adicionar ao histórico de auditoria (para UI)
                 String errorMsg = "Timeout na conexão HTTP: " + e.getMessage();
-                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg));
+                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg, null));
                 System.out.println("Tag adicionada ao histórico de auditoria (ERRO - Timeout): " + codeForUi);
                 
                 System.err.println("HTTP post timeout: " + e.getMessage());
@@ -1361,7 +1370,7 @@ public class Test {
                 
                 // Adicionar ao histórico de auditoria (para UI)
                 String errorMsg = "Erro de conexão HTTP: " + e.getMessage();
-                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg));
+                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg, null));
                 System.out.println("Tag adicionada ao histórico de auditoria (ERRO - Conexão): " + codeForUi);
                 
                 System.err.println("HTTP post connection error: " + e.getMessage());
@@ -1393,7 +1402,7 @@ public class Test {
                 
                 // Adicionar ao histórico de auditoria (para UI)
                 String errorMsg = "Erro HTTP: " + e.getMessage();
-                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg));
+                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg, null));
                 System.out.println("Tag adicionada ao histórico de auditoria (ERRO - Exceção): " + codeForUi);
                 
                 System.err.println("HTTP post error: " + e.getMessage());
@@ -1967,9 +1976,23 @@ public class Test {
                     javax.swing.JLabel label = new javax.swing.JLabel(value.toString());
                     label.setOpaque(true);
                     
-                    // Se timestamp foi atualizado recentemente, mostrar background verde
-                    if (value.isTimestampAtualizadoRecentemente()) {
+                    // Prioridade: Erro OPE10161 (vermelho permanente) > Timestamp atualizado (verde temporário) > Seleção normal
+                    if (value.isTemErroOPE10161()) {
+                        // Background vermelho permanente para erro OPE10161
+                        label.setBackground(new java.awt.Color(255, 200, 200)); // Light red
+                        if (!isSelected) {
+                            label.setForeground(list.getForeground());
+                        } else {
+                            label.setForeground(list.getSelectionForeground());
+                        }
+                    } else if (value.isTimestampAtualizadoRecentemente()) {
+                        // Background verde temporário para timestamp atualizado
                         label.setBackground(new java.awt.Color(144, 238, 144)); // Light green
+                        if (!isSelected) {
+                            label.setForeground(list.getForeground());
+                        } else {
+                            label.setForeground(list.getSelectionForeground());
+                        }
                     } else if (isSelected) {
                         label.setBackground(list.getSelectionBackground());
                         label.setForeground(list.getSelectionForeground());
