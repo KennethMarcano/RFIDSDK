@@ -77,7 +77,7 @@ public class Test {
         void onReadingStatus(boolean reading);
         void onTagDetected(String code);
         void onApiResult(boolean success, String code, String message);
-        void onTimestampUpdated(String code, String message);
+        void onTimestampUpdated(String code, String message); // message pode ser null - apenas para atualizar visual
     }
     private static volatile UiNotifier uiNotifier;
     private static volatile JTextField tfIdRecebimento;
@@ -150,21 +150,37 @@ public class Test {
     /* Classe para representar uma entrada no histórico de tags */
     private static class TagHistorico {
         private final String tag;
-        private final long timestamp;
+        private long timestamp;
         private final boolean sucesso;
         private final String mensagem;
+        private volatile boolean timestampAtualizadoRecentemente; // Flag para indicar atualização recente
         
         public TagHistorico(String tag, boolean sucesso, String mensagem) {
             this.tag = tag;
             this.timestamp = System.currentTimeMillis();
             this.sucesso = sucesso;
             this.mensagem = mensagem;
+            this.timestampAtualizadoRecentemente = false;
         }
         
         public String getTag() { return tag; }
         public long getTimestamp() { return timestamp; }
         public boolean isSucesso() { return sucesso; }
         public String getMensagem() { return mensagem; }
+        public boolean isTimestampAtualizadoRecentemente() { return timestampAtualizadoRecentemente; }
+        
+        public void atualizarTimestamp(long novoTimestamp) {
+            this.timestamp = novoTimestamp;
+            this.timestampAtualizadoRecentemente = true;
+            // Resetar flag após 2 segundos (tempo suficiente para UI atualizar)
+            new Thread(() -> {
+                try {
+                    Thread.sleep(2000);
+                    this.timestampAtualizadoRecentemente = false;
+                } catch (InterruptedException ignored) {
+                }
+            }, "reset-timestamp-flag").start();
+        }
         
         @Override
         public String toString() {
@@ -191,6 +207,22 @@ public class Test {
     /* Método para obter o tamanho do histórico */
     public static int getHistoricoTagsSize() {
         return historicoTags.size();
+    }
+    
+    /* Método para atualizar o timestamp do registro mais recente de uma tag */
+    private static void atualizarTimestampRegistroMaisRecente(String tag, long novoTimestamp) {
+        synchronized (historicoTags) {
+            // Procurar do final para o início (mais recente primeiro)
+            for (int i = historicoTags.size() - 1; i >= 0; i--) {
+                TagHistorico entrada = historicoTags.get(i);
+                if (entrada.getTag().equals(tag)) {
+                    // Encontrou o registro mais recente desta tag - atualizar timestamp
+                    entrada.atualizarTimestamp(novoTimestamp);
+                    System.out.println("Timestamp atualizado no registro mais recente da tag: " + tag);
+                    return;
+                }
+            }
+        }
     }
 
     private static String getUiIdRecebimento() {
@@ -1482,16 +1514,14 @@ public class Test {
                                 historicoEnvioTag.atualizarEnvio(timestampAtual, ultimoEnvioSucesso);
                             }
                             
-                            // Informar na interface que o timestamp foi atualizado
-                            String msg = "Timestamp atualizado (envio descartado - diferença: " + diferencaSegundos + "s < " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s)";
+                            // Atualizar timestamp do registro mais recente no histórico de tags (se existir)
+                            atualizarTimestampRegistroMaisRecente(code, timestampAtual);
+                            
+                            // Informar na interface que o timestamp foi atualizado (apenas para atualizar visual)
                             if (uiNotifier != null) {
                                 UiNotifier n = uiNotifier;
-                                SwingUtilities.invokeLater(() -> n.onTimestampUpdated(code, msg));
+                                SwingUtilities.invokeLater(() -> n.onTimestampUpdated(code, null));
                             }
-                            
-                            // Adicionar ao histórico de auditoria (para UI) - sem envio, apenas atualização
-                            historicoTags.add(new TagHistorico(code, false, msg));
-                            System.out.println("Tag adicionada ao histórico de auditoria (TIMESTAMP ATUALIZADO): " + code);
                             
                             deveEnviar = false;
                         } else {
@@ -1897,11 +1927,38 @@ public class Test {
             pRightPanel.setBorder(BorderFactory.createTitledBorder("Histórico de Tags"));
             pRightPanel.setPreferredSize(new java.awt.Dimension(550, 0));
             
-            // Lista para exibir o histórico
-            javax.swing.DefaultListModel<String> historicoListModel = new javax.swing.DefaultListModel<>();
-            javax.swing.JList<String> historicoList = new javax.swing.JList<>(historicoListModel);
+            // Lista para exibir o histórico - usando TagHistorico diretamente
+            javax.swing.DefaultListModel<TagHistorico> historicoListModel = new javax.swing.DefaultListModel<>();
+            javax.swing.JList<TagHistorico> historicoList = new javax.swing.JList<>(historicoListModel);
             historicoList.setFont(new java.awt.Font("Monospaced", java.awt.Font.PLAIN, 10));
             historicoList.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+            
+            // Renderer customizado para mostrar background verde quando timestamp foi atualizado
+            historicoList.setCellRenderer(new javax.swing.ListCellRenderer<TagHistorico>() {
+                @Override
+                public java.awt.Component getListCellRendererComponent(
+                        javax.swing.JList<? extends TagHistorico> list,
+                        TagHistorico value,
+                        int index,
+                        boolean isSelected,
+                        boolean cellHasFocus) {
+                    javax.swing.JLabel label = new javax.swing.JLabel(value.toString());
+                    label.setOpaque(true);
+                    
+                    // Se timestamp foi atualizado recentemente, mostrar background verde
+                    if (value.isTimestampAtualizadoRecentemente()) {
+                        label.setBackground(new java.awt.Color(144, 238, 144)); // Light green
+                    } else if (isSelected) {
+                        label.setBackground(list.getSelectionBackground());
+                        label.setForeground(list.getSelectionForeground());
+                    } else {
+                        label.setBackground(list.getBackground());
+                        label.setForeground(list.getForeground());
+                    }
+                    
+                    return label;
+                }
+            });
             
             // ScrollPane para a lista
             javax.swing.JScrollPane scrollHistorico = new javax.swing.JScrollPane(historicoList);
@@ -1917,13 +1974,15 @@ public class Test {
                     int inicio = Math.max(0, historico.size() - 100);
                     for (int i = historico.size() - 1; i >= inicio; i--) {
                         TagHistorico entrada = historico.get(i);
-                        historicoListModel.addElement(entrada.toString());
+                        historicoListModel.addElement(entrada);
                     }
                     // Auto-scroll para o topo (mais recente)
                     if (historicoListModel.getSize() > 0) {
                         historicoList.setSelectedIndex(0);
                         historicoList.ensureIndexIsVisible(0);
                     }
+                    // Forçar repaint para atualizar cores
+                    historicoList.repaint();
                 });
             };
             
@@ -2002,7 +2061,7 @@ public class Test {
 
                 @Override
                 public void onTimestampUpdated(String code, String message) {
-                    lbApi.setText("TIMESTAMP ATUALIZADO - " + message);
+                    // Não mostrar mensagem - apenas atualizar histórico para mostrar background verde
                     // Atualizar histórico na interface quando timestamp for atualizado
                     atualizarHistoricoRef.run();
                 }
