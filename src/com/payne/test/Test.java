@@ -197,7 +197,8 @@ public class Test {
         
         @Override
         public String toString() {
-            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+            // Usar ThreadLocal SimpleDateFormat para melhor performance
+            java.text.SimpleDateFormat sdf = getSafeDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
             return String.format("[%s] Tag: %s | %s | %s", 
                 sdf.format(new java.util.Date(timestamp)), 
                 tag, 
@@ -210,10 +211,19 @@ public class Test {
     private static final java.util.List<TagHistorico> historicoTags = 
         java.util.Collections.synchronizedList(new java.util.ArrayList<>());
     
-    /* Método para obter uma cópia do histórico de tags (thread-safe) */
+    /* Limite máximo de itens no histórico para evitar memory leak */
+    private static final int MAX_HISTORICO_TAGS = 1000;
+    
+    /* Método para obter uma cópia do histórico de tags (thread-safe) - otimizado */
     public static java.util.List<TagHistorico> getHistoricoTags() {
         synchronized (historicoTags) {
-            return new java.util.ArrayList<>(historicoTags);
+            // Se o histórico for pequeno, criar cópia completa
+            if (historicoTags.size() <= 200) {
+                return new java.util.ArrayList<>(historicoTags);
+            }
+            // Se for grande, retornar apenas os últimos 200 itens (mais do que suficiente para UI)
+            int inicio = Math.max(0, historicoTags.size() - 200);
+            return new java.util.ArrayList<>(historicoTags.subList(inicio, historicoTags.size()));
         }
     }
     
@@ -222,19 +232,46 @@ public class Test {
         return historicoTags.size();
     }
     
-    /* Método para atualizar o timestamp do registro mais recente de uma tag */
-    private static void atualizarTimestampRegistroMaisRecente(String tag, long novoTimestamp) {
+    /* Método para adicionar ao histórico com limite automático */
+    private static void adicionarAoHistorico(TagHistorico entrada) {
         synchronized (historicoTags) {
-            // Procurar do final para o início (mais recente primeiro)
-            for (int i = historicoTags.size() - 1; i >= 0; i--) {
+            historicoTags.add(entrada);
+            // Se exceder o limite, remover os mais antigos
+            while (historicoTags.size() > MAX_HISTORICO_TAGS) {
+                historicoTags.remove(0);
+            }
+        }
+    }
+    
+    /* Cache para última tag atualizada (otimização) */
+    private static volatile String ultimaTagAtualizada = null;
+    private static volatile TagHistorico ultimoRegistroAtualizado = null;
+    
+    /* Método para atualizar o timestamp do registro mais recente de uma tag - otimizado */
+    private static void atualizarTimestampRegistroMaisRecente(String tag, long novoTimestamp) {
+        // Otimização: verificar cache primeiro
+        if (ultimaTagAtualizada != null && ultimaTagAtualizada.equals(tag) && ultimoRegistroAtualizado != null) {
+            ultimoRegistroAtualizado.atualizarTimestamp(novoTimestamp);
+            return;
+        }
+        
+        synchronized (historicoTags) {
+            // Procurar do final para o início (mais recente primeiro) - limitar busca a últimos 50 itens
+            int limiteBusca = Math.min(50, historicoTags.size());
+            for (int i = historicoTags.size() - 1; i >= historicoTags.size() - limiteBusca; i--) {
                 TagHistorico entrada = historicoTags.get(i);
                 if (entrada.getTag().equals(tag)) {
                     // Encontrou o registro mais recente desta tag - atualizar timestamp
                     entrada.atualizarTimestamp(novoTimestamp);
-                    System.out.println("Timestamp atualizado no registro mais recente da tag: " + tag);
+                    // Atualizar cache
+                    ultimaTagAtualizada = tag;
+                    ultimoRegistroAtualizado = entrada;
                     return;
                 }
             }
+            // Se não encontrou nos últimos 50, limpar cache
+            ultimaTagAtualizada = null;
+            ultimoRegistroAtualizado = null;
         }
     }
 
@@ -1291,7 +1328,7 @@ public class Test {
                     ultimaTagTeveSucesso = true;
                     
                     // Adicionar ao histórico de auditoria (para UI)
-                    historicoTags.add(new TagHistorico(codeForUi, true, msg, codigoErro));
+                    adicionarAoHistorico(new TagHistorico(codeForUi, true, msg, codigoErro));
                     System.out.println("Tag adicionada ao histórico de auditoria (SUCESSO): " + codeForUi);
                     
                     if (uiNotifier != null) {
@@ -1307,7 +1344,7 @@ public class Test {
                     }
                     
                     // Adicionar ao histórico de auditoria (para UI)
-                    historicoTags.add(new TagHistorico(codeForUi, false, msg, codigoErro));
+                    adicionarAoHistorico(new TagHistorico(codeForUi, false, msg, codigoErro));
                     System.out.println("Tag adicionada ao histórico de auditoria (ERRO): " + codeForUi);
                     
                     if (uiNotifier != null) {
@@ -1338,7 +1375,7 @@ public class Test {
                 
                 // Adicionar ao histórico de auditoria (para UI)
                 String errorMsg = "Timeout na conexão HTTP: " + e.getMessage();
-                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg, null));
+                adicionarAoHistorico(new TagHistorico(codeForUi, false, errorMsg, null));
                 System.out.println("Tag adicionada ao histórico de auditoria (ERRO - Timeout): " + codeForUi);
                 
                 System.err.println("HTTP post timeout: " + e.getMessage());
@@ -1370,7 +1407,7 @@ public class Test {
                 
                 // Adicionar ao histórico de auditoria (para UI)
                 String errorMsg = "Erro de conexão HTTP: " + e.getMessage();
-                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg, null));
+                adicionarAoHistorico(new TagHistorico(codeForUi, false, errorMsg, null));
                 System.out.println("Tag adicionada ao histórico de auditoria (ERRO - Conexão): " + codeForUi);
                 
                 System.err.println("HTTP post connection error: " + e.getMessage());
@@ -1402,7 +1439,7 @@ public class Test {
                 
                 // Adicionar ao histórico de auditoria (para UI)
                 String errorMsg = "Erro HTTP: " + e.getMessage();
-                historicoTags.add(new TagHistorico(codeForUi, false, errorMsg, null));
+                adicionarAoHistorico(new TagHistorico(codeForUi, false, errorMsg, null));
                 System.out.println("Tag adicionada ao histórico de auditoria (ERRO - Exceção): " + codeForUi);
                 
                 System.err.println("HTTP post error: " + e.getMessage());
@@ -1964,6 +2001,10 @@ public class Test {
             historicoList.setFont(new java.awt.Font("Monospaced", java.awt.Font.PLAIN, 10));
             historicoList.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
             
+            // Cores pré-definidas para melhor performance (evitar criar objetos Color toda vez)
+            final java.awt.Color corErroOPE10161 = new java.awt.Color(255, 200, 200); // Light red
+            final java.awt.Color corTimestampAtualizado = new java.awt.Color(144, 238, 144); // Light green
+            
             // Renderer customizado para mostrar background verde quando timestamp foi atualizado
             historicoList.setCellRenderer(new javax.swing.ListCellRenderer<TagHistorico>() {
                 @Override
@@ -1979,20 +2020,12 @@ public class Test {
                     // Prioridade: Erro OPE10161 (vermelho permanente) > Timestamp atualizado (verde temporário) > Seleção normal
                     if (value.isTemErroOPE10161()) {
                         // Background vermelho permanente para erro OPE10161
-                        label.setBackground(new java.awt.Color(255, 200, 200)); // Light red
-                        if (!isSelected) {
-                            label.setForeground(list.getForeground());
-                        } else {
-                            label.setForeground(list.getSelectionForeground());
-                        }
+                        label.setBackground(corErroOPE10161);
+                        label.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
                     } else if (value.isTimestampAtualizadoRecentemente()) {
                         // Background verde temporário para timestamp atualizado
-                        label.setBackground(new java.awt.Color(144, 238, 144)); // Light green
-                        if (!isSelected) {
-                            label.setForeground(list.getForeground());
-                        } else {
-                            label.setForeground(list.getSelectionForeground());
-                        }
+                        label.setBackground(corTimestampAtualizado);
+                        label.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
                     } else if (isSelected) {
                         label.setBackground(list.getSelectionBackground());
                         label.setForeground(list.getSelectionForeground());
@@ -2010,8 +2043,29 @@ public class Test {
             scrollHistorico.setVerticalScrollBarPolicy(javax.swing.JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
             scrollHistorico.setHorizontalScrollBarPolicy(javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
             
-            // Método para atualizar o histórico na interface
+            // Debounce/throttle para atualização da UI (evitar atualizações muito frequentes)
+            final long[] ultimaAtualizacaoUI = {0}; // Array para permitir modificação dentro do lambda
+            final long INTERVALO_MINIMO_ATUALIZACAO_UI_MS = 200; // 200ms entre atualizações
+            
+            // Método para atualizar o histórico na interface (com throttling)
             Runnable atualizarHistoricoUI = () -> {
+                long agora = System.currentTimeMillis();
+                long ultima = ultimaAtualizacaoUI[0];
+                
+                // Se passou menos de 200ms desde a última atualização, agendar para depois
+                if (agora - ultima < INTERVALO_MINIMO_ATUALIZACAO_UI_MS) {
+                    // Agendar atualização após o intervalo mínimo
+                    new Thread(() -> {
+                        try {
+                            Thread.sleep(INTERVALO_MINIMO_ATUALIZACAO_UI_MS - (agora - ultima));
+                            atualizarHistoricoUI.run();
+                        } catch (InterruptedException ignored) {
+                        }
+                    }, "throttle-ui-update").start();
+                    return;
+                }
+                
+                ultimaAtualizacaoUI[0] = agora;
                 SwingUtilities.invokeLater(() -> {
                     java.util.List<TagHistorico> historico = getHistoricoTags();
                     historicoListModel.clear();
@@ -2021,8 +2075,8 @@ public class Test {
                         TagHistorico entrada = historico.get(i);
                         historicoListModel.addElement(entrada);
                     }
-                    // Auto-scroll para o topo (mais recente)
-                    if (historicoListModel.getSize() > 0) {
+                    // Auto-scroll para o topo (mais recente) apenas se necessário
+                    if (historicoListModel.getSize() > 0 && historicoList.getSelectedIndex() != 0) {
                         historicoList.setSelectedIndex(0);
                         historicoList.ensureIndexIsVisible(0);
                     }
