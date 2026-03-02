@@ -104,7 +104,7 @@ public class Test {
             new java.util.concurrent.ArrayBlockingQueue<>(HTTP_QUEUE_CAPACITY);
     private static volatile boolean httpWorkerStarted = false;
     
-    /* Tempo mínimo em segundos entre envios HTTP para a mesma tag */
+    /* Tempo mínimo em segundos entre leituras válidas da mesma tag */
     private static final int TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS = 5; /* configure aqui */
     
     /* Variável para armazenar a última tag lida e evitar duplicados */
@@ -116,34 +116,34 @@ public class Test {
     /* Flag para indicar se a última tag teve sucesso */
     private static volatile boolean ultimaTagTeveSucesso = false;
     
-    /* Classe para representar histórico de envio HTTP com timestamp da última leitura */
-    private static class HistoricoEnvioHttp {
+    /* Histórico de LEITURA: Map thread-safe para armazenar timestamp da última leitura válida por tag */
+    private static final java.util.Map<String, Long> historicoLeitura = 
+        java.util.Collections.synchronizedMap(new java.util.HashMap<>());
+    
+    /* Classe para representar histórico de ENVIO HTTP */
+    private static class HistoricoEnvio {
         private final String tag;
-        private long timestampUltimaLeitura; // Timestamp da última leitura da tag
         private long timestampUltimoEnvio;   // Timestamp do último envio HTTP
+        private boolean ultimoEnvioSucesso;  // Se o último envio foi bem-sucedido
         
-        public HistoricoEnvioHttp(String tag, long timestampLeitura) {
+        public HistoricoEnvio(String tag, long timestampEnvio, boolean sucesso) {
             this.tag = tag;
-            this.timestampUltimaLeitura = timestampLeitura;
-            this.timestampUltimoEnvio = timestampLeitura;
+            this.timestampUltimoEnvio = timestampEnvio;
+            this.ultimoEnvioSucesso = sucesso;
         }
         
         public String getTag() { return tag; }
-        public long getTimestampUltimaLeitura() { return timestampUltimaLeitura; }
         public long getTimestampUltimoEnvio() { return timestampUltimoEnvio; }
+        public boolean isUltimoEnvioSucesso() { return ultimoEnvioSucesso; }
         
-        public void atualizarTimestampLeitura(long timestamp) {
-            this.timestampUltimaLeitura = timestamp;
-        }
-        
-        public void atualizarTimestampEnvio(long timestamp) {
+        public void atualizarEnvio(long timestamp, boolean sucesso) {
             this.timestampUltimoEnvio = timestamp;
-            this.timestampUltimaLeitura = timestamp;
+            this.ultimoEnvioSucesso = sucesso;
         }
     }
     
-    /* Map thread-safe para armazenar histórico de envios HTTP por tag */
-    private static final java.util.Map<String, HistoricoEnvioHttp> historicoEnvioHttp = 
+    /* Map thread-safe para armazenar histórico de ENVIOS HTTP por tag */
+    private static final java.util.Map<String, HistoricoEnvio> historicoEnvio = 
         java.util.Collections.synchronizedMap(new java.util.HashMap<>());
     
     /* Classe para representar uma entrada no histórico de tags */
@@ -1091,12 +1091,17 @@ public class Test {
                     System.err.println("HTTP post failed: " + code);
                 }
 
-                // Atualizar timestamp do último envio no histórico de envio HTTP
+                // Atualizar histórico de ENVIO HTTP
                 long timestampEnvioConcluido = System.currentTimeMillis();
-                synchronized (historicoEnvioHttp) {
-                    HistoricoEnvioHttp historico = historicoEnvioHttp.get(codeForUi);
-                    if (historico != null) {
-                        historico.atualizarTimestampEnvio(timestampEnvioConcluido);
+                synchronized (historicoEnvio) {
+                    HistoricoEnvio historico = historicoEnvio.get(codeForUi);
+                    if (historico == null) {
+                        // Criar novo histórico de envio
+                        historico = new HistoricoEnvio(codeForUi, timestampEnvioConcluido, success);
+                        historicoEnvio.put(codeForUi, historico);
+                    } else {
+                        // Atualizar histórico existente
+                        historico.atualizarEnvio(timestampEnvioConcluido, success);
                     }
                 }
                 
@@ -1105,10 +1110,9 @@ public class Test {
                     ultimaTagComSucesso = codeForUi;
                     ultimaTagTeveSucesso = true;
                     
-                    // Sempre criar novo registro no histórico quando diferença de tempo for maior que a constante
-                    // (só chega aqui se deveEnviar = true, ou seja, diferença >= TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS)
+                    // Adicionar ao histórico de auditoria (para UI)
                     historicoTags.add(new TagHistorico(codeForUi, true, msg));
-                    System.out.println("Tag adicionada ao histórico (SUCESSO): " + codeForUi);
+                    System.out.println("Tag adicionada ao histórico de auditoria (SUCESSO): " + codeForUi);
                     
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
@@ -1122,10 +1126,9 @@ public class Test {
                         ultimaTagComSucesso = null;
                     }
                     
-                    // Sempre criar novo registro no histórico quando diferença de tempo for maior que a constante
-                    // (só chega aqui se deveEnviar = true, ou seja, diferença >= TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS)
+                    // Adicionar ao histórico de auditoria (para UI)
                     historicoTags.add(new TagHistorico(codeForUi, false, msg));
-                    System.out.println("Tag adicionada ao histórico (ERRO): " + codeForUi);
+                    System.out.println("Tag adicionada ao histórico de auditoria (ERRO): " + codeForUi);
                     
                     if (uiNotifier != null) {
                         UiNotifier n = uiNotifier;
@@ -1135,12 +1138,15 @@ public class Test {
                 }
                 break;/* sucesso ou erro não-redirecionado: sai do loop */
             } catch (java.net.SocketTimeoutException e) {
-                // Atualizar timestamp do último envio no histórico (mesmo em caso de erro)
+                // Atualizar histórico de ENVIO HTTP (mesmo em caso de erro)
                 long timestampEnvioConcluido = System.currentTimeMillis();
-                synchronized (historicoEnvioHttp) {
-                    HistoricoEnvioHttp historico = historicoEnvioHttp.get(codeForUi);
-                    if (historico != null) {
-                        historico.atualizarTimestampEnvio(timestampEnvioConcluido);
+                synchronized (historicoEnvio) {
+                    HistoricoEnvio historico = historicoEnvio.get(codeForUi);
+                    if (historico == null) {
+                        historico = new HistoricoEnvio(codeForUi, timestampEnvioConcluido, false);
+                        historicoEnvio.put(codeForUi, historico);
+                    } else {
+                        historico.atualizarEnvio(timestampEnvioConcluido, false);
                     }
                 }
                 
@@ -1150,10 +1156,10 @@ public class Test {
                     ultimaTagComSucesso = null;
                 }
                 
-                // Adicionar ao histórico sempre que houver erro (todas as tentativas)
+                // Adicionar ao histórico de auditoria (para UI)
                 String errorMsg = "Timeout na conexão HTTP: " + e.getMessage();
                 historicoTags.add(new TagHistorico(codeForUi, false, errorMsg));
-                System.out.println("Tag adicionada ao histórico (ERRO - Timeout): " + codeForUi);
+                System.out.println("Tag adicionada ao histórico de auditoria (ERRO - Timeout): " + codeForUi);
                 
                 System.err.println("HTTP post timeout: " + e.getMessage());
                 System.err.println("NOTA: Timeout HTTP não afeta a conexão com a antena");
@@ -1164,12 +1170,15 @@ public class Test {
                 // Timeout HTTP não deve afetar a conexão com a antena
                 break;
             } catch (java.net.ConnectException e) {
-                // Atualizar timestamp do último envio no histórico (mesmo em caso de erro)
+                // Atualizar histórico de ENVIO HTTP (mesmo em caso de erro)
                 long timestampEnvioConcluido = System.currentTimeMillis();
-                synchronized (historicoEnvioHttp) {
-                    HistoricoEnvioHttp historico = historicoEnvioHttp.get(codeForUi);
-                    if (historico != null) {
-                        historico.atualizarTimestampEnvio(timestampEnvioConcluido);
+                synchronized (historicoEnvio) {
+                    HistoricoEnvio historico = historicoEnvio.get(codeForUi);
+                    if (historico == null) {
+                        historico = new HistoricoEnvio(codeForUi, timestampEnvioConcluido, false);
+                        historicoEnvio.put(codeForUi, historico);
+                    } else {
+                        historico.atualizarEnvio(timestampEnvioConcluido, false);
                     }
                 }
                 
@@ -1179,10 +1188,10 @@ public class Test {
                     ultimaTagComSucesso = null;
                 }
                 
-                // Adicionar ao histórico sempre que houver erro (todas as tentativas)
+                // Adicionar ao histórico de auditoria (para UI)
                 String errorMsg = "Erro de conexão HTTP: " + e.getMessage();
                 historicoTags.add(new TagHistorico(codeForUi, false, errorMsg));
-                System.out.println("Tag adicionada ao histórico (ERRO - Conexão): " + codeForUi);
+                System.out.println("Tag adicionada ao histórico de auditoria (ERRO - Conexão): " + codeForUi);
                 
                 System.err.println("HTTP post connection error: " + e.getMessage());
                 System.err.println("NOTA: Erro de conexão HTTP não afeta a conexão com a antena");
@@ -1193,12 +1202,15 @@ public class Test {
                 // Erro de conexão HTTP não deve afetar a conexão com a antena
                 break;
             } catch (Exception e) {
-                // Atualizar timestamp do último envio no histórico (mesmo em caso de erro)
+                // Atualizar histórico de ENVIO HTTP (mesmo em caso de erro)
                 long timestampEnvioConcluido = System.currentTimeMillis();
-                synchronized (historicoEnvioHttp) {
-                    HistoricoEnvioHttp historico = historicoEnvioHttp.get(codeForUi);
-                    if (historico != null) {
-                        historico.atualizarTimestampEnvio(timestampEnvioConcluido);
+                synchronized (historicoEnvio) {
+                    HistoricoEnvio historico = historicoEnvio.get(codeForUi);
+                    if (historico == null) {
+                        historico = new HistoricoEnvio(codeForUi, timestampEnvioConcluido, false);
+                        historicoEnvio.put(codeForUi, historico);
+                    } else {
+                        historico.atualizarEnvio(timestampEnvioConcluido, false);
                     }
                 }
                 
@@ -1208,10 +1220,10 @@ public class Test {
                     ultimaTagComSucesso = null;
                 }
                 
-                // Adicionar ao histórico sempre que houver erro (todas as tentativas)
+                // Adicionar ao histórico de auditoria (para UI)
                 String errorMsg = "Erro HTTP: " + e.getMessage();
                 historicoTags.add(new TagHistorico(codeForUi, false, errorMsg));
-                System.out.println("Tag adicionada ao histórico (ERRO - Exceção): " + codeForUi);
+                System.out.println("Tag adicionada ao histórico de auditoria (ERRO - Exceção): " + codeForUi);
                 
                 System.err.println("HTTP post error: " + e.getMessage());
                 System.err.println("NOTA: Erro HTTP não afeta a conexão com a antena");
@@ -1255,7 +1267,7 @@ public class Test {
         new Thread(() -> postJson(ENDPOINT_URL, body, headers, codeForUi), "rfid-http-post").start();
     }
 
-    /* Enfileirar envio para não bloquear callbacks do leitor */
+    /* Filtro de leitura: verifica histórico de leitura e adiciona à lista de envio se válido */
     private static void enqueueSend(String codeForUi) {
         System.out.println("========================================");
         System.out.println("Tag detectada: " + codeForUi);
@@ -1271,52 +1283,42 @@ public class Test {
         // Obter timestamp atual da leitura
         long timestampAtual = System.currentTimeMillis();
         
-        // Verificar histórico de envio HTTP para esta tag
-        HistoricoEnvioHttp historico = null;
-        synchronized (historicoEnvioHttp) {
-            historico = historicoEnvioHttp.get(tagAtual);
+        // Verificar histórico de LEITURA para esta tag
+        Long timestampUltimaLeitura = null;
+        synchronized (historicoLeitura) {
+            timestampUltimaLeitura = historicoLeitura.get(tagAtual);
         }
         
-        boolean deveEnviar = false;
+        boolean deveAdicionarListaEnvio = false;
         
-        if (historico == null) {
-            // Primeira vez que esta tag é detectada - criar histórico e enviar
-            System.out.println("Nova tag detectada - criando histórico e enviando");
-            historico = new HistoricoEnvioHttp(tagAtual, timestampAtual);
-            synchronized (historicoEnvioHttp) {
-                historicoEnvioHttp.put(tagAtual, historico);
+        if (timestampUltimaLeitura == null) {
+            // Primeira vez que esta tag é detectada - criar histórico de leitura e adicionar à lista de envio
+            System.out.println("Nova tag detectada - criando histórico de leitura e adicionando à lista de envio");
+            synchronized (historicoLeitura) {
+                historicoLeitura.put(tagAtual, timestampAtual);
             }
-            deveEnviar = true;
+            deveAdicionarListaEnvio = true;
         } else {
-            // Tag já existe no histórico - verificar diferença de tempo primeiro
-            long timestampUltimoEnvio = historico.getTimestampUltimoEnvio();
-            long diferencaSegundos = (timestampAtual - timestampUltimoEnvio) / 1000;
+            // Tag já existe no histórico de leitura - verificar diferença de tempo
+            long diferencaSegundos = (timestampAtual - timestampUltimaLeitura) / 1000;
             
-            System.out.println("Tag já existe no histórico - diferença: " + diferencaSegundos + " segundos");
+            System.out.println("Tag já existe no histórico de leitura - diferença: " + diferencaSegundos + " segundos");
             
             if (diferencaSegundos < TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS) {
-                // Diferença menor que o tempo mínimo - apenas atualizar timestamp da última leitura
-                System.out.println("Diferença menor que " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s - não enviando, apenas atualizando timestamp");
-                historico.atualizarTimestampLeitura(timestampAtual);
-                deveEnviar = false;
-            } else {
-                // Diferença maior ou igual ao tempo mínimo - verificar se último envio deu sucesso
-                System.out.println("Diferença maior ou igual a " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s - verificando se último envio deu sucesso");
-                
-                // Verificar se a última tag teve sucesso e é a mesma tag
-                boolean ultimoEnvioSucesso = ultimaTagTeveSucesso && ultimaTagComSucesso != null && ultimaTagComSucesso.equals(tagAtual);
-                
-                if (ultimoEnvioSucesso) {
-                    // Último envio deu sucesso - não enviar novamente, apenas atualizar timestamp
-                    System.out.println("Último envio deu sucesso - não será reenviado, apenas atualizando timestamp");
-                    historico.atualizarTimestampLeitura(timestampAtual);
-                    deveEnviar = false;
-                } else {
-                    // Último envio não deu sucesso ou não existe - fazer novo envio
-                    System.out.println("Último envio não deu sucesso ou não existe - processando novo envio");
-                    historico.atualizarTimestampLeitura(timestampAtual);
-                    deveEnviar = true;
+                // Diferença menor que o tempo mínimo - DESCONSIDERAR esta leitura
+                // Apenas atualizar timestamp no histórico de leitura
+                System.out.println("Diferença menor que " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s - leitura DESCONSIDERADA, apenas atualizando timestamp");
+                synchronized (historicoLeitura) {
+                    historicoLeitura.put(tagAtual, timestampAtual);
                 }
+                deveAdicionarListaEnvio = false;
+            } else {
+                // Diferença maior ou igual ao tempo mínimo - leitura válida
+                System.out.println("Diferença maior ou igual a " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s - leitura válida, adicionando à lista de envio");
+                synchronized (historicoLeitura) {
+                    historicoLeitura.put(tagAtual, timestampAtual);
+                }
+                deveAdicionarListaEnvio = true;
             }
         }
         
@@ -1329,8 +1331,8 @@ public class Test {
         // Atualizar última tag lida
         ultimaTagLida = tagAtual;
         
-        if (deveEnviar) {
-            // Adicionar à fila para envio HTTP
+        if (deveAdicionarListaEnvio) {
+            // Adicionar à fila para envio HTTP (lista de envio)
             boolean offered = httpQueue.offer(codeForUi);
             if (!offered) {
                 String msg = "Fila cheia. Descartando leitura.";
@@ -1340,15 +1342,10 @@ public class Test {
                     SwingUtilities.invokeLater(() -> n.onApiResult(false, codeForUi, msg));
                 }
             } else {
-                System.out.println("Tag adicionada à fila para envio HTTP");
-                // Atualizar status de conexão para ON quando tag é processada
-                if (uiNotifier != null) {
-                    UiNotifier n = uiNotifier;
-                    SwingUtilities.invokeLater(() -> n.onConnectStatus(true));
-                }
+                System.out.println("Tag adicionada à lista de envio (será processada pelo worker HTTP)");
             }
         } else {
-            System.out.println("Tag não será enviada - timestamp atualizado");
+            System.out.println("Tag não será adicionada à lista de envio - leitura descartada por tempo mínimo");
         }
         
         System.out.println("========================================");
@@ -1357,28 +1354,68 @@ public class Test {
     private static synchronized void startHttpWorkerIfNeeded() {
         if (httpWorkerStarted) return;
         httpWorkerStarted = true;
-        System.out.println("HTTP Worker iniciado - aguardando tags para envio via webServiceGetMovimentacaoObrigatoria");
+        System.out.println("HTTP Worker iniciado - aguardando tags da lista de envio");
         Thread t = new Thread(() -> {
             while (true) {
                 try {
                     String code = httpQueue.take();
                     System.out.println("========================================");
-                    System.out.println("Processando tag da fila: " + code);
+                    System.out.println("Processando tag da lista de envio: " + code);
                     
-                    // Construir JSON body simplificado - apenas codigoIdentificador com prefixo "02"
-                    String codigoComPrefixo = "(02)" + code;
-                    System.out.println("Enviando para: " + ENDPOINT_URL_CONSULTAR_MOVIMENTACAO);
-                    System.out.println("codigoIdentificador (com prefixo 02): " + codigoComPrefixo);
+                    // Verificar histórico de ENVIO HTTP para esta tag
+                    HistoricoEnvio historicoEnvioTag = null;
+                    synchronized (historicoEnvio) {
+                        historicoEnvioTag = historicoEnvio.get(code);
+                    }
                     
-                    final String body = buildConsultarMovimentacaoJsonBody(code);
-                    final Map<String, String> headers = buildDefaultHeaders();
+                    boolean deveEnviar = false;
                     
-                    // Atualizar status de conexão para ON quando requisição é feita
+                    if (historicoEnvioTag == null) {
+                        // Tag não existe no histórico de envio - primeira vez que será enviada
+                        System.out.println("Tag não existe no histórico de envio - será enviada pela primeira vez");
+                        deveEnviar = true;
+                    } else {
+                        // Tag já existe no histórico de envio - verificar se último envio foi sucesso
+                        boolean ultimoEnvioFoiSucesso = historicoEnvioTag.isUltimoEnvioSucesso();
+                        
+                        if (ultimoEnvioFoiSucesso) {
+                            // Último envio foi SUCESSO para ESTA MESMA TAG
+                            // Verificar se a última tag enviada com sucesso foi diferente
+                            // Se foi diferente, pode enviar esta tag (nova tag foi processada entre elas)
+                            if (ultimaTagComSucesso != null && !ultimaTagComSucesso.equals(code)) {
+                                // Última tag com sucesso foi diferente - pode enviar esta tag
+                                System.out.println("Última tag com sucesso foi diferente (" + ultimaTagComSucesso + ") - esta tag será enviada");
+                                deveEnviar = true;
+                            } else {
+                                // Último envio foi SUCESSO para ESTA MESMA TAG - não enviar novamente
+                                System.out.println("Último envio foi SUCESSO para esta tag - NÃO será reenviado (evita duplicata)");
+                                deveEnviar = false;
+                            }
+                        } else {
+                            // Último envio foi ERRO para esta tag - enviar novamente (retry)
+                            System.out.println("Último envio foi ERRO para esta tag - será reenviado (retry)");
+                            deveEnviar = true;
+                        }
+                    }
+                    
+                    if (deveEnviar) {
+                        // Construir JSON body simplificado - apenas codigoIdentificador com prefixo "02"
+                        String codigoComPrefixo = "(02)" + code;
+                        System.out.println("Enviando para: " + ENDPOINT_URL_CONSULTAR_MOVIMENTACAO);
+                        System.out.println("codigoIdentificador (com prefixo 02): " + codigoComPrefixo);
+                        
+                        final String body = buildConsultarMovimentacaoJsonBody(code);
+                        final Map<String, String> headers = buildDefaultHeaders();
+                        
+                        // Atualizar status de conexão para ON quando requisição é feita
                         if (uiNotifier != null) {
                             UiNotifier n = uiNotifier;
-                        SwingUtilities.invokeLater(() -> n.onConnectStatus(true));
+                            SwingUtilities.invokeLater(() -> n.onConnectStatus(true));
+                        }
+                        postJson(ENDPOINT_URL_CONSULTAR_MOVIMENTACAO, body, headers, code);
+                    } else {
+                        System.out.println("Tag não será enviada - último envio foi sucesso para esta mesma tag");
                     }
-                    postJson(ENDPOINT_URL_CONSULTAR_MOVIMENTACAO, body, headers, code);
                     System.out.println("========================================");
                 } catch (InterruptedException ie) {
                     break;
