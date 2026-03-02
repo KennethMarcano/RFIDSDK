@@ -44,7 +44,7 @@ public class Test {
     private static Session session = Session.S0;
     private static Target target = Target.A;
     private static boolean enablePhase = false;
-    private static byte power = 33;/* Rang: (1 , 33) */
+    private static byte power = 16;/* Rang: (1 , 33) */
     private static int[] workAntIdArr = {0, 9};/* work AntId: (0 , 15) */
 
     private static boolean fastSwitchAnt = false;/* Fast switch antId mode */
@@ -116,6 +116,11 @@ public class Test {
     
     /* Flag para indicar se a última tag teve sucesso */
     private static volatile boolean ultimaTagTeveSucesso = false;
+    
+    /* Rastreamento rápido de leituras para evitar duplicatas em menos de 300ms */
+    private static volatile String ultimaTagLidaRapida = null;
+    private static volatile long ultimaTagLidaRapidaTimestamp = 0;
+    private static final long TEMPO_MINIMO_ENTRE_LEITURAS_MS = 300; /* 300ms para ignorar leituras duplicadas muito rápidas */
     
     /* Histórico de LEITURA: Map thread-safe para armazenar timestamp da última leitura válida por tag */
     private static final java.util.Map<String, Long> historicoLeitura = 
@@ -1446,6 +1451,23 @@ public class Test {
             return;
         }
         
+        // Verificar se a mesma tag foi lida em menos de 300ms (ignorar leitura duplicada muito rápida)
+        long timestampAtual = System.currentTimeMillis();
+        synchronized (Test.class) {
+            if (ultimaTagLidaRapida != null && ultimaTagLidaRapida.equals(tagAtual)) {
+                long diferencaMs = timestampAtual - ultimaTagLidaRapidaTimestamp;
+                if (diferencaMs < TEMPO_MINIMO_ENTRE_LEITURAS_MS) {
+                    // Mesma tag lida em menos de 300ms - ignorar esta leitura
+                    System.out.println("Tag '" + tagAtual + "' lida novamente em " + diferencaMs + "ms (< " + TEMPO_MINIMO_ENTRE_LEITURAS_MS + "ms) - IGNORANDO leitura do módulo");
+                    System.out.println("========================================");
+                    return; // Ignorar e passar para próxima leitura
+                }
+            }
+            // Atualizar rastreamento rápido
+            ultimaTagLidaRapida = tagAtual;
+            ultimaTagLidaRapidaTimestamp = timestampAtual;
+        }
+        
         // Atualizar UI com a tag detectada
         if (uiNotifier != null) {
             UiNotifier n = uiNotifier;
@@ -1455,7 +1477,7 @@ public class Test {
         // Atualizar última tag lida
         ultimaTagLida = tagAtual;
         
-        // Sempre adicionar à fila para envio HTTP - validação de tempo será feita no worker
+        // Adicionar à fila para envio HTTP - validação de tempo será feita no worker
         boolean offered = httpQueue.offer(codeForUi);
         if (!offered) {
             String msg = "Fila cheia. Descartando leitura.";
