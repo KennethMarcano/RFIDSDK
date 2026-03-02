@@ -77,6 +77,7 @@ public class Test {
         void onReadingStatus(boolean reading);
         void onTagDetected(String code);
         void onApiResult(boolean success, String code, String message);
+        void onTagTimestampUpdated(String code);
     }
     private static volatile UiNotifier uiNotifier;
     private static volatile JTextField tfIdRecebimento;
@@ -1243,6 +1244,12 @@ public class Test {
                     ultimaTagComSucesso = codeForUi;
                     ultimaTagTeveSucesso = true;
                     
+                    // Piscar LED quando requisição HTTP foi bem-sucedida
+                    gpioBlinkLed();
+                    
+                    // Emitir som do buzzer quando requisição HTTP foi bem-sucedida
+                    pwmBuzzerBeep();
+                    
                     // Adicionar ao histórico de auditoria (para UI)
                     historicoTags.add(new TagHistorico(codeForUi, true, msg));
                     System.out.println("Tag adicionada ao histórico de auditoria (SUCESSO): " + codeForUi);
@@ -1523,6 +1530,19 @@ public class Test {
                                 // Último envio foi SUCESSO para ESTA MESMA TAG - não enviar novamente
                                 System.out.println("Último envio foi SUCESSO para esta tag - NÃO será reenviado (evita duplicata)");
                                 deveEnviar = false;
+                                
+                                // Atualizar timestamp no histórico de leitura para esta tag
+                                long timestampAtual = System.currentTimeMillis();
+                                synchronized (historicoLeitura) {
+                                    historicoLeitura.put(code, timestampAtual);
+                                }
+                                System.out.println("Timestamp atualizado no histórico de leitura para tag: " + code);
+                                
+                                // Notificar UI para atualizar e fazer parpadear o registro
+                                if (uiNotifier != null) {
+                                    UiNotifier n = uiNotifier;
+                                    SwingUtilities.invokeLater(() -> n.onTagTimestampUpdated(code));
+                                }
                             }
                         } else {
                             // Último envio foi ERRO para esta tag - enviar novamente (retry)
@@ -1933,10 +1953,105 @@ public class Test {
             historicoList.setFont(new java.awt.Font("Monospaced", java.awt.Font.PLAIN, 10));
             historicoList.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
             
+            // Map para rastrear tags que devem parpadear (tag -> contador de parpadeios)
+            final java.util.Map<String, Integer> tagsParaParpadear = 
+                java.util.Collections.synchronizedMap(new java.util.HashMap<>());
+            
+            // ListCellRenderer personalizado para parpadeo
+            historicoList.setCellRenderer(new javax.swing.ListCellRenderer<String>() {
+                @Override
+                public java.awt.Component getListCellRendererComponent(
+                        javax.swing.JList<? extends String> list, String value, int index,
+                        boolean isSelected, boolean cellHasFocus) {
+                    javax.swing.JLabel label = new javax.swing.JLabel(value);
+                    label.setFont(list.getFont());
+                    label.setOpaque(true);
+                    
+                    // Verificar se esta tag deve parpadear
+                    boolean deveParpadear = false;
+                    String tagCode = null;
+                    if (value != null && value.contains("Tag: ")) {
+                        try {
+                            int tagStart = value.indexOf("Tag: ") + 5;
+                            int tagEnd = value.indexOf(" |", tagStart);
+                            if (tagEnd < 0) tagEnd = value.length();
+                            tagCode = value.substring(tagStart, tagEnd).trim();
+                            Integer contador = tagsParaParpadear.get(tagCode);
+                            if (contador != null && contador > 0) {
+                                deveParpadear = true;
+                            }
+                        } catch (Exception e) {
+                            // Ignorar erro de parsing
+                        }
+                    }
+                    
+                    if (isSelected) {
+                        label.setBackground(list.getSelectionBackground());
+                        label.setForeground(list.getSelectionForeground());
+                    } else if (deveParpadear) {
+                        // Efeito de parpadeo: alternar entre amarelo claro e cor normal
+                        Integer contador = tagsParaParpadear.get(tagCode);
+                        if (contador != null && contador > 0) {
+                            // Parpadeo: alternar baseado no contador (ímpar = amarelo, par = normal)
+                            if (contador % 2 == 1) {
+                                label.setBackground(new Color(255, 255, 200)); // Amarelo claro
+                            } else {
+                                label.setBackground(list.getBackground());
+                            }
+                        } else {
+                            label.setBackground(list.getBackground());
+                        }
+                        label.setForeground(list.getForeground());
+                    } else {
+                        label.setBackground(list.getBackground());
+                        label.setForeground(list.getForeground());
+                    }
+                    
+                    return label;
+                }
+            });
+            
+            // Timer para efeito de parpadeo (alterna a cada 200ms, total de 6 vezes = 1.2 segundos)
+            javax.swing.Timer timerParpadeo = new javax.swing.Timer(200, e -> {
+                boolean precisaRepaint = false;
+                synchronized (tagsParaParpadear) {
+                    java.util.Iterator<java.util.Map.Entry<String, Integer>> it = 
+                        tagsParaParpadear.entrySet().iterator();
+                    while (it.hasNext()) {
+                        java.util.Map.Entry<String, Integer> entry = it.next();
+                        int contador = entry.getValue();
+                        if (contador > 0) {
+                            entry.setValue(contador - 1);
+                            precisaRepaint = true;
+                            if (contador - 1 == 0) {
+                                // Remover após completar o parpadeo
+                                it.remove();
+                            }
+                        }
+                    }
+                }
+                if (precisaRepaint) {
+                    historicoList.repaint();
+                }
+            });
+            timerParpadeo.start();
+            
             // ScrollPane para a lista
             javax.swing.JScrollPane scrollHistorico = new javax.swing.JScrollPane(historicoList);
             scrollHistorico.setVerticalScrollBarPolicy(javax.swing.JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
             scrollHistorico.setHorizontalScrollBarPolicy(javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+            
+            // Método para fazer uma tag parpadear na interface
+            final java.util.function.Consumer<String> fazerTagParpadear = (String tagCode) -> {
+                SwingUtilities.invokeLater(() -> {
+                    // Adicionar tag ao map de parpadeo (6 ciclos = 1.2 segundos)
+                    synchronized (tagsParaParpadear) {
+                        tagsParaParpadear.put(tagCode, 6);
+                    }
+                    // Forçar repaint imediato
+                    historicoList.repaint();
+                });
+            };
             
             // Método para atualizar o histórico na interface
             Runnable atualizarHistoricoUI = () -> {
@@ -1993,6 +2108,8 @@ public class Test {
             
             // Armazenar referência para atualizar histórico quando novas tags forem adicionadas
             final Runnable atualizarHistoricoRef = atualizarHistoricoUI;
+            // Armazenar referência para fazer tag parpadear
+            final java.util.function.Consumer<String> fazerTagParpadearRef = fazerTagParpadear;
 
             uiNotifier = new UiNotifier() {
                 @Override
@@ -2028,6 +2145,21 @@ public class Test {
                     lbApi.setText((success ? "OK" : "ERRO") + " - " + message);
                     // Atualizar histórico na interface quando houver resultado da API
                     atualizarHistoricoRef.run();
+                }
+
+                @Override
+                public void onTagTimestampUpdated(String code) {
+                    // Piscar LED quando tag repetida atualiza timestamp
+                    gpioBlinkLed();
+                    
+                    // Emitir som do buzzer quando tag repetida atualiza timestamp
+                    pwmBuzzerBeep();
+                    
+                    // Atualizar histórico na interface para refletir o novo timestamp
+                    atualizarHistoricoRef.run();
+                    // Fazer parpadear o registro correspondente na lista
+                    fazerTagParpadearRef.accept(code);
+                    System.out.println("Timestamp atualizado para tag: " + code + " - registro parpadeando na UI");
                 }
             };
 
@@ -2674,12 +2806,6 @@ public class Test {
                             if ("0".equals(code.trim())) {
                                 return;
                             }
-                            
-                            // Piscar LED quando tag é detectada do módulo
-                            gpioBlinkLed();
-                            
-                            // Emitir som do buzzer quando tag é detectada
-                            pwmBuzzerBeep();
                             
                             // Atualizar status de conexão para ON quando tag é detectada
                             if (uiNotifier != null) {
