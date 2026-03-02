@@ -2048,6 +2048,10 @@ public class Test {
             final long INTERVALO_MINIMO_ATUALIZACAO_UI_MS = 200; // 200ms entre atualizações
             
             // Método para atualizar o histórico na interface (com throttling)
+            // Usar AtomicReference para permitir referência dentro do próprio lambda
+            final java.util.concurrent.atomic.AtomicReference<Runnable> atualizarHistoricoUIRef = 
+                new java.util.concurrent.atomic.AtomicReference<>();
+            
             Runnable atualizarHistoricoUI = () -> {
                 long agora = System.currentTimeMillis();
                 long ultima = ultimaAtualizacaoUI[0];
@@ -2055,13 +2059,16 @@ public class Test {
                 // Se passou menos de 200ms desde a última atualização, agendar para depois
                 if (agora - ultima < INTERVALO_MINIMO_ATUALIZACAO_UI_MS) {
                     // Agendar atualização após o intervalo mínimo
-                    new Thread(() -> {
-                        try {
-                            Thread.sleep(INTERVALO_MINIMO_ATUALIZACAO_UI_MS - (agora - ultima));
-                            atualizarHistoricoUI.run();
-                        } catch (InterruptedException ignored) {
-                        }
-                    }, "throttle-ui-update").start();
+                    final Runnable runnableRef = atualizarHistoricoUIRef.get();
+                    if (runnableRef != null) {
+                        new Thread(() -> {
+                            try {
+                                Thread.sleep(INTERVALO_MINIMO_ATUALIZACAO_UI_MS - (agora - ultima));
+                                runnableRef.run();
+                            } catch (InterruptedException ignored) {
+                            }
+                        }, "throttle-ui-update").start();
+                    }
                     return;
                 }
                 
@@ -2084,6 +2091,9 @@ public class Test {
                     historicoList.repaint();
                 });
             };
+            
+            // Atribuir a referência após criar o Runnable
+            atualizarHistoricoUIRef.set(atualizarHistoricoUI);
             
             // Painel superior com botão para limpar histórico
             JPanel pHistoricoTop = new JPanel(new FlowLayout(FlowLayout.RIGHT));
