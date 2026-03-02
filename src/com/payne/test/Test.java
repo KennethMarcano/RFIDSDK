@@ -155,14 +155,7 @@ public class Test {
         
         public TagHistorico(String tag, boolean sucesso, String mensagem) {
             this.tag = tag;
-            // Buscar timestamp da leitura da tag (quando foi detectada no intervalo válido)
-            Long timestampLeitura = null;
-            synchronized (historicoLeitura) {
-                timestampLeitura = historicoLeitura.get(tag);
-            }
-            // Se encontrar no histórico de leitura, usar esse timestamp (momento da detecção válida)
-            // Caso contrário, usar timestamp atual como fallback
-            this.timestamp = (timestampLeitura != null) ? timestampLeitura : System.currentTimeMillis();
+            this.timestamp = System.currentTimeMillis();
             this.sucesso = sucesso;
             this.mensagem = mensagem;
         }
@@ -171,22 +164,6 @@ public class Test {
         public long getTimestamp() { return timestamp; }
         public boolean isSucesso() { return sucesso; }
         public String getMensagem() { return mensagem; }
-        
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj) return true;
-            if (obj == null || getClass() != obj.getClass()) return false;
-            TagHistorico that = (TagHistorico) obj;
-            return timestamp == that.timestamp && 
-                   sucesso == that.sucesso && 
-                   java.util.Objects.equals(tag, that.tag) && 
-                   java.util.Objects.equals(mensagem, that.mensagem);
-        }
-        
-        @Override
-        public int hashCode() {
-            return java.util.Objects.hash(tag, timestamp, sucesso, mensagem);
-        }
         
         @Override
         public String toString() {
@@ -1950,71 +1927,11 @@ public class Test {
             pRightPanel.setBorder(BorderFactory.createTitledBorder("Histórico de Tags"));
             pRightPanel.setPreferredSize(new java.awt.Dimension(550, 0));
             
-            // Lista para exibir o histórico - usando TagHistorico diretamente
-            javax.swing.DefaultListModel<TagHistorico> historicoListModel = new javax.swing.DefaultListModel<>();
-            javax.swing.JList<TagHistorico> historicoList = new javax.swing.JList<>(historicoListModel);
+            // Lista para exibir o histórico
+            javax.swing.DefaultListModel<String> historicoListModel = new javax.swing.DefaultListModel<>();
+            javax.swing.JList<String> historicoList = new javax.swing.JList<>(historicoListModel);
             historicoList.setFont(new java.awt.Font("Monospaced", java.awt.Font.PLAIN, 10));
             historicoList.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
-            
-            // Map para rastrear quando cada registro foi adicionado ao modelo (para destaque temporário)
-            final java.util.Map<TagHistorico, Long> registrosRecentes = 
-                java.util.Collections.synchronizedMap(new java.util.HashMap<>());
-            
-            // Renderer personalizado para destacar temporariamente registros atualizados
-            historicoList.setCellRenderer(new javax.swing.ListCellRenderer<TagHistorico>() {
-                private static final long TEMPO_DESTAQUE_MS = 2000; // 2 segundos para destacar registros novos
-                
-                @Override
-                public java.awt.Component getListCellRendererComponent(
-                        javax.swing.JList<? extends TagHistorico> list,
-                        TagHistorico value,
-                        int index,
-                        boolean isSelected,
-                        boolean cellHasFocus) {
-                    
-                    javax.swing.JLabel label = new javax.swing.JLabel(value.toString());
-                    label.setOpaque(true);
-                    label.setFont(list.getFont());
-                    
-                    // Verificar se este registro foi adicionado recentemente ao modelo
-                    Long tempoAdicao = registrosRecentes.get(value);
-                    boolean deveDestacar = false;
-                    if (tempoAdicao != null) {
-                        long tempoAgora = System.currentTimeMillis();
-                        long diferencaTempo = tempoAgora - tempoAdicao;
-                        deveDestacar = diferencaTempo < TEMPO_DESTAQUE_MS;
-                    }
-                    
-                    if (isSelected) {
-                        label.setBackground(list.getSelectionBackground());
-                        label.setForeground(list.getSelectionForeground());
-                    } else {
-                        if (deveDestacar) {
-                            // Background verde claro para indicar atualização recente
-                            label.setBackground(new Color(200, 255, 200)); // Verde claro
-                            label.setForeground(list.getForeground());
-                        } else {
-                            label.setBackground(list.getBackground());
-                            label.setForeground(list.getForeground());
-                        }
-                    }
-                    
-                    return label;
-                }
-            });
-            
-            // Timer para remover o destaque após o tempo definido e atualizar a lista
-            javax.swing.Timer timerDestaque = new javax.swing.Timer(500, e -> {
-                // Remover registros que já passaram do tempo de destaque
-                long tempoAgora = System.currentTimeMillis();
-                synchronized (registrosRecentes) {
-                    registrosRecentes.entrySet().removeIf(entry -> 
-                        (tempoAgora - entry.getValue()) >= 2000);
-                }
-                // Atualizar a lista para refletir as mudanças
-                historicoList.repaint();
-            });
-            timerDestaque.start();
             
             // ScrollPane para a lista
             javax.swing.JScrollPane scrollHistorico = new javax.swing.JScrollPane(historicoList);
@@ -2025,32 +1942,18 @@ public class Test {
             Runnable atualizarHistoricoUI = () -> {
                 SwingUtilities.invokeLater(() -> {
                     java.util.List<TagHistorico> historico = getHistoricoTags();
-                    
-                    // Criar um Set com os registros que já estavam no modelo antes da atualização
-                    java.util.Set<TagHistorico> registrosAnteriores = new java.util.HashSet<>();
-                    for (int i = 0; i < historicoListModel.getSize(); i++) {
-                        registrosAnteriores.add(historicoListModel.getElementAt(i));
-                    }
-                    
                     historicoListModel.clear();
                     // Adicionar as últimas 100 entradas (mais recentes primeiro)
                     int inicio = Math.max(0, historico.size() - 100);
-                    long tempoAgora = System.currentTimeMillis();
                     for (int i = historico.size() - 1; i >= inicio; i--) {
                         TagHistorico entrada = historico.get(i);
-                        historicoListModel.addElement(entrada);
-                        // Se é um novo registro (não estava na lista antes), marcar como recente
-                        if (!registrosAnteriores.contains(entrada)) {
-                            registrosRecentes.put(entrada, tempoAgora);
-                        }
+                        historicoListModel.addElement(entrada.toString());
                     }
                     // Auto-scroll para o topo (mais recente)
                     if (historicoListModel.getSize() > 0) {
                         historicoList.setSelectedIndex(0);
                         historicoList.ensureIndexIsVisible(0);
                     }
-                    // Forçar repaint para mostrar o destaque
-                    historicoList.repaint();
                 });
             };
             
