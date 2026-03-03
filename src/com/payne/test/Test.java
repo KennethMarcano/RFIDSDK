@@ -1925,7 +1925,8 @@ public class Test {
             tfPowerField.setVisible(true);
             btnAtualizarPotencia.setVisible(true);
 
-            // Botão para testar GPIO
+            // Botão para testar GPIO - COMENTADO TEMPORARIAMENTE
+            /*
             JPanel pGpioTest = new JPanel();
             pGpioTest.setLayout(new BoxLayout(pGpioTest, BoxLayout.Y_AXIS));
             pGpioTest.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1953,6 +1954,7 @@ public class Test {
             pGpioTest.add(Box.createVerticalStrut(2));
             pGpioTest.add(btnTestGpio);
             pGpioTest.setMaximumSize(new Dimension(Integer.MAX_VALUE, pGpioTest.getPreferredSize().height));
+            */
 
             // Labels informativos - Rótulo acima do valor
             JPanel pTag = new JPanel();
@@ -1966,6 +1968,8 @@ public class Test {
             pTag.add(Box.createVerticalStrut(2));
             pTag.add(lbTag);
             
+            // Campo API - COMENTADO TEMPORARIAMENTE
+            /*
             JPanel pApi = new JPanel();
             pApi.setLayout(new BoxLayout(pApi, BoxLayout.Y_AXIS));
             pApi.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1976,17 +1980,18 @@ public class Test {
             pApi.add(lbApiLabel);
             pApi.add(Box.createVerticalStrut(2));
             pApi.add(lbApi);
+            */
 
             // Adicionar componentes com espaçamento fixo e pequeno
             pMainContent.add(pApiToken);
             pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Autorização e Potência
             pMainContent.add(pPower);
             pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
-            pMainContent.add(pGpioTest);
-            pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
+            // pMainContent.add(pGpioTest); // COMENTADO TEMPORARIAMENTE
+            // pMainContent.add(Box.createVerticalStrut(8)); // Espaçamento fixo de 8 pixels
             pMainContent.add(pTag);
             pMainContent.add(Box.createVerticalStrut(4)); // Espaçamento reduzido de 4 pixels entre Tag e API
-            pMainContent.add(pApi);
+            // pMainContent.add(pApi); // COMENTADO TEMPORARIAMENTE
             // Adicionar componente flexível no final para empurrar tudo para o topo
             pMainContent.add(Box.createVerticalGlue());
             
@@ -2155,15 +2160,19 @@ public class Test {
                     // Só mostrar "aguardando resposta" se não for tag duplicada com sucesso
                     String tagAtual = safeString(code).trim();
                     boolean ehTagComSucesso = ultimaTagTeveSucesso && ultimaTagComSucesso != null && ultimaTagComSucesso.equals(tagAtual);
+                    // COMENTADO TEMPORARIAMENTE
+                    /*
                     if (!ehTagComSucesso) {
                         lbApi.setText("aguardando resposta...");
                     }
+                    */
                     // Se for tag com sucesso, mantém a última mensagem de sucesso
                 }
 
                 @Override
                 public void onApiResult(boolean success, String code, String message) {
-                    lbApi.setText((success ? "OK" : "ERRO") + " - " + message);
+                    // COMENTADO TEMPORARIAMENTE
+                    // lbApi.setText((success ? "OK" : "ERRO") + " - " + message);
                     // Atualizar histórico na interface quando houver resultado da API
                     atualizarHistoricoRef.run();
                 }
