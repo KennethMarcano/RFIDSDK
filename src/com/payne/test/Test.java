@@ -106,7 +106,7 @@ public class Test {
     private static volatile boolean httpWorkerStarted = false;
     
     /* Tempo mínimo em segundos entre leituras válidas da mesma tag */
-    private static final int TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS = 5; /* configure aqui */
+    private static final int TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS = 2; /* configure aqui */
     
     /* Variável para armazenar a última tag lida e evitar duplicados */
     private static volatile String ultimaTagLida = null;
@@ -231,14 +231,15 @@ public class Test {
         }
         
         // Converter queue para array para acesso mais eficiente
+        // ConcurrentLinkedQueue mantém ordem FIFO: primeiro = mais antigo, último = mais recente
         TagHistorico[] array = historicoTagsQueue.toArray(new TagHistorico[0]);
-        // Pegar os últimos maxItems (mais recentes estão no final da queue FIFO)
+        // Pegar os últimos maxItems e adicionar em ordem reversa (mais recente primeiro)
         int inicio = Math.max(0, array.length - maxItems);
-        for (int i = inicio; i < array.length; i++) {
+        // Iterar do final para o início para ter os mais recentes primeiro
+        for (int i = array.length - 1; i >= inicio; i--) {
             resultado.add(array[i]);
         }
-        // Reverter para ter os mais recentes primeiro na lista
-        java.util.Collections.reverse(resultado);
+        // Agora resultado já tem os mais recentes primeiro, sem precisar de reverse
         return resultado;
     }
     
@@ -2083,9 +2084,10 @@ public class Test {
                 SwingUtilities.invokeLater(() -> {
                     java.util.List<TagHistorico> historico = getHistoricoTags();
                     historicoListModel.clear();
-                    // Adicionar as últimas 100 entradas (mais recentes primeiro)
-                    int inicio = Math.max(0, historico.size() - 100);
-                    for (int i = historico.size() - 1; i >= inicio; i--) {
+                    // getHistoricoTags() já retorna com os mais recentes primeiro
+                    // Adicionar no máximo 100 entradas (mais recentes primeiro)
+                    int maxItems = Math.min(100, historico.size());
+                    for (int i = 0; i < maxItems; i++) {
                         TagHistorico entrada = historico.get(i);
                         historicoListModel.addElement(entrada);
                     }
