@@ -117,20 +117,21 @@ public class Test {
     /* Flag para indicar se a última tag teve sucesso */
     private static volatile boolean ultimaTagTeveSucesso = false;
     
-    /* Rastreamento rápido de leituras para evitar duplicatas em menos de 300ms */
-    private static volatile String ultimaTagLidaRapida = null;
+    /* Rastreamento rápido de leituras para evitar duplicatas em menos de 300ms - usando AtomicReference para lock-free */
+    private static final java.util.concurrent.atomic.AtomicReference<String> ultimaTagLidaRapidaRef = 
+        new java.util.concurrent.atomic.AtomicReference<>(null);
     private static volatile long ultimaTagLidaRapidaTimestamp = 0;
     private static final long TEMPO_MINIMO_ENTRE_LEITURAS_MS = 300; /* 300ms para ignorar leituras duplicadas muito rápidas */
     
     /* Histórico de LEITURA: Map thread-safe para armazenar timestamp da última leitura válida por tag */
-    private static final java.util.Map<String, Long> historicoLeitura = 
-        java.util.Collections.synchronizedMap(new java.util.HashMap<>());
+    private static final java.util.concurrent.ConcurrentHashMap<String, Long> historicoLeitura = 
+        new java.util.concurrent.ConcurrentHashMap<>();
     
     /* Classe para representar histórico de ENVIO HTTP */
     private static class HistoricoEnvio {
         private final String tag;
-        private long timestampUltimoEnvio;   // Timestamp do último envio HTTP
-        private boolean ultimoEnvioSucesso;  // Se o último envio foi bem-sucedido
+        private volatile long timestampUltimoEnvio;   // Timestamp do último envio HTTP
+        private volatile boolean ultimoEnvioSucesso;  // Se o último envio foi bem-sucedido
         
         public HistoricoEnvio(String tag, long timestampEnvio, boolean sucesso) {
             this.tag = tag;
@@ -149,8 +150,8 @@ public class Test {
     }
     
     /* Map thread-safe para armazenar histórico de ENVIOS HTTP por tag */
-    private static final java.util.Map<String, HistoricoEnvio> historicoEnvio = 
-        java.util.Collections.synchronizedMap(new java.util.HashMap<>());
+    private static final java.util.concurrent.ConcurrentHashMap<String, HistoricoEnvio> historicoEnvio = 
+        new java.util.concurrent.ConcurrentHashMap<>();
     
     /* Classe para representar uma entrada no histórico de tags */
     private static class TagHistorico {
@@ -207,71 +208,71 @@ public class Test {
         }
     }
     
-    /* Lista thread-safe para armazenar histórico de tags */
-    private static final java.util.List<TagHistorico> historicoTags = 
-        java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+    /* Lista thread-safe para armazenar histórico de tags - usando ConcurrentLinkedQueue para melhor performance */
+    private static final java.util.concurrent.ConcurrentLinkedQueue<TagHistorico> historicoTagsQueue = 
+        new java.util.concurrent.ConcurrentLinkedQueue<>();
+    
+    /* Map para acesso rápido ao último registro de cada tag (O(1) ao invés de O(n)) */
+    private static final java.util.concurrent.ConcurrentHashMap<String, TagHistorico> historicoTagsMap = 
+        new java.util.concurrent.ConcurrentHashMap<>();
     
     /* Limite máximo de itens no histórico para evitar memory leak */
     private static final int MAX_HISTORICO_TAGS = 1000;
     
     /* Método para obter uma cópia do histórico de tags (thread-safe) - otimizado */
     public static java.util.List<TagHistorico> getHistoricoTags() {
-        synchronized (historicoTags) {
-            // Se o histórico for pequeno, criar cópia completa
-            if (historicoTags.size() <= 200) {
-                return new java.util.ArrayList<>(historicoTags);
-            }
-            // Se for grande, retornar apenas os últimos 200 itens (mais do que suficiente para UI)
-            int inicio = Math.max(0, historicoTags.size() - 200);
-            return new java.util.ArrayList<>(historicoTags.subList(inicio, historicoTags.size()));
+        // Criar lista a partir da queue (já é thread-safe, não precisa de synchronized)
+        java.util.List<TagHistorico> resultado = new java.util.ArrayList<>();
+        int queueSize = historicoTagsQueue.size();
+        int maxItems = Math.min(200, queueSize);
+        
+        if (queueSize == 0) {
+            return resultado;
         }
+        
+        // Converter queue para array para acesso mais eficiente
+        TagHistorico[] array = historicoTagsQueue.toArray(new TagHistorico[0]);
+        // Pegar os últimos maxItems (mais recentes estão no final da queue FIFO)
+        int inicio = Math.max(0, array.length - maxItems);
+        for (int i = inicio; i < array.length; i++) {
+            resultado.add(array[i]);
+        }
+        // Reverter para ter os mais recentes primeiro na lista
+        java.util.Collections.reverse(resultado);
+        return resultado;
     }
     
     /* Método para obter o tamanho do histórico */
     public static int getHistoricoTagsSize() {
-        return historicoTags.size();
+        return historicoTagsQueue.size();
     }
     
     /* Método para adicionar ao histórico com limite automático */
     private static void adicionarAoHistorico(TagHistorico entrada) {
-        synchronized (historicoTags) {
-            historicoTags.add(entrada);
-            // Se exceder o limite, remover os mais antigos
-            while (historicoTags.size() > MAX_HISTORICO_TAGS) {
-                historicoTags.remove(0);
+        // Adicionar à queue
+        historicoTagsQueue.offer(entrada);
+        // Atualizar map para acesso rápido
+        historicoTagsMap.put(entrada.getTag(), entrada);
+        
+        // Limitar tamanho da queue (remover os mais antigos se necessário)
+        while (historicoTagsQueue.size() > MAX_HISTORICO_TAGS) {
+            TagHistorico removido = historicoTagsQueue.poll();
+            if (removido != null) {
+                // Verificar se ainda é o mais recente antes de remover do map
+                TagHistorico atual = historicoTagsMap.get(removido.getTag());
+                if (atual == removido) {
+                    historicoTagsMap.remove(removido.getTag());
+                }
             }
         }
     }
     
-    /* Cache para última tag atualizada (otimização) */
-    private static volatile String ultimaTagAtualizada = null;
-    private static volatile TagHistorico ultimoRegistroAtualizado = null;
-    
-    /* Método para atualizar o timestamp do registro mais recente de uma tag - otimizado */
+    /* Método para atualizar o timestamp do registro mais recente de uma tag - otimizado com O(1) */
     private static void atualizarTimestampRegistroMaisRecente(String tag, long novoTimestamp) {
-        // Otimização: verificar cache primeiro
-        if (ultimaTagAtualizada != null && ultimaTagAtualizada.equals(tag) && ultimoRegistroAtualizado != null) {
-            ultimoRegistroAtualizado.atualizarTimestamp(novoTimestamp);
-            return;
-        }
-        
-        synchronized (historicoTags) {
-            // Procurar do final para o início (mais recente primeiro) - limitar busca a últimos 50 itens
-            int limiteBusca = Math.min(50, historicoTags.size());
-            for (int i = historicoTags.size() - 1; i >= historicoTags.size() - limiteBusca; i--) {
-                TagHistorico entrada = historicoTags.get(i);
-                if (entrada.getTag().equals(tag)) {
-                    // Encontrou o registro mais recente desta tag - atualizar timestamp
-                    entrada.atualizarTimestamp(novoTimestamp);
-                    // Atualizar cache
-                    ultimaTagAtualizada = tag;
-                    ultimoRegistroAtualizado = entrada;
-                    return;
-                }
-            }
-            // Se não encontrou nos últimos 50, limpar cache
-            ultimaTagAtualizada = null;
-            ultimoRegistroAtualizado = null;
+        // Acesso O(1) ao invés de busca linear O(n)
+        TagHistorico registro = historicoTagsMap.get(tag);
+        if (registro != null) {
+            registro.atualizarTimestamp(novoTimestamp);
         }
     }
 
@@ -529,7 +530,13 @@ public class Test {
             Process p = Runtime.getRuntime().exec(
                 new String[]{"gpioset", "-t 0", "--chip", "gpiochip0", GPIO_PIN_BCM + "=" + value}
             );
-            p.waitFor();
+            // Adicionar timeout para evitar travamento indefinido
+            boolean finished = p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                p.destroyForcibly();
+                System.err.println("GPIO gpioset timeout - processo destruído");
+                return;
+            }
             if (p.exitValue() != 0) {
                 System.err.println("Erro ao executar gpioset: código de saída " + p.exitValue());
             }
@@ -598,50 +605,58 @@ public class Test {
      * Inicializa o PWM hardware uma única vez no arranque da aplicação
      * Exporta o canal, configura period e duty_cycle, deixa pronto para uso
      */
-    private static synchronized void initPwmBuzzer() {
+    private static void initPwmBuzzer() {
         String os = safeString(System.getProperty("os.name")).toLowerCase(Locale.ROOT);
         if (!os.contains("linux")) {
             System.out.println("PWM Buzzer: Sistema não é Linux - funcionalidade desabilitada");
             return;
         }
         
+        // Double-check locking para evitar bloqueio desnecessário após inicialização
         if (pwmInitialized) {
             return; // Já inicializado
         }
         
-        try {
-            java.nio.file.Path exportPath = java.nio.file.Paths.get(PWM_CHIP_PATH + "/export");
-            java.nio.file.Path periodPath = java.nio.file.Paths.get(PWM_BASE_PATH + "/period");
-            java.nio.file.Path dutyCyclePath = java.nio.file.Paths.get(PWM_BASE_PATH + "/duty_cycle");
-            java.nio.file.Path enablePath = java.nio.file.Paths.get(PWM_BASE_PATH + "/enable");
-            
-            // Verificar se o PWM já está exportado
-            if (!java.nio.file.Files.exists(java.nio.file.Paths.get(PWM_BASE_PATH))) {
-                // Exportar o canal PWM
-                System.out.println("PWM Buzzer: Exportando canal " + PWM_CHANNEL);
-                java.nio.file.Files.writeString(exportPath, PWM_CHANNEL, java.nio.charset.StandardCharsets.UTF_8);
-                
-                // Aguardar um pouco para o sistema criar os arquivos
-                Thread.sleep(100);
+        synchronized (Test.class) {
+            // Verificar novamente dentro do lock (double-check)
+            if (pwmInitialized) {
+                return;
             }
             
-            // Configurar period
-            System.out.println("PWM Buzzer: Configurando period = " + PWM_PERIOD);
-            java.nio.file.Files.writeString(periodPath, String.valueOf(PWM_PERIOD), java.nio.charset.StandardCharsets.UTF_8);
-            
-            // Configurar duty_cycle
-            System.out.println("PWM Buzzer: Configurando duty_cycle = " + PWM_DUTY_CYCLE);
-            java.nio.file.Files.writeString(dutyCyclePath, String.valueOf(PWM_DUTY_CYCLE), java.nio.charset.StandardCharsets.UTF_8);
-            
-            // Garantir que está desabilitado inicialmente
-            java.nio.file.Files.writeString(enablePath, "0", java.nio.charset.StandardCharsets.UTF_8);
-            
-            pwmInitialized = true;
-            System.out.println("PWM Buzzer: Inicializado com sucesso");
-        } catch (Exception e) {
-            System.err.println("PWM Buzzer: Erro ao inicializar - " + e.getMessage());
-            // Não marcar como inicializado se houve erro
-            pwmInitialized = false;
+            try {
+                java.nio.file.Path exportPath = java.nio.file.Paths.get(PWM_CHIP_PATH + "/export");
+                java.nio.file.Path periodPath = java.nio.file.Paths.get(PWM_BASE_PATH + "/period");
+                java.nio.file.Path dutyCyclePath = java.nio.file.Paths.get(PWM_BASE_PATH + "/duty_cycle");
+                java.nio.file.Path enablePath = java.nio.file.Paths.get(PWM_BASE_PATH + "/enable");
+                
+                // Verificar se o PWM já está exportado
+                if (!java.nio.file.Files.exists(java.nio.file.Paths.get(PWM_BASE_PATH))) {
+                    // Exportar o canal PWM
+                    System.out.println("PWM Buzzer: Exportando canal " + PWM_CHANNEL);
+                    java.nio.file.Files.writeString(exportPath, PWM_CHANNEL, java.nio.charset.StandardCharsets.UTF_8);
+                    
+                    // Aguardar um pouco para o sistema criar os arquivos
+                    Thread.sleep(100);
+                }
+                
+                // Configurar period
+                System.out.println("PWM Buzzer: Configurando period = " + PWM_PERIOD);
+                java.nio.file.Files.writeString(periodPath, String.valueOf(PWM_PERIOD), java.nio.charset.StandardCharsets.UTF_8);
+                
+                // Configurar duty_cycle
+                System.out.println("PWM Buzzer: Configurando duty_cycle = " + PWM_DUTY_CYCLE);
+                java.nio.file.Files.writeString(dutyCyclePath, String.valueOf(PWM_DUTY_CYCLE), java.nio.charset.StandardCharsets.UTF_8);
+                
+                // Garantir que está desabilitado inicialmente
+                java.nio.file.Files.writeString(enablePath, "0", java.nio.charset.StandardCharsets.UTF_8);
+                
+                pwmInitialized = true;
+                System.out.println("PWM Buzzer: Inicializado com sucesso");
+            } catch (Exception e) {
+                System.err.println("PWM Buzzer: Erro ao inicializar - " + e.getMessage());
+                // Não marcar como inicializado se houve erro
+                pwmInitialized = false;
+            }
         }
     }
     
@@ -666,14 +681,24 @@ public class Test {
             try {
                 java.nio.file.Path enablePath = java.nio.file.Paths.get(PWM_BASE_PATH + "/enable");
                 
-                // Ativar buzzer (enable = 1)
-                java.nio.file.Files.writeString(enablePath, "1", java.nio.charset.StandardCharsets.UTF_8);
+                // Ativar buzzer (enable = 1) com timeout
+                try {
+                    java.nio.file.Files.writeString(enablePath, "1", java.nio.charset.StandardCharsets.UTF_8);
+                } catch (java.nio.file.FileSystemException e) {
+                    // Se falhar, não continuar
+                    System.err.println("PWM Buzzer: Erro ao ativar - " + e.getMessage());
+                    return;
+                }
                 
                 // Esperar X milissegundos
                 Thread.sleep(BUZZER_DURATION_MS);
                 
-                // Desativar buzzer (enable = 0)
-                java.nio.file.Files.writeString(enablePath, "0", java.nio.charset.StandardCharsets.UTF_8);
+                // Desativar buzzer (enable = 0) com tratamento de erro
+                try {
+                    java.nio.file.Files.writeString(enablePath, "0", java.nio.charset.StandardCharsets.UTF_8);
+                } catch (java.nio.file.FileSystemException e) {
+                    System.err.println("PWM Buzzer: Erro ao desativar - " + e.getMessage());
+                }
             } catch (InterruptedException ignored) {
                 // Se foi interrompido, garantir que o buzzer seja desativado
                 try {
@@ -1308,18 +1333,12 @@ public class Test {
                     System.err.println("HTTP post failed: " + code);
                 }
 
-                // Atualizar histórico de ENVIO HTTP
+                // Atualizar histórico de ENVIO HTTP (ConcurrentHashMap - não precisa synchronized)
                 long timestampEnvioConcluido = System.currentTimeMillis();
-                synchronized (historicoEnvio) {
-                    HistoricoEnvio historico = historicoEnvio.get(codeForUi);
-                    if (historico == null) {
-                        // Criar novo histórico de envio
-                        historico = new HistoricoEnvio(codeForUi, timestampEnvioConcluido, success);
-                        historicoEnvio.put(codeForUi, historico);
-                    } else {
-                        // Atualizar histórico existente
-                        historico.atualizarEnvio(timestampEnvioConcluido, success);
-                    }
+                HistoricoEnvio historico = historicoEnvio.computeIfAbsent(codeForUi, 
+                    k -> new HistoricoEnvio(codeForUi, timestampEnvioConcluido, success));
+                if (historico != null) {
+                    historico.atualizarEnvio(timestampEnvioConcluido, success);
                 }
                 
                 if (success) {
@@ -1355,16 +1374,12 @@ public class Test {
                 }
                 break;/* sucesso ou erro não-redirecionado: sai do loop */
             } catch (java.net.SocketTimeoutException e) {
-                // Atualizar histórico de ENVIO HTTP (mesmo em caso de erro)
+                // Atualizar histórico de ENVIO HTTP (mesmo em caso de erro) - ConcurrentHashMap
                 long timestampEnvioConcluido = System.currentTimeMillis();
-                synchronized (historicoEnvio) {
-                    HistoricoEnvio historico = historicoEnvio.get(codeForUi);
-                    if (historico == null) {
-                        historico = new HistoricoEnvio(codeForUi, timestampEnvioConcluido, false);
-                        historicoEnvio.put(codeForUi, historico);
-                    } else {
-                        historico.atualizarEnvio(timestampEnvioConcluido, false);
-                    }
+                HistoricoEnvio historico = historicoEnvio.computeIfAbsent(codeForUi, 
+                    k -> new HistoricoEnvio(codeForUi, timestampEnvioConcluido, false));
+                if (historico != null) {
+                    historico.atualizarEnvio(timestampEnvioConcluido, false);
                 }
                 
                 // Em caso de erro, limpar flag de sucesso para permitir reenvio
@@ -1387,16 +1402,12 @@ public class Test {
                 // Timeout HTTP não deve afetar a conexão com a antena
                 break;
             } catch (java.net.ConnectException e) {
-                // Atualizar histórico de ENVIO HTTP (mesmo em caso de erro)
+                // Atualizar histórico de ENVIO HTTP (mesmo em caso de erro) - ConcurrentHashMap
                 long timestampEnvioConcluido = System.currentTimeMillis();
-                synchronized (historicoEnvio) {
-                    HistoricoEnvio historico = historicoEnvio.get(codeForUi);
-                    if (historico == null) {
-                        historico = new HistoricoEnvio(codeForUi, timestampEnvioConcluido, false);
-                        historicoEnvio.put(codeForUi, historico);
-                    } else {
-                        historico.atualizarEnvio(timestampEnvioConcluido, false);
-                    }
+                HistoricoEnvio historico = historicoEnvio.computeIfAbsent(codeForUi, 
+                    k -> new HistoricoEnvio(codeForUi, timestampEnvioConcluido, false));
+                if (historico != null) {
+                    historico.atualizarEnvio(timestampEnvioConcluido, false);
                 }
                 
                 // Em caso de erro, limpar flag de sucesso para permitir reenvio
@@ -1419,16 +1430,12 @@ public class Test {
                 // Erro de conexão HTTP não deve afetar a conexão com a antena
                 break;
             } catch (Exception e) {
-                // Atualizar histórico de ENVIO HTTP (mesmo em caso de erro)
+                // Atualizar histórico de ENVIO HTTP (mesmo em caso de erro) - ConcurrentHashMap
                 long timestampEnvioConcluido = System.currentTimeMillis();
-                synchronized (historicoEnvio) {
-                    HistoricoEnvio historico = historicoEnvio.get(codeForUi);
-                    if (historico == null) {
-                        historico = new HistoricoEnvio(codeForUi, timestampEnvioConcluido, false);
-                        historicoEnvio.put(codeForUi, historico);
-                    } else {
-                        historico.atualizarEnvio(timestampEnvioConcluido, false);
-                    }
+                HistoricoEnvio historico = historicoEnvio.computeIfAbsent(codeForUi, 
+                    k -> new HistoricoEnvio(codeForUi, timestampEnvioConcluido, false));
+                if (historico != null) {
+                    historico.atualizarEnvio(timestampEnvioConcluido, false);
                 }
                 
                 // Em caso de erro, limpar flag de sucesso para permitir reenvio
@@ -1497,22 +1504,21 @@ public class Test {
             return;
         }
         
-        // Verificar se a mesma tag foi lida em menos de 300ms (ignorar leitura duplicada muito rápida)
+        // Verificar se a mesma tag foi lida em menos de 300ms (ignorar leitura duplicada muito rápida) - lock-free
         long timestampAtual = System.currentTimeMillis();
-        synchronized (Test.class) {
-            if (ultimaTagLidaRapida != null && ultimaTagLidaRapida.equals(tagAtual)) {
-                long diferencaMs = timestampAtual - ultimaTagLidaRapidaTimestamp;
-                if (diferencaMs < TEMPO_MINIMO_ENTRE_LEITURAS_MS) {
-                    // Mesma tag lida em menos de 300ms - ignorar esta leitura
-                    System.out.println("Tag '" + tagAtual + "' lida novamente em " + diferencaMs + "ms (< " + TEMPO_MINIMO_ENTRE_LEITURAS_MS + "ms) - IGNORANDO leitura do módulo");
-                    System.out.println("========================================");
-                    return; // Ignorar e passar para próxima leitura
-                }
+        String ultimaTag = ultimaTagLidaRapidaRef.get();
+        if (ultimaTag != null && ultimaTag.equals(tagAtual)) {
+            long diferencaMs = timestampAtual - ultimaTagLidaRapidaTimestamp;
+            if (diferencaMs < TEMPO_MINIMO_ENTRE_LEITURAS_MS) {
+                // Mesma tag lida em menos de 300ms - ignorar esta leitura
+                System.out.println("Tag '" + tagAtual + "' lida novamente em " + diferencaMs + "ms (< " + TEMPO_MINIMO_ENTRE_LEITURAS_MS + "ms) - IGNORANDO leitura do módulo");
+                System.out.println("========================================");
+                return; // Ignorar e passar para próxima leitura
             }
-            // Atualizar rastreamento rápido
-            ultimaTagLidaRapida = tagAtual;
-            ultimaTagLidaRapidaTimestamp = timestampAtual;
         }
+        // Atualizar rastreamento rápido (lock-free com AtomicReference)
+        ultimaTagLidaRapidaRef.set(tagAtual);
+        ultimaTagLidaRapidaTimestamp = timestampAtual;
         
         // Atualizar UI com a tag detectada
         if (uiNotifier != null) {
@@ -1553,11 +1559,8 @@ public class Test {
                     // Obter timestamp atual
                     long timestampAtual = System.currentTimeMillis();
                     
-                    // Verificar histórico de ENVIO HTTP para esta tag
-                    HistoricoEnvio historicoEnvioTag = null;
-                    synchronized (historicoEnvio) {
-                        historicoEnvioTag = historicoEnvio.get(code);
-                    }
+                    // Verificar histórico de ENVIO HTTP para esta tag (ConcurrentHashMap - não precisa synchronized)
+                    HistoricoEnvio historicoEnvioTag = historicoEnvio.get(code);
                     
                     boolean deveEnviar = false;
                     
@@ -1577,10 +1580,9 @@ public class Test {
                             // Atualizar apenas o timestamp no histórico de envio (sem alterar sucesso)
                             System.out.println("Diferença menor que " + TEMPO_MINIMO_ENTRE_ENVIOS_SEGUNDOS + "s - envio DESCONSIDERADO, atualizando timestamp no histórico");
                             
-                            synchronized (historicoEnvio) {
-                                boolean ultimoEnvioSucesso = historicoEnvioTag.isUltimoEnvioSucesso();
-                                historicoEnvioTag.atualizarEnvio(timestampAtual, ultimoEnvioSucesso);
-                            }
+                            // ConcurrentHashMap - não precisa synchronized, mas HistoricoEnvio usa volatile
+                            boolean ultimoEnvioSucesso = historicoEnvioTag.isUltimoEnvioSucesso();
+                            historicoEnvioTag.atualizarEnvio(timestampAtual, ultimoEnvioSucesso);
                             
                             // Atualizar timestamp do registro mais recente no histórico de tags (se existir)
                             atualizarTimestampRegistroMaisRecente(code, timestampAtual);
@@ -2104,10 +2106,9 @@ public class Test {
             JPanel pHistoricoTop = new JPanel(new FlowLayout(FlowLayout.RIGHT));
             JButton btnLimparHistorico = new JButton("Limpar Histórico");
             btnLimparHistorico.addActionListener(e -> {
-                // Limpar o histórico
-                synchronized (historicoTags) {
-                    historicoTags.clear();
-                }
+                // Limpar o histórico (ConcurrentLinkedQueue e ConcurrentHashMap - não precisa synchronized)
+                historicoTagsQueue.clear();
+                historicoTagsMap.clear();
                 // Atualizar a interface
                 atualizarHistoricoUI.run();
                 System.out.println("Histórico de tags limpo");
