@@ -589,8 +589,8 @@ public class Test {
     private static final String PWM_CHIP_PATH = "/sys/class/pwm/pwmchip0";
     private static final String PWM_CHANNEL = "0";
     private static final String PWM_BASE_PATH = PWM_CHIP_PATH + "/pwm" + PWM_CHANNEL;
-    private static final long PWM_PERIOD = 1000000L; // 1MHz = 1 segundo em nanosegundos
-    private static final long PWM_DUTY_CYCLE = 500000L; // 50% duty cycle
+    private static final long PWM_PERIOD = 1500L; // 1MHz = 1 segundo em nanosegundos
+    private static final long PWM_DUTY_CYCLE = 750L; // 50% duty cycle
     private static final int BUZZER_DURATION_MS = 100; // Duração do som em milissegundos
     private static volatile boolean pwmInitialized = false;
     
