@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="mercury">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/SDKMERCURY/mercuryapi.jar!/" />
+      <root url="jar://$PROJECT_DIR$/SDKMERCURY/ltkjava-1.0.0.6.jar!/" />
+      <root url="jar://$PROJECT_DIR$/SDKMERCURY/slf4j-dependencies.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
