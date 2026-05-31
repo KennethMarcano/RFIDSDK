@@ -31,6 +31,7 @@ public class MercuryRfidReader extends AbstractRfidReader {
     private int powerMinCentidBm = 500;
     private int powerMaxCentidBm = 3000;
     private volatile int nativePowerCentidBm;
+    private int[] antennaIds = {1};
     private String readerInfo = "";
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MercuryRfidReader");
@@ -54,6 +55,10 @@ public class MercuryRfidReader extends AbstractRfidReader {
 
     public MercuryRfidReader(RfidReaderConfig config) {
         super(config);
+        int[] fromConfig = config.getAntennaIds();
+        if (fromConfig != null && fromConfig.length > 0) {
+            antennaIds = toMercuryAntennaIds(fromConfig);
+        }
     }
 
     @Override
@@ -215,6 +220,27 @@ public class MercuryRfidReader extends AbstractRfidReader {
         return readerInfo;
     }
 
+    @Override
+    public void setAntennaIds(int[] antennaIds) throws RfidException {
+        if (antennaIds == null || antennaIds.length == 0) {
+            throw new RfidException("Informe ao menos uma antena");
+        }
+        this.antennaIds = toMercuryAntennaIds(antennaIds);
+        config.setAntennaIds(antennaIds);
+        if (reader != null) {
+            try {
+                configureReadPlan();
+            } catch (ReaderException e) {
+                throw new RfidException("Erro ao configurar antenas Mercury: " + e.getMessage(), e);
+            }
+        }
+    }
+
+    @Override
+    public int[] getAntennaIds() {
+        return config.getAntennaIds();
+    }
+
     private void configureRegion() throws ReaderException {
         if (Reader.Region.UNSPEC == (Reader.Region) reader.paramGet("/reader/region/id")) {
             Reader.Region[] supported = (Reader.Region[]) reader.paramGet(TMConstants.TMR_PARAM_REGION_SUPPORTEDREGIONS);
@@ -239,9 +265,16 @@ public class MercuryRfidReader extends AbstractRfidReader {
     }
 
     private void configureReadPlan() throws ReaderException {
-        int[] antennaList = {1};
-        SimpleReadPlan plan = new SimpleReadPlan(antennaList, TagProtocol.GEN2, null, null, 1000);
+        SimpleReadPlan plan = new SimpleReadPlan(antennaIds, TagProtocol.GEN2, null, null, 1000);
         reader.paramSet(TMConstants.TMR_PARAM_READ_PLAN, plan);
+    }
+
+    private static int[] toMercuryAntennaIds(int[] ids) {
+        int[] result = new int[ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            result[i] = ids[i] <= 0 ? 1 : ids[i];
+        }
+        return result;
     }
 
     private void dispatchMercuryTag(TagReadData tagRead) {

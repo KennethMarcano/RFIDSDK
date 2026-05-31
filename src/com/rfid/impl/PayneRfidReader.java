@@ -52,7 +52,9 @@ public class PayneRfidReader extends AbstractRfidReader {
         inventoryParam.setDelayMs(0);
         inventoryParam.setLoopCount(-1);
         inventoryParam.clearCustomSessionIds();
-        inventoryParam.addCustomSessionId(0);
+        for (int antId : config.getAntennaIds()) {
+            inventoryParam.addCustomSessionId(antId);
+        }
     }
 
     @Override
@@ -197,6 +199,23 @@ public class PayneRfidReader extends AbstractRfidReader {
     @Override
     public String getReaderInfo() {
         return readerInfo;
+    }
+
+    @Override
+    public void setAntennaIds(int[] antennaIds) throws RfidException {
+        if (antennaIds == null || antennaIds.length == 0) {
+            throw new RfidException("Informe ao menos uma antena");
+        }
+        config.setAntennaIds(antennaIds);
+        inventoryParam.clearCustomSessionIds();
+        for (int antId : antennaIds) {
+            inventoryParam.addCustomSessionId(antId);
+        }
+    }
+
+    @Override
+    public int[] getAntennaIds() {
+        return config.getAntennaIds();
     }
 
     private void inventoryParamConfig() {

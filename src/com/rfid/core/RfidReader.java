@@ -23,4 +23,8 @@ public interface RfidReader {
     String getReaderInfo();
 
     RfidSdkType getSdkType();
+
+    void setAntennaIds(int[] antennaIds) throws RfidException;
+
+    int[] getAntennaIds();
 }
