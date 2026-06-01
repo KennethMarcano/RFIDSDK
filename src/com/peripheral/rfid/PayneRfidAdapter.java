@@ -45,7 +45,9 @@ public class PayneRfidAdapter implements ReadablePeripheral, RfidConfigurable {
             reader.connect(cfg.getPortName().trim());
         } catch (RfidException e) {
             reader = null;
-            throw new PeripheralException(e.getMessage(), e);
+            throw new PeripheralException(
+                    PayneRfidProber.formatConnectError(cfg.getPortName().trim(), e.getMessage(), true),
+                    e);
         }
     }
 

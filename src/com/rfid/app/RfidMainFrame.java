@@ -8,9 +8,12 @@ import com.rfid.core.RfidSdkType;
 import com.rfid.core.RfidTagEvent;
 import com.rfid.core.RfidTagListener;
 import com.rfid.core.SerialPortDiscovery;
+import com.rfid.core.SerialPortInfo;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
@@ -18,7 +21,7 @@ import java.util.List;
 public class RfidMainFrame extends JFrame {
 
     private final JComboBox<RfidSdkType> cbSdk = new JComboBox<>(RfidSdkType.values());
-    private final JComboBox<String> cbPort = new JComboBox<>();
+    private final JComboBox<SerialPortInfo> cbPort = new JComboBox<>();
     private final JButton btnRefreshPorts = new JButton("Atualizar portas");
     private final JButton btnConnect = new JButton("Conectar");
     private final JButton btnDisconnect = new JButton("Desconectar");
@@ -75,6 +78,7 @@ public class RfidMainFrame extends JFrame {
         setup.add(new JLabel("Porta:"), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1;
+        setupPortCombo();
         setup.add(cbPort, gbc);
 
         gbc.gridx = 2;
@@ -151,25 +155,75 @@ public class RfidMainFrame extends JFrame {
         updateReadModeUi();
     }
 
-    private void refreshPorts() {
-        String selected = (String) cbPort.getSelectedItem();
-        cbPort.removeAllItems();
-        List<String> ports = SerialPortDiscovery.listPortNames();
-        if (ports.isEmpty()) {
-            cbPort.addItem("(nenhuma porta encontrada)");
-        } else {
-            for (String port : ports) {
-                cbPort.addItem(port);
+    private void setupPortCombo() {
+        cbPort.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof SerialPortInfo) {
+                    setText(((SerialPortInfo) value).getDisplayLabel());
+                }
+                return this;
             }
+        });
+        cbPort.addMouseMotionListener(new MouseAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                updatePortTooltip();
+            }
+        });
+        cbPort.addActionListener(e -> updatePortTooltip());
+    }
+
+    private void updatePortTooltip() {
+        Object selected = cbPort.getSelectedItem();
+        if (selected instanceof SerialPortInfo && !((SerialPortInfo) selected).isPlaceholder()) {
+            cbPort.setToolTipText(((SerialPortInfo) selected).getDetailTooltip());
+        } else {
+            cbPort.setToolTipText(null);
         }
-        if (selected != null) {
-            cbPort.setSelectedItem(selected);
+    }
+
+    private String getSelectedPortName() {
+        Object selected = cbPort.getSelectedItem();
+        if (!(selected instanceof SerialPortInfo)) {
+            return null;
+        }
+        SerialPortInfo info = (SerialPortInfo) selected;
+        return info.isPlaceholder() ? null : info.getSystemPortName();
+    }
+
+    private void refreshPorts() {
+        String selectedPortName = getSelectedPortName();
+        cbPort.removeAllItems();
+        try {
+            List<SerialPortInfo> ports = SerialPortDiscovery.listPorts();
+            if (ports.isEmpty()) {
+                cbPort.addItem(SerialPortInfo.placeholder("(nenhuma porta encontrada)"));
+            } else {
+                for (SerialPortInfo port : ports) {
+                    cbPort.addItem(port);
+                }
+                if (selectedPortName != null) {
+                    for (int i = 0; i < cbPort.getItemCount(); i++) {
+                        SerialPortInfo item = cbPort.getItemAt(i);
+                        if (item != null && selectedPortName.equalsIgnoreCase(item.getSystemPortName())) {
+                            cbPort.setSelectedIndex(i);
+                            break;
+                        }
+                    }
+                }
+            }
+            updatePortTooltip();
+        } catch (RuntimeException e) {
+            cbPort.addItem(SerialPortInfo.placeholder("(erro ao listar portas)"));
         }
     }
 
     private void connectReader() {
-        String port = (String) cbPort.getSelectedItem();
-        if (port == null || port.startsWith("(")) {
+        String port = getSelectedPortName();
+        if (port == null) {
             JOptionPane.showMessageDialog(this, "Selecione uma porta serial válida.", "Porta", JOptionPane.WARNING_MESSAGE);
             return;
         }

@@ -8,15 +8,21 @@ import com.peripheral.core.PeripheralDataListener;
 import com.peripheral.core.PeripheralException;
 import com.peripheral.core.PeripheralFactory;
 import com.peripheral.core.PeripheralType;
+import com.peripheral.core.PortProbeFactory;
+import com.peripheral.core.PortProbeResult;
 import com.peripheral.core.ReadablePeripheral;
 import com.peripheral.core.RfidConfigurable;
 import com.peripheral.core.SerialConnectionConfig;
+import com.peripheral.core.SerialPortProber;
 import com.rfid.core.SerialPortDiscovery;
+import com.rfid.core.SerialPortInfo;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -28,13 +34,15 @@ public class MainFrame extends JFrame {
 
     private static final int MAX_ROWS = 500;
     private static final int READ_ONCE_TIMEOUT_MS = 2000;
+    private static final int SCALE_NO_DATA_WARNING_MS = 8000;
 
     private final JComboBox<PeripheralType> cbPeripheral = new JComboBox<>(PeripheralType.values());
     private final JComboBox<String> cbVendor = new JComboBox<>();
     private final JComboBox<DeviceModelEntry> cbModel = new JComboBox<>();
 
-    private final JComboBox<String> cbPort = new JComboBox<>();
+    private final JComboBox<SerialPortInfo> cbPort = new JComboBox<>();
     private final JButton btnRefreshPorts = new JButton("Atualizar portas");
+    private final JButton btnTestPort = new JButton("Testar porta");
     private final JButton btnConnect = new JButton("Conectar");
     private final JButton btnDisconnect = new JButton("Desconectar");
     private final JLabel lbStatus = new JLabel("Selecione periférico, fabricante e modelo.");
@@ -68,6 +76,8 @@ public class MainFrame extends JFrame {
     private ReadablePeripheral device;
     private DeviceModelEntry selectedModel;
     private boolean continuousActive;
+    private Timer scaleNoDataTimer;
+    private boolean scaleDataReceivedDuringContinuous;
 
     public MainFrame() {
         super("Periféricos eship — RFID / Balança");
@@ -145,8 +155,10 @@ public class MainFrame extends JFrame {
 
         JPanel portRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         portRow.add(new JLabel("Porta:"));
+        setupPortCombo();
         portRow.add(cbPort);
         portRow.add(btnRefreshPorts);
+        portRow.add(btnTestPort);
         portRow.add(btnConnect);
         portRow.add(btnDisconnect);
         connection.add(portRow);
@@ -190,6 +202,7 @@ public class MainFrame extends JFrame {
         cbVendor.addActionListener(e -> onVendorChanged());
         cbModel.addActionListener(e -> onModelChanged());
         btnRefreshPorts.addActionListener(e -> refreshPorts());
+        btnTestPort.addActionListener(e -> testPort());
         btnConnect.addActionListener(e -> connectDevice());
         btnDisconnect.addActionListener(e -> disconnectDevice());
         btnApplyPower.addActionListener(e -> applyPower());
@@ -291,23 +304,73 @@ public class MainFrame extends JFrame {
                 + " | SDK: " + selectedModel.getSdk().getDescription());
     }
 
+    private void setupPortCombo() {
+        cbPort.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof SerialPortInfo) {
+                    setText(((SerialPortInfo) value).getDisplayLabel());
+                }
+                return this;
+            }
+        });
+        cbPort.addMouseMotionListener(new MouseAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                updatePortComboTooltip();
+            }
+        });
+        cbPort.addActionListener(e -> updatePortComboTooltip());
+    }
+
+    private void updatePortComboTooltip() {
+        SerialPortInfo info = getSelectedPortInfo();
+        if (info != null && !info.isPlaceholder()) {
+            cbPort.setToolTipText(info.getDetailTooltip());
+        } else {
+            cbPort.setToolTipText(null);
+        }
+    }
+
+    private SerialPortInfo getSelectedPortInfo() {
+        Object selected = cbPort.getSelectedItem();
+        return selected instanceof SerialPortInfo ? (SerialPortInfo) selected : null;
+    }
+
+    private String getSelectedPortName() {
+        SerialPortInfo info = getSelectedPortInfo();
+        if (info == null || info.isPlaceholder()) {
+            return null;
+        }
+        return info.getSystemPortName();
+    }
+
     private void refreshPorts() {
-        String selected = (String) cbPort.getSelectedItem();
+        String selectedPortName = getSelectedPortName();
         cbPort.removeAllItems();
         try {
-            List<String> ports = SerialPortDiscovery.listPortNames();
+            List<SerialPortInfo> ports = SerialPortDiscovery.listPorts();
             if (ports.isEmpty()) {
-                cbPort.addItem("(nenhuma porta encontrada)");
+                cbPort.addItem(SerialPortInfo.placeholder("(nenhuma porta encontrada)"));
             } else {
-                for (String port : ports) {
+                for (SerialPortInfo port : ports) {
                     cbPort.addItem(port);
                 }
-                if (selected != null) {
-                    cbPort.setSelectedItem(selected);
+                if (selectedPortName != null) {
+                    for (int i = 0; i < cbPort.getItemCount(); i++) {
+                        SerialPortInfo item = cbPort.getItemAt(i);
+                        if (item != null && selectedPortName.equalsIgnoreCase(item.getSystemPortName())) {
+                            cbPort.setSelectedIndex(i);
+                            break;
+                        }
+                    }
                 }
             }
+            updatePortComboTooltip();
         } catch (RuntimeException e) {
-            cbPort.addItem("(erro ao listar portas)");
+            cbPort.addItem(SerialPortInfo.placeholder("(erro ao listar portas)"));
             appendLog("ERRO portas seriais: " + e.getMessage());
             if (e.getCause() != null) {
                 appendLog("Causa: " + e.getCause().getMessage());
@@ -322,8 +385,8 @@ public class MainFrame extends JFrame {
         SerialConnectionConfig cfg = selectedModel != null
                 ? selectedModel.getDefaultSerialConfig()
                 : SerialConnectionConfig.rfidDefault();
-        String port = (String) cbPort.getSelectedItem();
-        if (port != null && !port.startsWith("(")) {
+        String port = getSelectedPortName();
+        if (port != null) {
             cfg.setPortName(port);
         }
         if (selectedModel != null && selectedModel.getPeripheralType() == PeripheralType.SCALE) {
@@ -335,18 +398,143 @@ public class MainFrame extends JFrame {
         return cfg;
     }
 
+    private void testPort() {
+        if (selectedModel == null) {
+            JOptionPane.showMessageDialog(this, "Selecione um modelo.", "Testar porta", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        String port = getSelectedPortName();
+        if (port == null) {
+            JOptionPane.showMessageDialog(this, "Selecione uma porta serial válida.", "Testar porta", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        btnTestPort.setEnabled(false);
+        btnConnect.setEnabled(false);
+        lbStatus.setText("Testando " + port + "...");
+        lbStatus.setForeground(Color.BLACK);
+
+        new SwingWorker<PortProbeResult, Void>() {
+            @Override
+            protected PortProbeResult doInBackground() {
+                SerialPortProber prober = PortProbeFactory.forModel(selectedModel);
+                return prober.probe(buildSerialConfig(), PortProbeFactory.defaultTimeoutMs(selectedModel));
+            }
+
+            @Override
+            protected void done() {
+                btnTestPort.setEnabled(device == null);
+                btnConnect.setEnabled(device == null);
+                try {
+                    PortProbeResult result = get();
+                    showProbeResultDialog("Resultado do teste", result);
+                    appendLog("Teste porta " + port + ": " + result.getStatus() + " — " + result.getMessage());
+                    if (result.isMatch()) {
+                        lbStatus.setText("Porta OK: " + port);
+                        lbStatus.setForeground(new Color(0, 128, 0));
+                    } else if (result.isBlocking()) {
+                        lbStatus.setText("Teste falhou: " + result.getMessage());
+                        lbStatus.setForeground(Color.RED);
+                    } else {
+                        lbStatus.setText("Porta suspeita: " + port);
+                        lbStatus.setForeground(new Color(180, 100, 0));
+                    }
+                } catch (Exception e) {
+                    lbStatus.setText("Erro no teste");
+                    lbStatus.setForeground(Color.RED);
+                    appendLog("ERRO teste porta: " + e.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    private void showProbeResultDialog(String title, PortProbeResult result) {
+        int messageType;
+        if (result.isMatch()) {
+            messageType = JOptionPane.INFORMATION_MESSAGE;
+        } else if (result.isBlocking()) {
+            messageType = JOptionPane.ERROR_MESSAGE;
+        } else {
+            messageType = JOptionPane.WARNING_MESSAGE;
+        }
+        String body = result.getMessage();
+        if (!result.getDetail().isEmpty()) {
+            body = body + "\n\n" + result.getDetail();
+        }
+        JOptionPane.showMessageDialog(this, body, title, messageType);
+    }
+
     private void connectDevice() {
         if (selectedModel == null) {
             JOptionPane.showMessageDialog(this, "Selecione um modelo.", "Conexão", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        String port = (String) cbPort.getSelectedItem();
-        if (port == null || port.startsWith("(")) {
+        String port = getSelectedPortName();
+        if (port == null) {
             JOptionPane.showMessageDialog(this, "Selecione uma porta serial válida.", "Conexão", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         btnConnect.setEnabled(false);
+        btnTestPort.setEnabled(false);
+        lbStatus.setText("Verificando porta " + port + "...");
+        lbStatus.setForeground(Color.BLACK);
+
+        new SwingWorker<PortProbeResult, Void>() {
+            @Override
+            protected PortProbeResult doInBackground() {
+                SerialPortProber prober = PortProbeFactory.forModel(selectedModel);
+                return prober.probe(buildSerialConfig(), PortProbeFactory.defaultTimeoutMs(selectedModel));
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    PortProbeResult probe = get();
+                    if (probe.isBlocking()) {
+                        btnConnect.setEnabled(true);
+                        btnTestPort.setEnabled(true);
+                        lbStatus.setText("Erro: " + probe.getMessage());
+                        lbStatus.setForeground(Color.RED);
+                        showProbeResultDialog("Conexão", probe);
+                        appendLog("ERRO verificação porta: " + probe.getMessage());
+                        return;
+                    }
+                    if (probe.isSuspicious()) {
+                        String body = probe.getMessage();
+                        if (!probe.getDetail().isEmpty()) {
+                            body = body + "\n\n" + probe.getDetail();
+                        }
+                        body = body + "\n\nDeseja conectar mesmo assim?";
+                        int choice = JOptionPane.showConfirmDialog(
+                                MainFrame.this,
+                                body,
+                                "Porta suspeita",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.WARNING_MESSAGE);
+                        if (choice != JOptionPane.YES_OPTION) {
+                            btnConnect.setEnabled(true);
+                            btnTestPort.setEnabled(true);
+                            lbStatus.setText("Conexão cancelada — porta suspeita");
+                            lbStatus.setForeground(new Color(180, 100, 0));
+                            appendLog("Conexão cancelada: porta " + port + " não confirmada pelo usuário");
+                            return;
+                        }
+                    } else if (probe.isMatch()) {
+                        appendLog("Porta verificada: " + probe.getMessage());
+                    }
+                    performConnect(port);
+                } catch (Exception e) {
+                    btnConnect.setEnabled(true);
+                    btnTestPort.setEnabled(true);
+                    lbStatus.setText("Erro na verificação");
+                    lbStatus.setForeground(Color.RED);
+                    appendLog("ERRO verificação: " + e.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    private void performConnect(String port) {
         lbStatus.setText("Conectando...");
         lbStatus.setForeground(Color.BLACK);
 
@@ -376,6 +564,7 @@ public class MainFrame extends JFrame {
             @Override
             protected void done() {
                 btnConnect.setEnabled(true);
+                btnTestPort.setEnabled(false);
                 if (error != null) {
                     lbStatus.setText("Erro: " + error);
                     lbStatus.setForeground(Color.RED);
@@ -398,6 +587,7 @@ public class MainFrame extends JFrame {
 
     private void disconnectDevice() {
         stopContinuousIfNeeded();
+        cancelScaleNoDataTimer();
         if (device != null) {
             device.disconnect();
             device = null;
@@ -438,6 +628,9 @@ public class MainFrame extends JFrame {
             btnToggleContinuous.setText("Pausar leitura contínua");
             btnReadOnce.setEnabled(false);
             appendLog("Leitura contínua iniciada");
+            if (selectedModel != null && selectedModel.getPeripheralType() == PeripheralType.SCALE) {
+                startScaleNoDataWatch();
+            }
         } catch (PeripheralException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "Leitura", JOptionPane.ERROR_MESSAGE);
         }
@@ -449,7 +642,31 @@ public class MainFrame extends JFrame {
             continuousActive = false;
             btnToggleContinuous.setText("Iniciar leitura contínua");
             btnReadOnce.setEnabled(true);
+            cancelScaleNoDataTimer();
             appendLog("Leitura contínua pausada");
+        }
+    }
+
+    private void startScaleNoDataWatch() {
+        cancelScaleNoDataTimer();
+        scaleDataReceivedDuringContinuous = false;
+        scaleNoDataTimer = new Timer(SCALE_NO_DATA_WARNING_MS, e -> {
+            if (continuousActive && !scaleDataReceivedDuringContinuous) {
+                appendLog("AVISO: nenhum peso recebido em " + (SCALE_NO_DATA_WARNING_MS / 1000)
+                        + " s — confirme se a porta COM selecionada é a da balança.");
+                lbStatus.setText("Sem dados da balança — verifique a porta COM");
+                lbStatus.setForeground(new Color(180, 100, 0));
+            }
+            cancelScaleNoDataTimer();
+        });
+        scaleNoDataTimer.setRepeats(false);
+        scaleNoDataTimer.start();
+    }
+
+    private void cancelScaleNoDataTimer() {
+        if (scaleNoDataTimer != null) {
+            scaleNoDataTimer.stop();
+            scaleNoDataTimer = null;
         }
     }
 
@@ -495,6 +712,11 @@ public class MainFrame extends JFrame {
         if (event == null) {
             return;
         }
+        if (continuousActive && event.getSource() != null
+                && event.getSource().getPeripheralType() == PeripheralType.SCALE) {
+            scaleDataReceivedDuringContinuous = true;
+            cancelScaleNoDataTimer();
+        }
         String time = timeFormat.format(new Date(event.getTimestampMs()));
         DeviceModelEntry src = event.getSource();
         String peripheral = src != null ? src.getPeripheralType().getLabel() : "-";
@@ -529,6 +751,7 @@ public class MainFrame extends JFrame {
         cbModel.setEnabled(enabled);
         cbPort.setEnabled(enabled);
         btnRefreshPorts.setEnabled(enabled);
+        btnTestPort.setEnabled(enabled);
         btnConnect.setEnabled(enabled);
         spPower.setEnabled(enabled);
         btnApplyPower.setEnabled(enabled);
