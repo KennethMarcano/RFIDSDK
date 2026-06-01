@@ -5,7 +5,6 @@ import com.peripheral.core.PeripheralException;
 import com.peripheral.core.SerialConnectionConfig;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -31,16 +30,19 @@ public class SerialLink {
             throw new PeripheralException("Porta serial não informada");
         }
         port = SerialPort.getCommPort(config.getPortName().trim());
+        if (!port.openPort()) {
+            throw new PeripheralException("Não foi possível abrir a porta " + config.getPortName());
+        }
         port.setComPortParameters(
                 config.getBaudRate(),
                 config.getDataBits(),
                 config.getJSerialCommStopBits(),
                 config.getParity().getJSerialCommValue()
         );
+        port.setFlowControl(SerialPort.FLOW_CONTROL_DISABLED);
+        // pyserial ativa DTR/RTS por padrão no Windows; jSerialComm não — necessário para muitas balanças RS232.
+        port.setDTRandRTS(true, true);
         port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 100, 0);
-        if (!port.openPort()) {
-            throw new PeripheralException("Não foi possível abrir a porta " + config.getPortName());
-        }
         running.set(true);
         readerThread = new Thread(this::readLoop, "SerialLink-" + config.getPortName());
         readerThread.setDaemon(true);
@@ -86,19 +88,12 @@ public class SerialLink {
 
     private void readLoop() {
         byte[] buf = new byte[256];
-        try {
-            InputStream in = port.getInputStream();
-            while (running.get() && port != null && port.isOpen()) {
-                int n = in.read(buf);
-                if (n <= 0) {
-                    continue;
-                }
-                appendBytes(buf, n);
+        while (running.get() && port != null && port.isOpen()) {
+            int n = port.readBytes(buf, buf.length);
+            if (n <= 0) {
+                continue;
             }
-        } catch (IOException e) {
-            if (running.get()) {
-                dispatchLine("[erro serial: " + e.getMessage() + "]");
-            }
+            appendBytes(buf, n);
         }
     }
 
