@@ -142,9 +142,18 @@ public class DigitronScalePeripheral implements ReadablePeripheral, ScaleConfigu
         if (listener == null || line == null || line.trim().isEmpty()) {
             return;
         }
-        listener.onData(PeripheralDataEvent.builder(model)
-                .fromRawSerial(line)
-                .build());
+        DigitronDgnParser.ParseResult parsed = DigitronDgnParser.parse(line);
+        PeripheralDataEvent.Builder builder = PeripheralDataEvent.builder(model)
+                .rawPayload(parsed.getRaw());
+        if (parsed.isParsed()) {
+            builder.weight(String.valueOf(parsed.getWeightKg()))
+                    .unit("kg")
+                    .stable(parsed.isStable())
+                    .displayText(parsed.getDisplayText());
+        } else {
+            builder.fromRawSerial(line);
+        }
+        listener.onData(builder.build());
     }
 
     private void notifyReadingState(PeripheralDataListener listener, boolean reading) {

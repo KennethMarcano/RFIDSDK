@@ -14,6 +14,7 @@ import com.peripheral.core.ReadablePeripheral;
 import com.peripheral.core.RfidConfigurable;
 import com.peripheral.core.SerialConnectionConfig;
 import com.peripheral.core.SerialPortProber;
+import com.peripheral.session.PeripheralSessionManager;
 import com.rfid.core.SerialPortDiscovery;
 import com.rfid.core.SerialPortInfo;
 
@@ -23,6 +24,8 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -35,6 +38,8 @@ public class MainFrame extends JFrame {
     private static final int MAX_ROWS = 500;
     private static final int READ_ONCE_TIMEOUT_MS = 2000;
     private static final int SCALE_NO_DATA_WARNING_MS = 8000;
+
+    private final PeripheralSessionManager sessionManager = new PeripheralSessionManager();
 
     private final JComboBox<PeripheralType> cbPeripheral = new JComboBox<>(PeripheralType.values());
     private final JComboBox<String> cbVendor = new JComboBox<>();
@@ -73,6 +78,8 @@ public class MainFrame extends JFrame {
     private final JTextArea taLog = new JTextArea(6, 40);
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss");
 
+    private AutomatedWorkflowPanel workflowPanel;
+
     private ReadablePeripheral device;
     private DeviceModelEntry selectedModel;
     private boolean continuousActive;
@@ -81,12 +88,24 @@ public class MainFrame extends JFrame {
 
     public MainFrame() {
         super("Periféricos eship — RFID / Balança");
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                if (workflowPanel != null) {
+                    workflowPanel.stopWorkflowIfRunning();
+                }
+                disconnectDevice();
+                sessionManager.disconnectAll();
+                dispose();
+                System.exit(0);
+            }
+        });
         buildUi();
         refreshPorts();
         onPeripheralChanged();
         pack();
-        setMinimumSize(new Dimension(900, 620));
+        setMinimumSize(new Dimension(960, 680));
         setLocationRelativeTo(null);
         setVisible(true);
     }
@@ -107,6 +126,25 @@ public class MainFrame extends JFrame {
 
     private void buildUi() {
         setLayout(new BorderLayout(8, 8));
+
+        JPanel manualTab = buildManualTestTab();
+        workflowPanel = new AutomatedWorkflowPanel(sessionManager, this::appendLog);
+        workflowPanel.setOwnerWindow(this);
+
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("Teste manual", manualTab);
+        tabs.addTab("Fluxo automatizado", workflowPanel);
+
+        JPanel northStack = new JPanel();
+        northStack.setLayout(new BoxLayout(northStack, BoxLayout.Y_AXIS));
+        northStack.add(createHeaderPanel());
+
+        add(northStack, BorderLayout.NORTH);
+        add(tabs, BorderLayout.CENTER);
+    }
+
+    private JPanel buildManualTestTab() {
+        JPanel root = new JPanel(new BorderLayout(8, 8));
 
         JPanel selection = new JPanel(new GridBagLayout());
         selection.setBorder(new TitledBorder("Seleção"));
@@ -189,14 +227,13 @@ public class MainFrame extends JFrame {
         scrollLog.setBorder(new TitledBorder("Log"));
         reading.add(scrollLog, BorderLayout.SOUTH);
 
-        JPanel northStack = new JPanel();
-        northStack.setLayout(new BoxLayout(northStack, BoxLayout.Y_AXIS));
-        northStack.add(createHeaderPanel());
-        northStack.add(selection);
+        JPanel northManual = new JPanel();
+        northManual.setLayout(new BoxLayout(northManual, BoxLayout.Y_AXIS));
+        northManual.add(selection);
 
-        add(northStack, BorderLayout.NORTH);
-        add(connection, BorderLayout.CENTER);
-        add(reading, BorderLayout.SOUTH);
+        root.add(northManual, BorderLayout.NORTH);
+        root.add(connection, BorderLayout.CENTER);
+        root.add(reading, BorderLayout.SOUTH);
 
         cbPeripheral.addActionListener(e -> onPeripheralChanged());
         cbVendor.addActionListener(e -> onVendorChanged());
@@ -211,6 +248,7 @@ public class MainFrame extends JFrame {
 
         setReadingEnabled(false);
         btnDisconnect.setEnabled(false);
+        return root;
     }
 
     private void buildRfidOptions() {
