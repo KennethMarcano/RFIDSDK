@@ -9,6 +9,7 @@ public class WorkflowContext {
     private double weightKg;
     private boolean weightStable;
     private long cycleStartedMs;
+    private String photoPath;
     private final Set<String> tagCodes = new LinkedHashSet<>();
     private final Set<String> tagEpcs = new LinkedHashSet<>();
 
@@ -16,6 +17,7 @@ public class WorkflowContext {
         this.weightKg = weightKg;
         this.weightStable = weightStable;
         this.cycleStartedMs = System.currentTimeMillis();
+        this.photoPath = null;
         tagCodes.clear();
         tagEpcs.clear();
     }
@@ -30,6 +32,14 @@ public class WorkflowContext {
 
     public long getCycleStartedMs() {
         return cycleStartedMs;
+    }
+
+    public String getPhotoPath() {
+        return photoPath;
+    }
+
+    public void setPhotoPath(String photoPath) {
+        this.photoPath = photoPath;
     }
 
     public void addTag(String epc, String code) {

@@ -10,7 +10,15 @@ public interface WorkflowListener {
 
     void onStepChanged(WorkflowStep step, String message);
 
+    void onAwaitingWeighingStart();
+
+    void onStabilizationProgress(String message);
+
     void onCycleCompleted(WorkflowContext context);
+
+    void onReadingRecorded(WorkflowReadingRecord record);
+
+    void onSessionCleared();
 
     void onWaitingForNext();
 

@@ -11,12 +11,16 @@ import com.peripheral.session.PeripheralSlot;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.List;
+import java.io.IOException;
 
 public class WeighingWorkflowOrchestrator {
 
     private final PeripheralSessionManager sessionManager;
     private final PhotoCaptureService photoCaptureService = new PhotoCaptureService();
     private final LabelPrintService labelPrintService = new LabelPrintService();
+    private final WorkflowSessionStore sessionStore = new WorkflowSessionStore();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "weighing-workflow");
         t.setDaemon(true);
@@ -28,30 +32,46 @@ public class WeighingWorkflowOrchestrator {
     private final WorkflowContext context = new WorkflowContext();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean cycleInProgress = new AtomicBoolean(false);
-    private final AtomicBoolean armed = new AtomicBoolean(true);
+    private final AtomicBoolean armed = new AtomicBoolean(false);
     private final AtomicBoolean waitingForNext = new AtomicBoolean(false);
+    private final AtomicBoolean awaitingUserStart = new AtomicBoolean(false);
+    private final AtomicLong stableSinceMs = new AtomicLong(0);
+    private final AtomicBoolean stabilizationTriggered = new AtomicBoolean(false);
 
     public WeighingWorkflowOrchestrator(PeripheralSessionManager sessionManager) {
         this.sessionManager = sessionManager;
     }
 
     public void start(WorkflowConfig config, WorkflowListener listener) throws PeripheralException {
-        if (!sessionManager.isConnected(PeripheralSlot.SCALE)) {
-            throw new PeripheralException("Conecte a balança antes de iniciar o fluxo");
-        }
-        if (config.isEnabled(WorkflowStep.RFID_READ) && !sessionManager.isConnected(PeripheralSlot.RFID_READER)) {
-            throw new PeripheralException("Conecte o leitor RFID ou desabilite a leitura RFID no fluxo");
+        if (!config.isSimulationMode()) {
+            if (!sessionManager.isConnected(PeripheralSlot.SCALE)) {
+                throw new PeripheralException("Conecte a balança antes de iniciar o fluxo");
+            }
+            if (config.isEnabled(WorkflowStep.RFID_READ)
+                    && !sessionManager.isConnected(PeripheralSlot.RFID_READER)) {
+                throw new PeripheralException("Conecte o leitor RFID ou desabilite a leitura RFID no fluxo");
+            }
         }
         this.config = config;
         this.listener = listener;
         running.set(true);
-        armed.set(true);
+        armed.set(false);
         waitingForNext.set(false);
         cycleInProgress.set(false);
+        awaitingUserStart.set(true);
+        resetStabilizationTracking();
 
-        ReadablePeripheral scale = sessionManager.getDevice(PeripheralSlot.SCALE);
-        scale.startContinuousReading(scaleListener);
-        notifyStep(WorkflowStep.WEIGHING, "Aguardando peso estável maior que zero...");
+        try {
+            sessionStore.beginSession();
+        } catch (IOException e) {
+            throw new PeripheralException("Não foi possível iniciar a sessão: " + e.getMessage());
+        }
+
+        if (!config.isSimulationMode()) {
+            ReadablePeripheral scale = sessionManager.getDevice(PeripheralSlot.SCALE);
+            scale.startContinuousReading(scaleListener);
+        }
+        notifyAwaitingWeighingStart();
     }
 
     public void stop() {
@@ -59,21 +79,66 @@ public class WeighingWorkflowOrchestrator {
         cycleInProgress.set(false);
         armed.set(false);
         waitingForNext.set(false);
+        awaitingUserStart.set(false);
+        resetStabilizationTracking();
         stopScaleReading();
         stopRfidReading();
+        sessionStore.clearSession();
         if (listener != null) {
+            listener.onSessionCleared();
             listener.onStopped();
         }
     }
 
-    public void acknowledgeNext() {
+    public void restartSession() throws PeripheralException {
         if (!running.get()) {
-            return;
+            throw new PeripheralException("O fluxo não está em execução.");
+        }
+        if (cycleInProgress.get()) {
+            throw new PeripheralException("Aguarde o ciclo atual terminar para reiniciar a sessão.");
         }
         waitingForNext.set(false);
-        armed.set(true);
+        armed.set(false);
         cycleInProgress.set(false);
-        notifyStep(WorkflowStep.WEIGHING, "Aguardando peso estável maior que zero...");
+        awaitingUserStart.set(true);
+        resetStabilizationTracking();
+        sessionStore.clearSession();
+        try {
+            sessionStore.beginSession();
+        } catch (IOException e) {
+            throw new PeripheralException("Não foi possível reiniciar a sessão: " + e.getMessage());
+        }
+        if (listener != null) {
+            listener.onSessionCleared();
+            listener.onAwaitingWeighingStart();
+        }
+    }
+
+    public WorkflowSessionStore getSessionStore() {
+        return sessionStore;
+    }
+
+    public void confirmWeighingStart() {
+        if (!running.get() || !awaitingUserStart.compareAndSet(true, false)) {
+            return;
+        }
+        armed.set(true);
+        resetStabilizationTracking();
+        String message = config.isSimulationMode()
+                ? "Modo simulação — clique em Simular pesagem estável"
+                : "Coloque o item na balança — aguardando estabilização (1,5 s)...";
+        notifyStep(WorkflowStep.WEIGHING, message);
+    }
+
+    public void acknowledgeNext() {
+        if (!running.get() || !waitingForNext.compareAndSet(true, false)) {
+            return;
+        }
+        armed.set(false);
+        cycleInProgress.set(false);
+        awaitingUserStart.set(true);
+        resetStabilizationTracking();
+        notifyAwaitingWeighingStart();
     }
 
     public boolean isRunning() {
@@ -84,14 +149,66 @@ public class WeighingWorkflowOrchestrator {
         return waitingForNext.get();
     }
 
+    public boolean isSimulationMode() {
+        return config != null && config.isSimulationMode();
+    }
+
+    public void simulateWeighing(WorkflowMockScenario scenario) {
+        if (!running.get() || scenario == null || config == null || !config.isSimulationMode()) {
+            return;
+        }
+        if (cycleInProgress.get() || waitingForNext.get() || !armed.get()) {
+            return;
+        }
+        armed.set(false);
+        executor.submit(() -> runSimulatedWeighing(scenario));
+    }
+
+    private void runSimulatedWeighing(WorkflowMockScenario scenario) {
+        try {
+            int requiredMs = scenario.isFastStabilization()
+                    ? WorkflowConfig.FAST_SIMULATION_STABILIZATION_MS
+                    : config.getStabilizationMs();
+            notifyStep(WorkflowStep.WEIGHING, scenario.isFastStabilization()
+                    ? "Simulando estabilização rápida..."
+                    : "Simulando estabilização (1,5 s)...");
+            long start = System.currentTimeMillis();
+            while (running.get()) {
+                long elapsed = System.currentTimeMillis() - start;
+                if (elapsed >= requiredMs) {
+                    break;
+                }
+                notifyStabilizationProgress(elapsed);
+                Thread.sleep(50);
+            }
+            if (!running.get()) {
+                return;
+            }
+            runCycle(scenario.getWeightKg(), true, scenario);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            handleCycleFailure("Simulação interrompida", e);
+        } catch (Exception e) {
+            handleCycleFailure(e.getMessage() != null ? e.getMessage() : "Erro na simulação", e);
+        }
+    }
+
+    private void handleCycleFailure(String message, Exception cause) {
+        cycleInProgress.set(false);
+        armed.set(false);
+        awaitingUserStart.set(true);
+        resetStabilizationTracking();
+        notifyAwaitingWeighingStart();
+        if (listener != null) {
+            listener.onError(message, cause);
+        }
+    }
+
     private final PeripheralDataListener scaleListener = new PeripheralDataListener() {
         @Override
         public void onData(PeripheralDataEvent event) {
             if (!running.get() || event == null) {
                 return;
-            }
-            if (listener != null) {
-                listener.onWeightUpdate(event);
             }
             if (cycleInProgress.get() || waitingForNext.get() || !armed.get()) {
                 return;
@@ -99,9 +216,7 @@ public class WeighingWorkflowOrchestrator {
             double weight = parseWeight(event);
             boolean stable = Boolean.TRUE.equals(event.getStable());
             context.updateWeight(weight, stable);
-            if (stable && weight > WorkflowConfig.MIN_WEIGHT_KG) {
-                executor.submit(() -> runCycle(weight, stable));
-            }
+            evaluateStabilization(weight, stable);
         }
 
         @Override
@@ -116,22 +231,72 @@ public class WeighingWorkflowOrchestrator {
         }
     };
 
-    private void runCycle(double weightKg, boolean stable) {
+    private void evaluateStabilization(double weight, boolean stable) {
+        if (!stable || weight <= WorkflowConfig.MIN_WEIGHT_KG) {
+            resetStabilizationTracking();
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long since = stableSinceMs.get();
+        if (since == 0) {
+            stableSinceMs.set(now);
+            notifyStabilizationProgress(0);
+            return;
+        }
+
+        long elapsed = now - since;
+        int requiredMs = config.getStabilizationMs();
+        if (elapsed >= requiredMs) {
+            if (stabilizationTriggered.compareAndSet(false, true)) {
+                armed.set(false);
+                resetStabilizationTracking();
+                executor.submit(() -> runCycle(weight, stable, null));
+            }
+            return;
+        }
+
+        notifyStabilizationProgress(elapsed);
+    }
+
+    private void notifyStabilizationProgress(long elapsedMs) {
+        if (listener == null) {
+            return;
+        }
+        int requiredMs = config.getStabilizationMs();
+        double elapsedSec = elapsedMs / 1000.0;
+        double requiredSec = requiredMs / 1000.0;
+        String message = String.format("Estabilizando... %.1f s / %.1f s", elapsedSec, requiredSec);
+        listener.onStabilizationProgress(message);
+    }
+
+    private void resetStabilizationTracking() {
+        stableSinceMs.set(0);
+        stabilizationTriggered.set(false);
+    }
+
+    private void runCycle(double weightKg, boolean stable, WorkflowMockScenario simulation) {
         if (!running.get() || !cycleInProgress.compareAndSet(false, true)) {
             return;
         }
-        armed.set(false);
         context.beginCycle(weightKg, stable);
         try {
             if (config.isEnabled(WorkflowStep.RFID_READ)) {
-                runRfidBurst();
+                if (simulation != null) {
+                    runSimulatedRfidBurst(simulation);
+                } else {
+                    runRfidBurst();
+                }
             }
             if (!running.get()) {
                 return;
             }
             if (config.isEnabled(WorkflowStep.CAPTURE_PHOTO)) {
                 notifyStep(WorkflowStep.CAPTURE_PHOTO, "Capturando foto...");
-                photoCaptureService.capturePhoto(context);
+                photoCaptureService.capturePhoto(
+                        context,
+                        sessionStore.getSessionDirectory(),
+                        sessionStore.getNextPhotoIndex());
             }
             if (!running.get()) {
                 return;
@@ -145,15 +310,30 @@ public class WeighingWorkflowOrchestrator {
             }
             waitingForNext.set(true);
             if (listener != null) {
-                listener.onCycleCompleted(context);
+                WorkflowReadingRecord record = sessionStore.addReading(context);
+                listener.onReadingRecorded(record);
                 listener.onWaitingForNext();
             }
         } catch (Exception e) {
-            cycleInProgress.set(false);
-            armed.set(true);
-            if (listener != null) {
-                listener.onError(e.getMessage() != null ? e.getMessage() : "Erro no fluxo", e);
+            handleCycleFailure(e.getMessage() != null ? e.getMessage() : "Erro no fluxo", e);
+        }
+    }
+
+    private void runSimulatedRfidBurst(WorkflowMockScenario scenario) throws InterruptedException {
+        notifyStep(WorkflowStep.RFID_READ, "Simulando leitura RFID...");
+        List<WorkflowMockScenario.MockTag> tags = scenario.getTags();
+        int durationMs = Math.min(config.getRfidReadDurationMs(), 400);
+        if (tags.isEmpty()) {
+            Thread.sleep(durationMs);
+            return;
+        }
+        long intervalMs = Math.max(80, durationMs / tags.size());
+        for (WorkflowMockScenario.MockTag tag : tags) {
+            if (!running.get()) {
+                return;
             }
+            context.addTag(tag.getEpc(), tag.getCode());
+            Thread.sleep(intervalMs);
         }
     }
 
@@ -171,9 +351,6 @@ public class WeighingWorkflowOrchestrator {
                     return;
                 }
                 context.addTag(event.getEpc(), event.getCode());
-                if (listener != null) {
-                    listener.onTagRead(event);
-                }
             }
 
             @Override
@@ -226,6 +403,12 @@ public class WeighingWorkflowOrchestrator {
     private void notifyStep(WorkflowStep step, String message) {
         if (listener != null) {
             listener.onStepChanged(step, message);
+        }
+    }
+
+    private void notifyAwaitingWeighingStart() {
+        if (listener != null) {
+            listener.onAwaitingWeighingStart();
         }
     }
 }

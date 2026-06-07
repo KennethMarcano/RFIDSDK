@@ -14,7 +14,6 @@ import com.peripheral.workflow.WorkflowStep;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
-import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -24,7 +23,6 @@ import java.util.function.Consumer;
 
 public class AutomatedWorkflowPanel extends JPanel {
 
-    private static final int MAX_ROWS = 500;
     private static final Color COLOR_OK = new Color(0, 128, 0);
     private static final Color COLOR_WARN = new Color(180, 100, 0);
     private static final Color COLOR_MUTED = new Color(100, 100, 100);
@@ -42,23 +40,15 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final JCheckBox cbPhoto = new JCheckBox("Capturar foto", false);
     private final JCheckBox cbLabel = new JCheckBox("Imprimir etiqueta", false);
     private final JCheckBox cbWeighing = new JCheckBox("Pesagem (obrigatório)", true);
+    private final JCheckBox cbSimulation = new JCheckBox("Modo simulação (sem hardware)", false);
 
     private final JLabel lbWorkflowStatus = new JLabel("Pronto para iniciar o fluxo");
     private final JButton btnStartWorkflow = new JButton("Iniciar fluxo");
-    private final JButton btnNextReady = new JButton("Próximo / Listo");
     private final JButton btnStopWorkflow = new JButton("Parar fluxo");
-
-    private final DefaultTableModel dataModel = new DefaultTableModel(
-            new String[]{"Hora", "Etapa", "Dado"}, 0) {
-        @Override
-        public boolean isCellEditable(int row, int column) {
-            return false;
-        }
-    };
-    private final JTable dataTable = new JTable(dataModel);
-    private final JTextArea taLog = new JTextArea(5, 40);
+    private final JButton btnRestartWorkflow = new JButton("Reiniciar sessão");
 
     private WeighingWorkflowOrchestrator orchestrator;
+    private WorkflowOperationWindow operationWindow;
     private Window ownerWindow;
     private boolean workflowRunning;
 
@@ -77,6 +67,7 @@ public class AutomatedWorkflowPanel extends JPanel {
     }
 
     public void stopWorkflowIfRunning() {
+        closeOperationWindow();
         if (orchestrator != null && orchestrator.isRunning()) {
             orchestrator.stop();
             orchestrator = null;
@@ -91,25 +82,19 @@ public class AutomatedWorkflowPanel extends JPanel {
         top.add(buildPeripheralsSection());
         top.add(Box.createVerticalStrut(10));
         top.add(buildProcessSection());
-
-        JPanel operation = buildOperationSection();
+        top.add(Box.createVerticalStrut(10));
+        top.add(buildOperationHintSection());
 
         add(top, BorderLayout.NORTH);
-        add(operation, BorderLayout.CENTER);
 
         btnConfigScale.addActionListener(e -> openConfigDialog(PeripheralSlot.SCALE));
         btnConfigRfid.addActionListener(e -> openConfigDialog(PeripheralSlot.RFID_READER));
         btnStartWorkflow.addActionListener(e -> startWorkflow());
         btnStopWorkflow.addActionListener(e -> stopWorkflow());
-        btnNextReady.addActionListener(e -> {
-            if (orchestrator != null) {
-                orchestrator.acknowledgeNext();
-                btnNextReady.setEnabled(false);
-                appendLog("Pronto para próximo ciclo.");
-            }
-        });
+        btnRestartWorkflow.addActionListener(e -> restartWorkflowSession());
 
         cbRfid.addActionListener(e -> updateWorkflowControls());
+        cbSimulation.addActionListener(e -> updateWorkflowControls());
     }
 
     private JPanel buildPeripheralsSection() {
@@ -165,17 +150,19 @@ public class AutomatedWorkflowPanel extends JPanel {
         checks.add(cbRfid);
         checks.add(cbPhoto);
         checks.add(cbLabel);
+        checks.add(cbSimulation);
 
-        JLabel help = new JLabel("<html><small>Ativador: peso estável e &gt; 0 → RFID (1 s) → foto → etiqueta. "
-                + "Após cada ciclo, use <b>Próximo / Listo</b>.</small></html>");
+        JLabel help = new JLabel("<html><small>Após estabilizar 1,5 s → RFID (1 s) → foto → etiqueta. "
+                + "Cada execução guarda um histórico de leituras na janela de operação. "
+                + "Use <b>Reiniciar sessão</b> para limpar o histórico sem parar o fluxo.</small></html>");
         help.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         btnStopWorkflow.setEnabled(false);
-        btnNextReady.setEnabled(false);
+        btnRestartWorkflow.setEnabled(false);
         actions.add(btnStartWorkflow);
         actions.add(btnStopWorkflow);
-        actions.add(btnNextReady);
+        actions.add(btnRestartWorkflow);
 
         JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         statusRow.add(new JLabel("Status:"));
@@ -191,22 +178,13 @@ public class AutomatedWorkflowPanel extends JPanel {
         return section;
     }
 
-    private JPanel buildOperationSection() {
-        JPanel section = new JPanel(new BorderLayout(4, 4));
+    private JPanel buildOperationHintSection() {
+        JPanel section = new JPanel(new BorderLayout(8, 8));
         section.setBorder(new TitledBorder("Operação"));
-
-        dataTable.setAutoCreateRowSorter(true);
-        dataTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        JScrollPane scrollData = new JScrollPane(dataTable);
-        scrollData.setPreferredSize(new Dimension(700, 200));
-
-        taLog.setEditable(false);
-        taLog.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
-        JScrollPane scrollLog = new JScrollPane(taLog);
-        scrollLog.setPreferredSize(new Dimension(700, 120));
-
-        section.add(scrollData, BorderLayout.CENTER);
-        section.add(scrollLog, BorderLayout.SOUTH);
+        JLabel hint = new JLabel("<html>A operação abre em uma janela separada ao iniciar o fluxo. "
+                + "Use <b>Iniciar pesagem</b> e <b>Próximo</b> nessa janela para controlar cada ciclo.</html>");
+        hint.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        section.add(hint, BorderLayout.CENTER);
         return section;
     }
 
@@ -269,18 +247,23 @@ public class AutomatedWorkflowPanel extends JPanel {
     }
 
     private void updateWorkflowControls() {
+        boolean simulation = cbSimulation.isSelected();
         boolean scaleOk = sessionManager.isConnected(PeripheralSlot.SCALE);
         boolean rfidOk = sessionManager.isConnected(PeripheralSlot.RFID_READER);
-        boolean rfidNeeded = cbRfid.isSelected();
+        boolean rfidNeeded = cbRfid.isSelected() && !simulation;
 
-        btnStartWorkflow.setEnabled(!workflowRunning && scaleOk && (!rfidNeeded || rfidOk));
-        btnConfigScale.setEnabled(!workflowRunning);
-        btnConfigRfid.setEnabled(!workflowRunning);
+        btnStartWorkflow.setEnabled(!workflowRunning && (simulation || (scaleOk && (!rfidNeeded || rfidOk))));
+        btnRestartWorkflow.setEnabled(workflowRunning);
+        btnConfigScale.setEnabled(!workflowRunning && !simulation);
+        btnConfigRfid.setEnabled(!workflowRunning && !simulation);
         cbRfid.setEnabled(!workflowRunning);
         cbPhoto.setEnabled(!workflowRunning);
         cbLabel.setEnabled(!workflowRunning);
+        cbSimulation.setEnabled(!workflowRunning);
 
-        if (!scaleOk && !workflowRunning) {
+        if (simulation && !workflowRunning) {
+            lbWorkflowStatus.setText("Modo simulação — pronto para iniciar sem hardware");
+        } else if (!scaleOk && !workflowRunning) {
             lbWorkflowStatus.setText("Configure a balança para iniciar o fluxo");
         } else if (rfidNeeded && !rfidOk && !workflowRunning) {
             lbWorkflowStatus.setText("Configure o leitor RFID ou desmarque a leitura RFID");
@@ -290,12 +273,13 @@ public class AutomatedWorkflowPanel extends JPanel {
     }
 
     private void startWorkflow() {
-        if (!sessionManager.isConnected(PeripheralSlot.SCALE)) {
+        boolean simulation = cbSimulation.isSelected();
+        if (!simulation && !sessionManager.isConnected(PeripheralSlot.SCALE)) {
             JOptionPane.showMessageDialog(getDialogParent(),
                     "Configure e conecte a balança antes de iniciar.", "Fluxo", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        if (cbRfid.isSelected() && !sessionManager.isConnected(PeripheralSlot.RFID_READER)) {
+        if (!simulation && cbRfid.isSelected() && !sessionManager.isConnected(PeripheralSlot.RFID_READER)) {
             JOptionPane.showMessageDialog(getDialogParent(),
                     "Configure o leitor RFID ou desmarque a leitura RFID.", "Fluxo", JOptionPane.WARNING_MESSAGE);
             return;
@@ -312,20 +296,27 @@ public class AutomatedWorkflowPanel extends JPanel {
             steps.add(WorkflowStep.PRINT_LABEL);
         }
 
-        WorkflowConfig config = new WorkflowConfig(steps, WorkflowConfig.DEFAULT_RFID_READ_MS);
+        WorkflowConfig config = new WorkflowConfig(steps, WorkflowConfig.DEFAULT_RFID_READ_MS, simulation);
         orchestrator = new WeighingWorkflowOrchestrator(sessionManager);
-        dataModel.setRowCount(0);
-        taLog.setText("");
+        closeOperationWindow();
+
+        Window parent = getOwnerWindow();
+        operationWindow = new WorkflowOperationWindow(parent, orchestrator, config);
 
         try {
-            orchestrator.start(config, createWorkflowListener());
+            orchestrator.start(config, createWorkflowListener(operationWindow));
             workflowRunning = true;
-            lbWorkflowStatus.setText("Fluxo em execução — aguardando peso estável");
-            btnNextReady.setEnabled(false);
-            appendLog("Fluxo iniciado.");
+            lbWorkflowStatus.setText(simulation
+                    ? "Simulação em execução — use a janela de operação"
+                    : "Fluxo em execução — use a janela de operação");
+            appendLog(simulation ? "Fluxo iniciado (simulação)." : "Fluxo iniciado.");
             updateWorkflowControls();
             btnStopWorkflow.setEnabled(true);
+            btnRestartWorkflow.setEnabled(true);
+            operationWindow.setVisible(true);
         } catch (PeripheralException e) {
+            closeOperationWindow();
+            orchestrator = null;
             JOptionPane.showMessageDialog(getDialogParent(), e.getMessage(), "Fluxo", JOptionPane.ERROR_MESSAGE);
         }
     }
@@ -335,28 +326,64 @@ public class AutomatedWorkflowPanel extends JPanel {
             orchestrator.stop();
             orchestrator = null;
         }
+        closeOperationWindow();
         workflowRunning = false;
         lbWorkflowStatus.setText("Fluxo parado");
-        btnNextReady.setEnabled(false);
         btnStopWorkflow.setEnabled(false);
+        btnRestartWorkflow.setEnabled(false);
         appendLog("Fluxo parado.");
         updateWorkflowControls();
     }
 
-    private WorkflowListener createWorkflowListener() {
+    private void restartWorkflowSession() {
+        if (operationWindow != null) {
+            operationWindow.restartSession();
+            appendLog("Sessão reiniciada — histórico limpo.");
+            lbWorkflowStatus.setText("Sessão reiniciada — aguardando nova leitura");
+            return;
+        }
+        if (orchestrator != null && orchestrator.isRunning()) {
+            try {
+                orchestrator.restartSession();
+                appendLog("Sessão reiniciada — histórico limpo.");
+                lbWorkflowStatus.setText("Sessão reiniciada — aguardando nova leitura");
+            } catch (PeripheralException e) {
+                JOptionPane.showMessageDialog(getDialogParent(), e.getMessage(),
+                        "Reiniciar sessão", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void closeOperationWindow() {
+        if (operationWindow != null) {
+            operationWindow.dispose();
+            operationWindow = null;
+        }
+    }
+
+    private Window getOwnerWindow() {
+        if (ownerWindow != null) {
+            return ownerWindow;
+        }
+        Component ancestor = SwingUtilities.getWindowAncestor(this);
+        return ancestor instanceof Window ? (Window) ancestor : null;
+    }
+
+    private WorkflowListener createWorkflowListener(WorkflowOperationWindow window) {
         return new WorkflowListener() {
             @Override
             public void onWeightUpdate(PeripheralDataEvent event) {
-                SwingUtilities.invokeLater(() -> appendDataRow("Pesagem", event.getDisplayText()));
+                window.onWeightUpdate(event);
             }
 
             @Override
             public void onTagRead(PeripheralDataEvent event) {
-                SwingUtilities.invokeLater(() -> appendDataRow("RFID", event.getDisplayText()));
+                window.onTagRead(event);
             }
 
             @Override
             public void onStepChanged(WorkflowStep step, String message) {
+                window.onStepChanged(step, message);
                 SwingUtilities.invokeLater(() -> {
                     lbWorkflowStatus.setText(message);
                     appendLog("[" + step.getLabel() + "] " + message);
@@ -364,25 +391,43 @@ public class AutomatedWorkflowPanel extends JPanel {
             }
 
             @Override
+            public void onAwaitingWeighingStart() {
+                window.onAwaitingWeighingStart();
+            }
+
+            @Override
+            public void onStabilizationProgress(String message) {
+                window.onStabilizationProgress(message);
+            }
+
+            @Override
             public void onCycleCompleted(WorkflowContext context) {
-                SwingUtilities.invokeLater(() -> {
-                    appendLog("Ciclo concluído — peso: " + context.getWeightKg()
-                            + " kg, tags: " + context.getTagCodes().size());
-                    appendDataRow("Ciclo", "Peso " + context.getWeightKg() + " kg | "
-                            + context.getTagCodes().size() + " tag(s)");
-                });
+                window.onCycleCompleted(context);
+            }
+
+            @Override
+            public void onReadingRecorded(com.peripheral.workflow.WorkflowReadingRecord record) {
+                window.onReadingRecorded(record);
+                SwingUtilities.invokeLater(() -> appendLog("Leitura #" + record.getIndex()
+                        + " — peso: " + record.getWeightKg() + " kg, produtos: "
+                        + record.getTagCodes().size()));
+            }
+
+            @Override
+            public void onSessionCleared() {
+                window.onSessionCleared();
             }
 
             @Override
             public void onWaitingForNext() {
-                SwingUtilities.invokeLater(() -> {
-                    lbWorkflowStatus.setText("Ciclo concluído — clique em Próximo / Listo");
-                    btnNextReady.setEnabled(true);
-                });
+                window.onWaitingForNext();
+                SwingUtilities.invokeLater(() ->
+                        lbWorkflowStatus.setText("Ciclo concluído — aguardando Próximo na janela de operação"));
             }
 
             @Override
             public void onError(String message, Throwable cause) {
+                window.onError(message, cause);
                 SwingUtilities.invokeLater(() -> {
                     appendLog("ERRO: " + message);
                     lbWorkflowStatus.setText("Erro: " + message);
@@ -391,39 +436,28 @@ public class AutomatedWorkflowPanel extends JPanel {
 
             @Override
             public void onStopped() {
+                window.onStopped();
                 SwingUtilities.invokeLater(() -> {
                     workflowRunning = false;
                     lbWorkflowStatus.setText("Fluxo parado");
-                    btnNextReady.setEnabled(false);
                     btnStopWorkflow.setEnabled(false);
+                    btnRestartWorkflow.setEnabled(false);
+                    operationWindow = null;
                     updateWorkflowControls();
                 });
             }
         };
     }
 
-    private void appendDataRow(String step, String data) {
-        String time = timeFormat.format(new Date());
-        dataModel.insertRow(0, new Object[]{time, step, data});
-        while (dataModel.getRowCount() > MAX_ROWS) {
-            dataModel.removeRow(dataModel.getRowCount() - 1);
-        }
-    }
-
     private void appendLog(String msg) {
         String line = "[" + timeFormat.format(new Date()) + "] " + msg;
-        taLog.append(line + "\n");
-        taLog.setCaretPosition(taLog.getDocument().getLength());
         if (logConsumer != null) {
             logConsumer.accept(line);
         }
     }
 
     private Component getDialogParent() {
-        if (ownerWindow != null) {
-            return ownerWindow;
-        }
-        Window w = SwingUtilities.getWindowAncestor(this);
+        Window w = getOwnerWindow();
         return w != null ? w : this;
     }
 }
