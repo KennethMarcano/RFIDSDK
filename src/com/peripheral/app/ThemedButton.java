@@ -1,6 +1,7 @@
 package com.peripheral.app;
 
 import javax.swing.*;
+import javax.swing.plaf.basic.BasicButtonUI;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -31,6 +32,8 @@ public class ThemedButton extends JButton {
     }
 
     private void init() {
+        // GTK/Metal no Linux ignoram setBackground; BasicButtonUI garante cliques e pintura corretos.
+        setUI(new BasicButtonUI());
         setFocusPainted(false);
         setBorderPainted(false);
         setContentAreaFilled(false);
@@ -55,6 +58,17 @@ public class ThemedButton extends JButton {
             }
         });
         addPropertyChangeListener("enabled", evt -> repaint());
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+        Dimension base = super.getPreferredSize();
+        return new Dimension(Math.max(base.width, 100), Math.max(base.height, 36));
+    }
+
+    @Override
+    public Dimension getMinimumSize() {
+        return new Dimension(80, 32);
     }
 
     @Override

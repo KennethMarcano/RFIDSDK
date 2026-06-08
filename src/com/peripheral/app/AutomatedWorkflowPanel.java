@@ -274,7 +274,9 @@ public class AutomatedWorkflowPanel extends JPanel {
         boolean rfidOk = sessionManager.isConnected(PeripheralSlot.RFID_READER);
         boolean rfidNeeded = cbRfid.isSelected() && !simulation;
 
-        btnStartWorkflow.setEnabled(!workflowRunning && (simulation || (scaleOk && (!rfidNeeded || rfidOk))));
+        boolean canStart = !workflowRunning && (simulation || (scaleOk && (!rfidNeeded || rfidOk)));
+        btnStartWorkflow.setEnabled(canStart);
+        btnStartWorkflow.setToolTipText(canStart ? null : buildStartBlockedTooltip(simulation, scaleOk, rfidNeeded, rfidOk));
         btnRestartWorkflow.setEnabled(workflowRunning);
         btnConfigScale.setEnabled(!workflowRunning && !simulation);
         btnConfigRfid.setEnabled(!workflowRunning && !simulation);
@@ -295,16 +297,32 @@ public class AutomatedWorkflowPanel extends JPanel {
         WorkflowUiTheme.setStatusColor(lbWorkflowStatus, WorkflowUiTheme.TEXT_SECONDARY);
     }
 
+    private String buildStartBlockedTooltip(boolean simulation, boolean scaleOk,
+                                            boolean rfidNeeded, boolean rfidOk) {
+        if (simulation) {
+            return null;
+        }
+        if (!scaleOk) {
+            return "Configure e conecte a balança, ou ative o modo simulação.";
+        }
+        if (rfidNeeded && !rfidOk) {
+            return "Configure o leitor RFID ou desmarque a leitura RFID.";
+        }
+        return null;
+    }
+
     private void startWorkflow() {
         boolean simulation = cbSimulation.isSelected();
+        appendLog("Solicitação de início do fluxo (simulação=" + simulation + ").");
+
         if (!simulation && !sessionManager.isConnected(PeripheralSlot.SCALE)) {
-            JOptionPane.showMessageDialog(getDialogParent(),
-                    "Configure e conecte a balança antes de iniciar.", "Fluxo", JOptionPane.WARNING_MESSAGE);
+            showWorkflowMessage("Configure e conecte a balança antes de iniciar, ou ative o modo simulação.",
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
         if (!simulation && cbRfid.isSelected() && !sessionManager.isConnected(PeripheralSlot.RFID_READER)) {
-            JOptionPane.showMessageDialog(getDialogParent(),
-                    "Configure o leitor RFID ou desmarque a leitura RFID.", "Fluxo", JOptionPane.WARNING_MESSAGE);
+            showWorkflowMessage("Configure o leitor RFID ou desmarque a leitura RFID.",
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -324,24 +342,82 @@ public class AutomatedWorkflowPanel extends JPanel {
         closeOperationWindow();
 
         Window parent = getOwnerWindow();
-        operationWindow = new WorkflowOperationWindow(parent, orchestrator, config);
-
         try {
-            orchestrator.start(config, createWorkflowListener(operationWindow));
-            workflowRunning = true;
-            lbWorkflowStatus.setText(simulation
-                    ? "Simulação em execução — use a janela de operação"
-                    : "Fluxo em execução — use a janela de operação");
-            appendLog(simulation ? "Fluxo iniciado (simulação)." : "Fluxo iniciado.");
-            updateWorkflowControls();
-            btnStopWorkflow.setEnabled(true);
-            btnRestartWorkflow.setEnabled(true);
-            operationWindow.setVisible(true);
-        } catch (PeripheralException e) {
-            closeOperationWindow();
+            operationWindow = new WorkflowOperationWindow(parent, orchestrator, config);
+        } catch (Exception ex) {
             orchestrator = null;
-            JOptionPane.showMessageDialog(getDialogParent(), e.getMessage(), "Fluxo", JOptionPane.ERROR_MESSAGE);
+            appendLog("ERRO ao abrir janela de operação: " + ex.getMessage());
+            showWorkflowMessage("Não foi possível abrir a janela de operação: " + ex.getMessage(),
+                    JOptionPane.ERROR_MESSAGE);
+            return;
         }
+
+        btnStartWorkflow.setEnabled(false);
+        lbWorkflowStatus.setText("Iniciando fluxo...");
+
+        final WorkflowOperationWindow window = operationWindow;
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() {
+                try {
+                    orchestrator.start(config, createWorkflowListener(window));
+                    return null;
+                } catch (PeripheralException e) {
+                    return e.getMessage();
+                } catch (Exception e) {
+                    return e.getClass().getSimpleName() + ": " + e.getMessage();
+                }
+            }
+
+            @Override
+            protected void done() {
+                String error = null;
+                try {
+                    error = get();
+                } catch (Exception e) {
+                    error = e.getMessage();
+                }
+
+                if (error != null) {
+                    closeOperationWindow();
+                    orchestrator = null;
+                    appendLog("ERRO ao iniciar fluxo: " + error);
+                    lbWorkflowStatus.setText("Erro ao iniciar o fluxo");
+                    showWorkflowMessage(error, JOptionPane.ERROR_MESSAGE);
+                    updateWorkflowControls();
+                    return;
+                }
+
+                workflowRunning = true;
+                lbWorkflowStatus.setText(simulation
+                        ? "Simulação em execução — use a janela de operação"
+                        : "Fluxo em execução — use a janela de operação");
+                appendLog(simulation ? "Fluxo iniciado (simulação)." : "Fluxo iniciado.");
+                updateWorkflowControls();
+                btnStopWorkflow.setEnabled(true);
+                btnRestartWorkflow.setEnabled(true);
+                showOperationWindow(window);
+            }
+        }.execute();
+    }
+
+    private void showOperationWindow(WorkflowOperationWindow window) {
+        if (window == null) {
+            return;
+        }
+        window.setVisible(true);
+        window.toFront();
+        window.requestFocus();
+        // Alguns gerenciadores de janela no Linux (ex.: Raspberry Pi) não trazem diálogos modeless à frente.
+        window.setAlwaysOnTop(true);
+        Timer raiseTimer = new Timer(400, e -> window.setAlwaysOnTop(false));
+        raiseTimer.setRepeats(false);
+        raiseTimer.start();
+    }
+
+    private void showWorkflowMessage(String message, int messageType) {
+        appendLog(message);
+        JOptionPane.showMessageDialog(getDialogParent(), message, "Fluxo", messageType);
     }
 
     private void stopWorkflow() {

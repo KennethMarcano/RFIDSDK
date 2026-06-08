@@ -13,16 +13,43 @@ import java.util.List;
 
 public class WorkflowSessionStore {
 
-    private static final Path BASE_DIR = Paths.get(System.getProperty("java.io.tmpdir"), "rfidsdk-workflow");
-
+    private Path baseDir;
     private Path sessionDirectory;
     private final List<WorkflowReadingRecord> records = new ArrayList<>();
 
     public void beginSession() throws IOException {
         clearSession();
-        Files.createDirectories(BASE_DIR);
-        sessionDirectory = BASE_DIR.resolve("session_" + System.currentTimeMillis());
+        baseDir = resolveWritableBaseDir();
+        sessionDirectory = baseDir.resolve("session_" + System.currentTimeMillis());
         Files.createDirectories(sessionDirectory);
+    }
+
+    private static Path resolveWritableBaseDir() throws IOException {
+        String tmp = System.getProperty("java.io.tmpdir");
+        String home = System.getProperty("user.home");
+        Path[] candidates = new Path[]{
+                tmp != null && !tmp.isEmpty() ? Paths.get(tmp, "rfidsdk-workflow") : null,
+                home != null && !home.isEmpty() ? Paths.get(home, ".rfidsdk-workflow") : null,
+                Paths.get("rfidsdk-workflow")
+        };
+        IOException lastError = null;
+        for (Path candidate : candidates) {
+            if (candidate == null) {
+                continue;
+            }
+            try {
+                Files.createDirectories(candidate);
+                if (Files.isWritable(candidate)) {
+                    return candidate;
+                }
+            } catch (IOException e) {
+                lastError = e;
+            }
+        }
+        if (lastError != null) {
+            throw new IOException("Não foi possível criar pasta de sessão do fluxo: " + lastError.getMessage(), lastError);
+        }
+        throw new IOException("Não foi possível criar pasta de sessão do fluxo (sem permissão em /tmp ou no diretório do usuário).");
     }
 
     public void clearSession() {
