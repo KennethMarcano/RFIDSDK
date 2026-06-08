@@ -21,7 +21,7 @@ public class SerialTransportJSerialComm implements SerialTransport {
     private int baudRate = 115200;
 
     public SerialTransportJSerialComm(String deviceName) {
-        this.deviceName = deviceName;
+        this.deviceName = resolveCommPortName(deviceName);
     }
 
     @Override
@@ -30,10 +30,14 @@ public class SerialTransportJSerialComm implements SerialTransport {
         if (!serialPort.openPort()) {
             throw new ReaderCommException("Couldn't open device: " + deviceName);
         }
+        serialPort.setFlowControl(SerialPort.FLOW_CONTROL_DISABLED);
         applyBaudRate();
+        applyWriteTimeout(1000);
+        tryEnableUsbSignals();
         try {
             inputStream = serialPort.getInputStream();
             outputStream = serialPort.getOutputStream();
+            purgeInputQuietly();
         } catch (Exception e) {
             serialPort.closePort();
             serialPort = null;
@@ -48,6 +52,7 @@ public class SerialTransportJSerialComm implements SerialTransport {
             return;
         }
         try {
+            applyWriteTimeout(Math.max(100, timeoutMs));
             outputStream.write(message, offset, length);
             outputStream.flush();
         } catch (IOException e) {
@@ -65,28 +70,25 @@ public class SerialTransportJSerialComm implements SerialTransport {
             messageSpace = new byte[length + offset];
         }
         int totalRead = 0;
-        long start = System.currentTimeMillis();
+        long deadline = System.currentTimeMillis() + Math.max(1, timeoutMillis);
         try {
             while (totalRead < length) {
-                int available = inputStream.available();
-                if (available > 0) {
-                    int toRead = Math.min(available, length - totalRead);
-                    int read = inputStream.read(messageSpace, offset + totalRead, toRead);
-                    if (read > 0) {
-                        totalRead += read;
-                    }
-                } else {
-                    if (System.currentTimeMillis() - start >= timeoutMillis) {
+                int remainingMs = (int) Math.max(1, deadline - System.currentTimeMillis());
+                applyReadTimeout(remainingMs);
+                int read = inputStream.read(messageSpace, offset + totalRead, length - totalRead);
+                if (read < 0) {
+                    throw new ReaderCommException("Serial error from receiveBytes: EOF");
+                }
+                if (read == 0) {
+                    if (System.currentTimeMillis() >= deadline) {
                         throw new ReaderCommException("Serial error from receiveBytes: timeout");
                     }
-                    Thread.sleep(10);
+                    continue;
                 }
+                totalRead += read;
             }
         } catch (ReaderException e) {
             throw e;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ReaderCommException("Serial error");
         } catch (IOException e) {
             throw new ReaderCommException("Serial error from receiveBytes");
         }
@@ -150,6 +152,68 @@ public class SerialTransportJSerialComm implements SerialTransport {
                 8,
                 SerialPort.ONE_STOP_BIT,
                 SerialPort.NO_PARITY);
+    }
+
+    private void applyReadTimeout(int timeoutMs) {
+        serialPort.setComPortTimeouts(
+                SerialPort.TIMEOUT_READ_SEMI_BLOCKING,
+                Math.max(1, timeoutMs),
+                0);
+    }
+
+    private void applyWriteTimeout(int timeoutMs) {
+        serialPort.setComPortTimeouts(
+                SerialPort.TIMEOUT_WRITE_BLOCKING,
+                Math.max(1, timeoutMs),
+                Math.max(1, timeoutMs));
+    }
+
+    private void tryEnableUsbSignals() {
+        try {
+            serialPort.setDTR();
+            serialPort.setRTS();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void purgeInputQuietly() {
+        if (inputStream == null) {
+            return;
+        }
+        try {
+            applyReadTimeout(50);
+            byte[] scratch = new byte[256];
+            while (true) {
+                int read = inputStream.read(scratch);
+                if (read <= 0) {
+                    break;
+                }
+            }
+        } catch (IOException ignored) {
+        }
+    }
+
+    static String resolveCommPortName(String candidate) {
+        if (candidate == null || candidate.trim().isEmpty()) {
+            return candidate;
+        }
+        String port = candidate.trim();
+        SerialPort direct = SerialPort.getCommPort(port);
+        if (direct != null && !direct.getSystemPortName().isEmpty()) {
+            return direct.getSystemPortName();
+        }
+        String alt = port.startsWith("/dev/") ? port.substring(5) : "/dev/" + port;
+        SerialPort altPort = SerialPort.getCommPort(alt);
+        if (altPort != null && !altPort.getSystemPortName().isEmpty()) {
+            return altPort.getSystemPortName();
+        }
+        for (SerialPort available : SerialPort.getCommPorts()) {
+            String system = available.getSystemPortName();
+            if (port.equals(system) || alt.equals(system)) {
+                return system;
+            }
+        }
+        return port;
     }
 
     public static class Factory implements ReaderFactory {
