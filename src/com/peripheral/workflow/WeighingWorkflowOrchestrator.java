@@ -430,7 +430,7 @@ public class WeighingWorkflowOrchestrator {
                 labelPrintService = new LabelPrintService();
             } catch (NoClassDefFoundError | ExceptionInInitializerError e) {
                 throw new PeripheralException(
-                        "Bibliotecas PDF não disponíveis (pdfbox/fontbox). Execute com ./start.sh no Linux.");
+                        "Bibliotecas PDF não disponíveis (pdfbox/fontbox). Execute com ./iniciar.sh no Linux.");
             }
         }
         return labelPrintService;

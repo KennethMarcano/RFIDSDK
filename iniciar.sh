@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Inicia la app en Linux:  ./start.sh   (o: bash start.sh)
+# Inicia la app en Linux:  ./iniciar.sh   (o: bash iniciar.sh)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,6 +18,13 @@ fi
 
 "$ROOT/build.sh"
 
+if [[ ! -f "${ROOT}/libs/pdfbox-2.0.31.jar" ]] \
+   || [[ ! -f "${ROOT}/libs/fontbox-2.0.31.jar" ]] \
+   || [[ ! -f "${ROOT}/libs/commons-logging-1.2.jar" ]]; then
+  echo "Bibliotecas PDF ausentes — tentando baixar ..."
+  bash "${ROOT}/scripts/fetch-pdf-libs.sh"
+fi
+
 for jar in \
   "${ROOT}/libs/lib_reader.jar" \
   "${ROOT}/libs/lib_connect.jar" \
@@ -27,7 +34,8 @@ for jar in \
   "${ROOT}/libs/commons-logging-1.2.jar"; do
   if [[ ! -f "$jar" ]]; then
     echo "ERRO: biblioteca ausente: $jar" >&2
-    echo "Copie os JARs para libs/ (incluindo pdfbox e fontbox para etiquetas)." >&2
+    echo "Execute: bash scripts/fetch-pdf-libs.sh" >&2
+    echo "Ou copie manualmente para libs/: pdfbox-2.0.31.jar, fontbox-2.0.31.jar, commons-logging-1.2.jar" >&2
     exit 1
   fi
 done

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Alias de compatibilidad — usa start.sh
+# Alias de compatibilidad — usa iniciar.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-exec "$ROOT/start.sh" "$@"
+exec "$ROOT/iniciar.sh" "$@"

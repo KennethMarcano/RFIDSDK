@@ -358,7 +358,7 @@ public class AutomatedWorkflowPanel extends JPanel {
             orchestrator = new WeighingWorkflowOrchestrator(sessionManager);
         } catch (NoClassDefFoundError | ExceptionInInitializerError e) {
             showWorkflowError("Dependência ausente ao iniciar o fluxo: " + e.getMessage()
-                    + ". No Linux use ./start.sh para incluir todas as bibliotecas.");
+                    + ". No Linux use ./iniciar.sh para incluir todas as bibliotecas.");
             return;
         } catch (Exception e) {
             showWorkflowError("Erro ao preparar o fluxo: " + e.getMessage());

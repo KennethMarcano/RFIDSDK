@@ -46,9 +46,12 @@ public final class WorkflowEnvironment {
             Class.forName("org.apache.fontbox.FontBoxFont");
             return null;
         } catch (ClassNotFoundException e) {
-            return "Bibliotecas PDF não encontradas no classpath (pdfbox/fontbox). "
-                    + "No Linux, execute a aplicação com ./start.sh e confirme que existem "
-                    + "libs/pdfbox-2.0.31.jar e libs/fontbox-2.0.31.jar.";
+            return "Bibliotecas PDF não encontradas no classpath (pdfbox/fontbox).\n\n"
+                    + "No Raspberry Pi / Linux:\n"
+                    + "  1) cd na pasta do projeto\n"
+                    + "  2) bash scripts/fetch-pdf-libs.sh\n"
+                    + "  3) ./iniciar.sh\n\n"
+                    + "Não execute só 'java -cp out ...' — use ./iniciar.sh para incluir os JARs.";
         }
     }
 }
