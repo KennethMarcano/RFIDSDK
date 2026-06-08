@@ -1,5 +1,7 @@
 package com.peripheral.app;
 
+import com.rfid.util.MercuryTransportBootstrap;
+
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -7,6 +9,7 @@ import java.nio.file.Paths;
 public class PeripheralApplication {
 
     public static void main(String[] args) {
+        MercuryTransportBootstrap.installIfLinux();
         configureMercuryNativeLibrary();
         try {
             javax.swing.UIManager.setLookAndFeel(javax.swing.UIManager.getSystemLookAndFeelClassName());

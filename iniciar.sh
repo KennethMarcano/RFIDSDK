@@ -18,6 +18,9 @@ fi
 
 "$ROOT/build.sh"
 
+TMPDIR="${ROOT}/.tmp"
+mkdir -p "${TMPDIR}"
+
 if [[ ! -f "${ROOT}/libs/pdfbox-2.0.31.jar" ]] \
    || [[ ! -f "${ROOT}/libs/fontbox-2.0.31.jar" ]] \
    || [[ ! -f "${ROOT}/libs/commons-logging-1.2.jar" ]]; then
@@ -45,7 +48,7 @@ CP="${CP}:${ROOT}/libs/pdfbox-2.0.31.jar:${ROOT}/libs/fontbox-2.0.31.jar:${ROOT}
 CP="${CP}:${ROOT}/SDKMERCURY/mercuryapi.jar:${ROOT}/SDKMERCURY/ltkjava-1.0.0.6.jar:${ROOT}/SDKMERCURY/slf4j-dependencies.jar"
 CP="${CP}:${ROOT}/out"
 
-JAVA_OPTS=(-Djava.library.path="${ROOT}/SDKMERCURY" -cp "$CP" com.peripheral.app.PeripheralApplication "$@")
+JAVA_OPTS=(-Djava.io.tmpdir="${TMPDIR}" -Djava.library.path="${ROOT}/SDKMERCURY" -cp "$CP" com.peripheral.app.PeripheralApplication "$@")
 
 # Java 22+ (opcional en versiones anteriores)
 if java --help 2>&1 | grep -q 'enable-native-access'; then

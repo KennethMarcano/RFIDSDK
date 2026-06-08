@@ -1,5 +1,7 @@
 package com.rfid.app;
 
+import com.rfid.util.MercuryTransportBootstrap;
+
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -13,6 +15,7 @@ import java.nio.file.Paths;
 public class RfidApplication {
 
     public static void main(String[] args) {
+        MercuryTransportBootstrap.installIfLinux();
         configureMercuryNativeLibrary();
         javax.swing.SwingUtilities.invokeLater(RfidMainFrame::new);
     }

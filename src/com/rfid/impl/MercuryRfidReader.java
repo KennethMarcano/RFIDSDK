@@ -6,6 +6,7 @@ import com.rfid.core.RfidReaderConfig;
 import com.rfid.core.RfidSdkType;
 import com.rfid.core.RfidTagEvent;
 import com.rfid.core.RfidTagListener;
+import com.rfid.util.MercuryTransportBootstrap;
 import com.rfid.util.MercuryUriBuilder;
 import com.rfid.util.TagCodeExtractor;
 import com.thingmagic.ReadExceptionListener;
@@ -74,6 +75,7 @@ public class MercuryRfidReader extends AbstractRfidReader {
         this.portName = portName;
         String uri = MercuryUriBuilder.fromPortName(portName);
         try {
+            MercuryTransportBootstrap.installIfLinux();
             reader = Reader.create(uri);
             reader.connect();
             configureRegion();
