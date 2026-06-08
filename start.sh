@@ -18,6 +18,20 @@ fi
 
 "$ROOT/build.sh"
 
+for jar in \
+  "${ROOT}/libs/lib_reader.jar" \
+  "${ROOT}/libs/lib_connect.jar" \
+  "${ROOT}/libs/jSerialComm-2.11.4.jar" \
+  "${ROOT}/libs/pdfbox-2.0.31.jar" \
+  "${ROOT}/libs/fontbox-2.0.31.jar" \
+  "${ROOT}/libs/commons-logging-1.2.jar"; do
+  if [[ ! -f "$jar" ]]; then
+    echo "ERRO: biblioteca ausente: $jar" >&2
+    echo "Copie os JARs para libs/ (incluindo pdfbox e fontbox para etiquetas)." >&2
+    exit 1
+  fi
+done
+
 CP="${ROOT}/libs/lib_reader.jar:${ROOT}/libs/lib_connect.jar:${ROOT}/libs/jSerialComm-2.11.4.jar"
 CP="${CP}:${ROOT}/libs/pdfbox-2.0.31.jar:${ROOT}/libs/fontbox-2.0.31.jar:${ROOT}/libs/commons-logging-1.2.jar"
 CP="${CP}:${ROOT}/SDKMERCURY/mercuryapi.jar:${ROOT}/SDKMERCURY/ltkjava-1.0.0.6.jar:${ROOT}/SDKMERCURY/slf4j-dependencies.jar"

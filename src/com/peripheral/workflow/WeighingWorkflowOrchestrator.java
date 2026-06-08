@@ -18,8 +18,8 @@ import java.io.IOException;
 public class WeighingWorkflowOrchestrator {
 
     private final PeripheralSessionManager sessionManager;
-    private final PhotoCaptureService photoCaptureService = new PhotoCaptureService();
-    private final LabelPrintService labelPrintService = new LabelPrintService();
+    private PhotoCaptureService photoCaptureService;
+    private LabelPrintService labelPrintService;
     private final WorkflowSessionStore sessionStore = new WorkflowSessionStore();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "weighing-workflow");
@@ -293,7 +293,7 @@ public class WeighingWorkflowOrchestrator {
             }
             if (config.isEnabled(WorkflowStep.CAPTURE_PHOTO)) {
                 notifyStep(WorkflowStep.CAPTURE_PHOTO, "Capturando foto...");
-                photoCaptureService.capturePhoto(
+                photoCapture().capturePhoto(
                         context,
                         sessionStore.getSessionDirectory(),
                         sessionStore.getNextPhotoIndex());
@@ -304,10 +304,10 @@ public class WeighingWorkflowOrchestrator {
             if (config.isEnabled(WorkflowStep.PRINT_LABEL)) {
                 int labelIndex = sessionStore.getNextLabelIndex();
                 notifyStep(WorkflowStep.PRINT_LABEL, "Gerando etiqueta PDF...");
-                labelPrintService.generateLabelPdf(
+                labelPrint().generateLabelPdf(
                         context, sessionStore.getSessionDirectory(), labelIndex);
                 notifyStep(WorkflowStep.PRINT_LABEL, "Imprimindo etiqueta (PDF → ZPL)...");
-                labelPrintService.printLabel(
+                labelPrint().printLabel(
                         context, sessionStore.getSessionDirectory(), labelIndex);
             }
             if (!running.get()) {
@@ -415,5 +415,24 @@ public class WeighingWorkflowOrchestrator {
         if (listener != null) {
             listener.onAwaitingWeighingStart();
         }
+    }
+
+    private PhotoCaptureService photoCapture() {
+        if (photoCaptureService == null) {
+            photoCaptureService = new PhotoCaptureService();
+        }
+        return photoCaptureService;
+    }
+
+    private LabelPrintService labelPrint() throws PeripheralException {
+        if (labelPrintService == null) {
+            try {
+                labelPrintService = new LabelPrintService();
+            } catch (NoClassDefFoundError | ExceptionInInitializerError e) {
+                throw new PeripheralException(
+                        "Bibliotecas PDF não disponíveis (pdfbox/fontbox). Execute com ./start.sh no Linux.");
+            }
+        }
+        return labelPrintService;
     }
 }

@@ -9,6 +9,7 @@ import com.peripheral.session.PeripheralSlot;
 import com.peripheral.workflow.WeighingWorkflowOrchestrator;
 import com.peripheral.workflow.WorkflowConfig;
 import com.peripheral.workflow.WorkflowContext;
+import com.peripheral.workflow.WorkflowEnvironment;
 import com.peripheral.workflow.WorkflowListener;
 import com.peripheral.workflow.WorkflowStep;
 
@@ -337,9 +338,32 @@ public class AutomatedWorkflowPanel extends JPanel {
             steps.add(WorkflowStep.PRINT_LABEL);
         }
 
+        String sessionError = WorkflowEnvironment.checkSessionDirectoryWritable();
+        if (sessionError != null) {
+            showWorkflowError(sessionError);
+            return;
+        }
+        if (steps.contains(WorkflowStep.PRINT_LABEL)) {
+            String pdfError = WorkflowEnvironment.checkPdfLibrariesAvailable();
+            if (pdfError != null) {
+                showWorkflowError(pdfError);
+                return;
+            }
+        }
+
         WorkflowConfig config = new WorkflowConfig(steps, WorkflowConfig.DEFAULT_RFID_READ_MS, simulation);
-        orchestrator = new WeighingWorkflowOrchestrator(sessionManager);
         closeOperationWindow();
+
+        try {
+            orchestrator = new WeighingWorkflowOrchestrator(sessionManager);
+        } catch (NoClassDefFoundError | ExceptionInInitializerError e) {
+            showWorkflowError("Dependência ausente ao iniciar o fluxo: " + e.getMessage()
+                    + ". No Linux use ./start.sh para incluir todas as bibliotecas.");
+            return;
+        } catch (Exception e) {
+            showWorkflowError("Erro ao preparar o fluxo: " + e.getMessage());
+            return;
+        }
 
         Window parent = getOwnerWindow();
         try {
@@ -418,6 +442,13 @@ public class AutomatedWorkflowPanel extends JPanel {
     private void showWorkflowMessage(String message, int messageType) {
         appendLog(message);
         JOptionPane.showMessageDialog(getDialogParent(), message, "Fluxo", messageType);
+    }
+
+    private void showWorkflowError(String message) {
+        appendLog("ERRO: " + message);
+        lbWorkflowStatus.setText(message);
+        WorkflowUiTheme.setStatusColor(lbWorkflowStatus, WorkflowUiTheme.DANGER);
+        JOptionPane.showMessageDialog(getDialogParent(), message, "Fluxo", JOptionPane.ERROR_MESSAGE);
     }
 
     private void stopWorkflow() {
