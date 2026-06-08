@@ -43,7 +43,8 @@ public class WorkflowSessionStore {
                 System.currentTimeMillis(),
                 context.getWeightKg(),
                 new ArrayList<>(context.getTagCodes()),
-                context.getPhotoPath());
+                context.getPhotoPath(),
+                context.getLabelPdfPath());
         records.add(record);
         return record;
     }
@@ -53,6 +54,10 @@ public class WorkflowSessionStore {
     }
 
     public int getNextPhotoIndex() {
+        return records.size() + 1;
+    }
+
+    public int getNextLabelIndex() {
         return records.size() + 1;
     }
 

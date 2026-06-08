@@ -50,24 +50,31 @@ public class PeripheralConfigDialog extends JDialog {
         connectionPanel.setOwnerWindow(this);
         connectionPanel.setBorder(null);
 
-        JPanel content = new JPanel(new BorderLayout(8, 8));
-        content.setBorder(BorderFactory.createEmptyBorder(12, 12, 8, 12));
+        JPanel content = new JPanel(new BorderLayout(0, 12));
+        content.setOpaque(false);
+        content.setBorder(WorkflowUiTheme.empty(16, 16, 16, 16));
 
-        JLabel hint = new JLabel("<html>Selecione fabricante, modelo e porta. "
-                + "Use <b>Testar porta</b> e <b>Conectar</b>. Ao terminar, clique em <b>Concluído</b>.</html>");
+        JLabel hint = WorkflowUiTheme.createHintLabel(
+                "<html>Selecione fabricante, modelo e porta. "
+                        + "Use <b>Testar porta</b> e <b>Conectar</b>. Ao terminar, clique em <b>Concluído</b>.</html>");
         content.add(hint, BorderLayout.NORTH);
 
-        JScrollPane scroll = new JScrollPane(connectionPanel);
-        scroll.setBorder(null);
+        JPanel section = WorkflowUiTheme.createSection(slot.getLabel(), connectionPanel);
+        JScrollPane scroll = new JScrollPane(section);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         content.add(scroll, BorderLayout.CENTER);
 
-        JButton btnDone = new JButton("Concluído");
+        ThemedButton btnDone = WorkflowUiTheme.button("Concluído", ThemedButton.Variant.PRIMARY);
         btnDone.addActionListener(e -> closeDialog());
-        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        south.setOpaque(false);
         south.add(btnDone);
         content.add(south, BorderLayout.SOUTH);
 
+        getContentPane().setBackground(WorkflowUiTheme.BG_PAGE);
         setContentPane(content);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
@@ -77,7 +84,7 @@ public class PeripheralConfigDialog extends JDialog {
             }
         });
         pack();
-        setMinimumSize(new Dimension(Math.max(520, getWidth()), Math.max(420, getHeight())));
+        setMinimumSize(new Dimension(Math.max(560, getWidth()), Math.max(460, getHeight())));
         setLocationRelativeTo(owner);
     }
 

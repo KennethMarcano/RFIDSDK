@@ -1,428 +1,974 @@
 package com.peripheral.app;
 
+
+
 import com.peripheral.workflow.WeighingWorkflowOrchestrator;
+
 import com.peripheral.workflow.WorkflowConfig;
+
 import com.peripheral.workflow.WorkflowListener;
+
 import com.peripheral.workflow.WorkflowMockData;
+
 import com.peripheral.workflow.WorkflowMockScenario;
+
 import com.peripheral.workflow.WorkflowReadingRecord;
+
 import com.peripheral.workflow.WorkflowStep;
 
+
+
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableColumnModel;
+
 import java.awt.*;
-import java.awt.event.KeyEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+
 import java.awt.event.WindowAdapter;
+
 import java.awt.event.WindowEvent;
-import java.io.File;
-import java.text.DecimalFormat;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+
+import java.awt.geom.RoundRectangle2D;
+
+import java.util.ArrayList;
+
+import java.util.List;
+
+
 
 public class WorkflowOperationWindow extends JDialog implements WorkflowListener {
 
-    private static final Color COLOR_OK = new Color(0, 128, 0);
-    private static final Color COLOR_WARN = new Color(180, 100, 0);
-    private static final Color COLOR_MUTED = new Color(100, 100, 100);
+
 
     private final WeighingWorkflowOrchestrator orchestrator;
+
     private final boolean photoEnabled;
+
+    private final boolean labelEnabled;
+
     private final boolean simulationMode;
-    private final DecimalFormat weightFormat = new DecimalFormat("#,##0.000");
-    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss");
+
+
 
     private final JLabel lbStatus = new JLabel("Aguardando início do fluxo...");
-    private final DefaultTableModel historyModel = new DefaultTableModel(
-            new String[]{"#", "Hora", "Peso (kg)", "Produtos", "Foto"}, 0) {
-        @Override
-        public boolean isCellEditable(int row, int column) {
-            return false;
-        }
-    };
-    private final JTable historyTable = new JTable(historyModel);
-    private final JButton btnViewPhoto = new JButton("Ver foto (F2)");
-    private final JButton btnStartWeighing = new JButton("Iniciar pesagem");
-    private final JButton btnNext = new JButton("Próximo");
-    private final JButton btnRestartSession = new JButton("Reiniciar sessão");
+
+    private final JPanel statusIndicator = new JPanel();
+
+    private final JPanel historyList = new JPanel();
+
+    private final JPanel emptyState = new JPanel();
+
+    private final JLabel lbEmptyTitle = new JLabel("Nenhuma leitura ainda");
+
+    private final JLabel lbEmptyHint = new JLabel("As leituras aparecerão aqui após cada ciclo concluído.");
+
+    private final List<WorkflowReadingCard> readingCards = new ArrayList<>();
+    private JPanel historyHost;
+
+
+
+    private final ThemedButton btnStartWeighing =
+            WorkflowUiTheme.button("Iniciar pesagem", ThemedButton.Variant.PRIMARY);
+
+    private final ThemedButton btnNext =
+            WorkflowUiTheme.button("Próximo", ThemedButton.Variant.SUCCESS);
+
+    private final ThemedButton btnRestartSession =
+            WorkflowUiTheme.button("Reiniciar sessão", ThemedButton.Variant.SECONDARY);
+
+
 
     private final JPanel simulationPanel = new JPanel(new GridBagLayout());
+
     private final JSpinner spMockWeight = new JSpinner(new SpinnerNumberModel(3.125, 0.001, 9999.999, 0.001));
+
     private final JTextField tfMockTags = new JTextField(WorkflowMockData.DEFAULT_TAGS_TEXT, 28);
+
     private final JCheckBox cbFastStabilization = new JCheckBox("Estabilização rápida (~200 ms)", true);
-    private final JButton btnLoadSample = new JButton("Exemplo");
-    private final JButton btnSimulate = new JButton("Simular pesagem estável");
+
+    private final ThemedButton btnLoadSample =
+            WorkflowUiTheme.button("Exemplo", ThemedButton.Variant.SECONDARY);
+
+    private final ThemedButton btnSimulate =
+            WorkflowUiTheme.button("Simular pesagem estável", ThemedButton.Variant.PRIMARY);
+
+
 
     public WorkflowOperationWindow(Window owner,
+
                                    WeighingWorkflowOrchestrator orchestrator,
+
                                    WorkflowConfig config) {
+
         super(owner, "Operação — Fluxo automatizado", ModalityType.MODELESS);
+
         this.orchestrator = orchestrator;
+
         this.photoEnabled = config.isEnabled(WorkflowStep.CAPTURE_PHOTO);
+
+        this.labelEnabled = config.isEnabled(WorkflowStep.PRINT_LABEL);
+
         this.simulationMode = config.isSimulationMode();
 
+
+
         buildUi();
+
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
+
         addWindowListener(new WindowAdapter() {
+
             @Override
+
             public void windowClosing(WindowEvent e) {
+
                 setVisible(false);
+
             }
+
         });
-        setSize(simulationMode ? 760 : 720, simulationMode ? 680 : 620);
-        setMinimumSize(new Dimension(640, simulationMode ? 580 : 520));
+
+        setSize(simulationMode ? 820 : 780, simulationMode ? 720 : 660);
+
+        setMinimumSize(new Dimension(680, simulationMode ? 600 : 560));
+
         setLocationRelativeTo(owner);
+
     }
+
+
 
     public void restartSession() {
+
         if (orchestrator == null) {
+
             return;
+
         }
+
         int confirm = JOptionPane.showConfirmDialog(this,
-                "Reiniciar a sessão apagará todo o histórico e as fotos desta execução.\n"
+
+                "Reiniciar a sessão apagará todo o histórico, fotos e etiquetas desta execução.\n"
+
                         + "O fluxo continuará ativo. Deseja continuar?",
+
                 "Reiniciar sessão",
+
                 JOptionPane.YES_NO_OPTION,
+
                 JOptionPane.WARNING_MESSAGE);
+
         if (confirm != JOptionPane.YES_OPTION) {
+
             return;
+
         }
+
         try {
+
             orchestrator.restartSession();
+
         } catch (Exception ex) {
+
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Reiniciar sessão",
+
                     JOptionPane.ERROR_MESSAGE);
+
         }
+
     }
 
+
+
     private void buildUi() {
-        JPanel content = new JPanel(new BorderLayout(12, 12));
-        content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
 
-        JPanel header = new JPanel(new BorderLayout(8, 4));
-        header.add(BrandingAssets.createEshipLogoLabel(48), BorderLayout.WEST);
-        JLabel title = new JLabel("Operação do fluxo automatizado");
-        title.setFont(title.getFont().deriveFont(Font.BOLD, 16f));
-        header.add(title, BorderLayout.CENTER);
+        JPanel content = new JPanel(new BorderLayout(0, 0));
 
-        lbStatus.setFont(lbStatus.getFont().deriveFont(Font.PLAIN, 14f));
-        lbStatus.setBorder(BorderFactory.createEmptyBorder(4, 4, 8, 4));
+        content.setBackground(WorkflowUiTheme.BG_PAGE);
 
-        JPanel north = new JPanel(new BorderLayout(8, 8));
-        north.add(header, BorderLayout.NORTH);
-        north.add(lbStatus, BorderLayout.SOUTH);
-        content.add(north, BorderLayout.NORTH);
+        content.setBorder(WorkflowUiTheme.empty(16, 16, 16, 16));
 
-        historyTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        historyTable.setRowHeight(24);
-        historyTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        historyTable.getTableHeader().setReorderingAllowed(false);
-        configureHistoryColumns();
-        historyTable.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    openPhotoForSelectedRow();
-                }
-            }
-        });
-        historyTable.getSelectionModel().addListSelectionListener(e -> updateViewPhotoButton());
 
-        JPanel historyPanel = new JPanel(new BorderLayout(4, 4));
-        historyPanel.setBorder(new TitledBorder("Histórico da sessão"));
-        historyPanel.add(new JScrollPane(historyTable), BorderLayout.CENTER);
 
-        btnViewPhoto.setEnabled(false);
-        btnViewPhoto.addActionListener(e -> openPhotoForSelectedRow());
-        JPanel historyActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        historyActions.add(btnViewPhoto);
-        historyPanel.add(historyActions, BorderLayout.SOUTH);
+        content.add(buildHeader(), BorderLayout.NORTH);
 
-        JPanel mainCenter = new JPanel(new BorderLayout(8, 8));
-        mainCenter.add(historyPanel, BorderLayout.CENTER);
-        if (simulationMode) {
-            mainCenter.add(buildSimulationPanel(), BorderLayout.SOUTH);
-        }
-        content.add(mainCenter, BorderLayout.CENTER);
+        content.add(buildMainCenter(), BorderLayout.CENTER);
 
-        btnStartWeighing.addActionListener(e -> {
-            if (orchestrator != null) {
-                orchestrator.confirmWeighingStart();
-            }
-        });
-        btnNext.setEnabled(false);
-        btnNext.addActionListener(e -> {
-            if (orchestrator != null) {
-                orchestrator.acknowledgeNext();
-            }
-        });
-        btnRestartSession.addActionListener(e -> restartSession());
+        content.add(buildFooter(), BorderLayout.SOUTH);
 
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
-        actions.add(btnRestartSession);
-        actions.add(btnStartWeighing);
-        actions.add(btnNext);
-        content.add(actions, BorderLayout.SOUTH);
+
+
+        getContentPane().setBackground(WorkflowUiTheme.BG_PAGE);
 
         setContentPane(content);
 
-        getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "viewPhoto");
-        getRootPane().getActionMap().put("viewPhoto", new AbstractAction() {
-            @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
-                openPhotoForSelectedRow();
-            }
-        });
     }
 
-    private void configureHistoryColumns() {
-        TableColumnModel columns = historyTable.getColumnModel();
-        columns.getColumn(0).setPreferredWidth(36);
-        columns.getColumn(1).setPreferredWidth(72);
-        columns.getColumn(2).setPreferredWidth(90);
-        columns.getColumn(3).setPreferredWidth(280);
-        columns.getColumn(4).setPreferredWidth(48);
+
+
+    private JPanel buildHeader() {
+
+        JPanel header = new JPanel(new BorderLayout(12, 8));
+
+        header.setOpaque(false);
+
+
+
+        JPanel brandRow = new JPanel(new BorderLayout(12, 0));
+
+        brandRow.setOpaque(false);
+
+        brandRow.add(BrandingAssets.createEshipLogoLabel(44), BorderLayout.WEST);
+
+
+
+        JPanel titles = new JPanel();
+
+        titles.setOpaque(false);
+
+        titles.setLayout(new BoxLayout(titles, BoxLayout.Y_AXIS));
+
+
+
+        JLabel title = new JLabel("Operação do fluxo automatizado");
+
+        title.setFont(WorkflowUiTheme.fontTitle(title));
+
+        title.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
+
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+
+
+        JLabel subtitle = new JLabel("Histórico da sessão com peso, hora e acesso rápido a foto e etiqueta");
+
+        subtitle.setFont(WorkflowUiTheme.fontMeta(subtitle));
+
+        subtitle.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+
+        subtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        subtitle.setBorder(WorkflowUiTheme.empty(2, 0, 0, 0));
+
+
+
+        titles.add(title);
+
+        titles.add(subtitle);
+
+        brandRow.add(titles, BorderLayout.CENTER);
+
+        header.add(brandRow, BorderLayout.NORTH);
+
+
+
+        JPanel statusBar = new JPanel(new BorderLayout(10, 0)) {
+
+            @Override
+
+            protected void paintComponent(Graphics g) {
+
+                Graphics2D g2 = (Graphics2D) g.create();
+
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                g2.setColor(WorkflowUiTheme.BG_CARD);
+
+                g2.fill(new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 10, 10));
+
+                g2.setColor(WorkflowUiTheme.BORDER);
+
+                g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, getWidth() - 1, getHeight() - 1, 10, 10));
+
+                g2.dispose();
+
+                super.paintComponent(g);
+
+            }
+
+        };
+
+        statusBar.setOpaque(false);
+
+        statusBar.setBorder(WorkflowUiTheme.empty(10, 12, 10, 12));
+
+
+
+        statusIndicator.setPreferredSize(new Dimension(4, 20));
+
+        statusIndicator.setOpaque(true);
+
+        statusIndicator.setBackground(WorkflowUiTheme.TEXT_MUTED);
+
+
+
+        lbStatus.setFont(WorkflowUiTheme.fontStatus(lbStatus));
+
+        lbStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+
+
+
+        statusBar.add(statusIndicator, BorderLayout.WEST);
+
+        statusBar.add(lbStatus, BorderLayout.CENTER);
+
+        header.add(statusBar, BorderLayout.SOUTH);
+
+
+
+        header.setBorder(WorkflowUiTheme.empty(0, 0, 12, 0));
+
+        return header;
+
     }
+
+
+
+    private JPanel buildMainCenter() {
+
+        JPanel mainCenter = new JPanel(new BorderLayout(0, 12));
+
+        mainCenter.setOpaque(false);
+
+        mainCenter.add(buildHistoryPanel(), BorderLayout.CENTER);
+
+        if (simulationMode) {
+
+            mainCenter.add(buildSimulationPanel(), BorderLayout.SOUTH);
+
+        }
+
+        return mainCenter;
+
+    }
+
+
+
+    private JPanel buildHistoryPanel() {
+
+        JPanel wrapper = new JPanel(new BorderLayout());
+
+        wrapper.setOpaque(false);
+
+
+
+        historyList.setLayout(new BoxLayout(historyList, BoxLayout.Y_AXIS));
+
+        historyList.setOpaque(false);
+
+
+
+        emptyState.setLayout(new BoxLayout(emptyState, BoxLayout.Y_AXIS));
+
+        emptyState.setOpaque(false);
+
+        emptyState.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        emptyState.setBorder(WorkflowUiTheme.empty(48, 24, 48, 24));
+
+
+
+        lbEmptyTitle.setFont(lbEmptyTitle.getFont().deriveFont(Font.BOLD, 14f));
+
+        lbEmptyTitle.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+
+        lbEmptyTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+
+
+        lbEmptyHint.setFont(WorkflowUiTheme.fontMeta(lbEmptyHint));
+
+        lbEmptyHint.setForeground(WorkflowUiTheme.TEXT_MUTED);
+
+        lbEmptyHint.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        lbEmptyHint.setBorder(WorkflowUiTheme.empty(6, 0, 0, 0));
+
+
+
+        emptyState.add(lbEmptyTitle);
+
+        emptyState.add(lbEmptyHint);
+
+
+
+        JScrollPane scroll = new JScrollPane(historyList);
+
+        scroll.setBorder(BorderFactory.createLineBorder(WorkflowUiTheme.BORDER));
+
+        scroll.getViewport().setBackground(WorkflowUiTheme.BG_PAGE);
+
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+
+
+
+        historyHost = new JPanel(new CardLayout());
+
+        historyHost.setOpaque(false);
+
+        historyHost.add(emptyState, "empty");
+
+        historyHost.add(scroll, "list");
+
+
+
+        updateEmptyStateVisibility();
+
+        wrapper.add(historyHost, BorderLayout.CENTER);
+
+        return wrapper;
+
+    }
+
+
+
+    private JPanel buildFooter() {
+
+        btnStartWeighing.addActionListener(e -> {
+
+            if (orchestrator != null) {
+
+                orchestrator.confirmWeighingStart();
+
+            }
+
+        });
+
+        btnNext.setEnabled(false);
+
+        btnNext.addActionListener(e -> {
+
+            if (orchestrator != null) {
+
+                orchestrator.acknowledgeNext();
+
+            }
+
+        });
+
+        btnRestartSession.addActionListener(e -> restartSession());
+
+
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+
+        actions.setOpaque(false);
+
+        actions.setBorder(WorkflowUiTheme.empty(14, 0, 0, 0));
+
+        actions.add(btnRestartSession);
+
+        actions.add(btnStartWeighing);
+
+        actions.add(btnNext);
+
+        return actions;
+
+    }
+
+
 
     private JPanel buildSimulationPanel() {
-        simulationPanel.setBorder(new TitledBorder("Simulação de dados"));
+
+        simulationPanel.setOpaque(false);
+
+        simulationPanel.setBorder(BorderFactory.createCompoundBorder(
+
+                BorderFactory.createTitledBorder(
+
+                        BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Simulação de dados"),
+
+                WorkflowUiTheme.empty(8, 8, 8, 8)));
+
+
+
         GridBagConstraints gbc = new GridBagConstraints();
+
         gbc.insets = new Insets(4, 4, 4, 4);
+
         gbc.anchor = GridBagConstraints.WEST;
+
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
+
+
         gbc.gridx = 0;
+
         gbc.gridy = 0;
+
         gbc.weightx = 0;
+
         simulationPanel.add(new JLabel("Peso (kg):"), gbc);
 
+
+
         gbc.gridx = 1;
+
         gbc.weightx = 1;
+
         simulationPanel.add(spMockWeight, gbc);
 
+
+
         gbc.gridx = 0;
+
         gbc.gridy = 1;
+
         gbc.weightx = 0;
+
         simulationPanel.add(new JLabel("Tags:"), gbc);
 
+
+
         gbc.gridx = 1;
+
         gbc.weightx = 1;
+
         simulationPanel.add(tfMockTags, gbc);
 
+
+
         gbc.gridx = 1;
+
         gbc.gridy = 2;
+
         simulationPanel.add(cbFastStabilization, gbc);
 
+
+
         JLabel hint = new JLabel("<html><small>Formato: <code>CODIGO:EPC</code> separados por vírgula. "
+
                 + "Use <b>Iniciar pesagem</b> e depois <b>Simular pesagem estável</b>.</small></html>");
+
         gbc.gridy = 3;
+
         gbc.weightx = 1;
+
         simulationPanel.add(hint, gbc);
 
+
+
         btnLoadSample.addActionListener(e -> loadSampleData());
+
         btnSimulate.setEnabled(false);
+
         btnSimulate.addActionListener(e -> runSimulation());
 
+
+
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+
+        buttons.setOpaque(false);
+
         buttons.add(btnLoadSample);
+
         buttons.add(btnSimulate);
+
         gbc.gridy = 4;
+
         simulationPanel.add(buttons, gbc);
 
+
+
         return simulationPanel;
+
     }
+
+
 
     private void loadSampleData() {
+
         WorkflowMockScenario sample = WorkflowMockData.sample(cbFastStabilization.isSelected());
+
         spMockWeight.setValue(sample.getWeightKg());
+
         tfMockTags.setText(WorkflowMockData.formatTagsForDisplay(sample.getTags()));
+
     }
+
+
 
     private void runSimulation() {
+
         if (orchestrator == null || !simulationMode) {
+
             return;
+
         }
+
         double weight;
+
         try {
+
             weight = ((Number) spMockWeight.getValue()).doubleValue();
+
         } catch (ClassCastException ex) {
+
             JOptionPane.showMessageDialog(this, "Peso simulado inválido.", "Simulação",
+
                     JOptionPane.WARNING_MESSAGE);
+
             return;
+
         }
+
         if (weight <= 0) {
+
             JOptionPane.showMessageDialog(this, "Informe um peso maior que zero.", "Simulação",
+
                     JOptionPane.WARNING_MESSAGE);
+
             return;
+
         }
+
         WorkflowMockScenario scenario = WorkflowMockData.fromInput(
+
                 weight, tfMockTags.getText(), cbFastStabilization.isSelected());
+
         orchestrator.simulateWeighing(scenario);
+
         btnSimulate.setEnabled(false);
+
     }
+
+
 
     private void clearHistory() {
-        historyModel.setRowCount(0);
-        btnViewPhoto.setEnabled(false);
+
+        historyList.removeAll();
+
+        readingCards.clear();
+
+        updateEmptyStateVisibility();
+
+        historyList.revalidate();
+
+        historyList.repaint();
+
     }
+
+
 
     private void addReadingToHistory(WorkflowReadingRecord record) {
-        String products = formatProducts(record);
-        String photoLabel = record.hasPhoto() ? "Sim" : "—";
-        historyModel.addRow(new Object[]{
-                record.getIndex(),
-                timeFormat.format(new Date(record.getTimestampMs())),
-                weightFormat.format(record.getWeightKg()),
-                products,
-                photoLabel
+
+        for (WorkflowReadingCard card : readingCards) {
+
+            card.setHighlight(false);
+
+        }
+
+
+
+        WorkflowReadingCard card = new WorkflowReadingCard(
+
+                record, photoEnabled, labelEnabled, true, new WorkflowReadingCard.ActionListener() {
+
+            @Override
+
+            public void onViewPhoto(WorkflowReadingRecord r) {
+
+                openPhoto(r);
+
+            }
+
+
+
+            @Override
+
+            public void onViewLabel(WorkflowReadingRecord r) {
+
+                openLabel(r);
+
+            }
+
         });
-        int lastRow = historyModel.getRowCount() - 1;
-        historyTable.setRowSelectionInterval(lastRow, lastRow);
-        historyTable.scrollRectToVisible(historyTable.getCellRect(lastRow, 0, true));
-        updateViewPhotoButton();
+
+        readingCards.add(card);
+
+        historyList.add(card);
+
+        historyList.add(Box.createVerticalStrut(8));
+
+        updateEmptyStateVisibility();
+
+        historyList.revalidate();
+
+        historyList.repaint();
+
+
+
+        SwingUtilities.invokeLater(() -> {
+
+            Container parent = historyList.getParent();
+
+            if (parent instanceof JViewport) {
+
+                JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, parent);
+
+                if (scroll != null) {
+
+                    scroll.getVerticalScrollBar().setValue(scroll.getVerticalScrollBar().getMaximum());
+
+                }
+
+            }
+
+        });
+
     }
 
-    private String formatProducts(WorkflowReadingRecord record) {
-        if (record.getTagCodes().isEmpty()) {
-            return "Nenhum produto identificado";
-        }
-        return String.join(", ", record.getTagCodes());
-    }
 
-    private void updateViewPhotoButton() {
-        WorkflowReadingRecord record = getSelectedRecord();
-        boolean canView = photoEnabled
-                && record != null
-                && record.hasPhoto()
-                && new File(record.getPhotoPath()).isFile();
-        btnViewPhoto.setEnabled(canView);
-    }
 
-    private WorkflowReadingRecord getSelectedRecord() {
-        int row = historyTable.getSelectedRow();
-        if (row < 0 || orchestrator == null) {
-            return null;
-        }
-        int modelRow = historyTable.convertRowIndexToModel(row);
-        if (modelRow < 0 || modelRow >= orchestrator.getSessionStore().getRecords().size()) {
-            return null;
-        }
-        return orchestrator.getSessionStore().getRecords().get(modelRow);
-    }
+    private void updateEmptyStateVisibility() {
 
-    private void openPhotoForSelectedRow() {
-        WorkflowReadingRecord record = getSelectedRecord();
-        if (record == null || !record.hasPhoto()) {
-            JOptionPane.showMessageDialog(this,
-                    "Selecione uma leitura com foto no histórico.",
-                    "Foto", JOptionPane.INFORMATION_MESSAGE);
+        if (historyHost == null) {
+
             return;
+
         }
-        WorkflowPhotoPreviewDialog.showPreview(this, record.getPhotoPath());
+
+        CardLayout layout = (CardLayout) historyHost.getLayout();
+
+        layout.show(historyHost, readingCards.isEmpty() ? "empty" : "list");
+
     }
+
+
+
+    private void openPhoto(WorkflowReadingRecord record) {
+
+        if (record == null || !record.hasPhoto()) {
+
+            return;
+
+        }
+
+        WorkflowPhotoPreviewDialog.showPreview(this, record.getPhotoPath());
+
+    }
+
+
+
+    private void openLabel(WorkflowReadingRecord record) {
+
+        if (record == null || !record.hasLabel()) {
+
+            return;
+
+        }
+
+        WorkflowLabelPreviewDialog.showPreview(this, record.getLabelPdfPath());
+
+    }
+
+
+
+    private void setStatus(String text, Color indicatorColor, Color textColor) {
+
+        lbStatus.setText(text);
+
+        lbStatus.setForeground(textColor);
+
+        statusIndicator.setBackground(indicatorColor);
+
+    }
+
+
 
     private void setAwaitingStartState() {
+
         btnStartWeighing.setEnabled(true);
+
         btnNext.setEnabled(false);
+
         btnRestartSession.setEnabled(true);
+
         if (simulationMode) {
+
             btnSimulate.setEnabled(false);
-            lbStatus.setText("Clique em Iniciar pesagem e depois simule os dados.");
+
+            setStatus("Clique em Iniciar pesagem e depois simule os dados.",
+
+                    WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
+
         } else {
-            lbStatus.setText("Clique em Iniciar pesagem para começar a leitura.");
+
+            setStatus("Clique em Iniciar pesagem para começar a leitura.",
+
+                    WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
+
         }
-        lbStatus.setForeground(COLOR_MUTED);
+
     }
+
+
 
     private void setWaitingForNextState() {
+
         btnStartWeighing.setEnabled(false);
+
         btnNext.setEnabled(true);
+
         btnRestartSession.setEnabled(true);
-        lbStatus.setText("Ciclo concluído — clique em Próximo para nova leitura.");
-        lbStatus.setForeground(COLOR_OK);
+
+        setStatus("Ciclo concluído — clique em Próximo para nova leitura.",
+
+                WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
+
     }
 
+
+
     @Override
+
     public void onWeightUpdate(com.peripheral.core.PeripheralDataEvent event) {
+
     }
 
+
+
     @Override
+
     public void onTagRead(com.peripheral.core.PeripheralDataEvent event) {
+
     }
 
+
+
     @Override
+
     public void onStepChanged(WorkflowStep step, String message) {
+
         SwingUtilities.invokeLater(() -> {
+
             btnStartWeighing.setEnabled(false);
+
             btnNext.setEnabled(false);
-            lbStatus.setText(message);
-            lbStatus.setForeground(COLOR_WARN);
+
+            setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
+
             if (simulationMode && step == WorkflowStep.WEIGHING) {
+
                 btnSimulate.setEnabled(true);
+
             }
+
         });
+
     }
 
+
+
     @Override
+
     public void onAwaitingWeighingStart() {
+
         SwingUtilities.invokeLater(this::setAwaitingStartState);
+
     }
 
+
+
     @Override
+
     public void onStabilizationProgress(String message) {
+
         SwingUtilities.invokeLater(() -> {
+
             btnStartWeighing.setEnabled(false);
+
             btnNext.setEnabled(false);
+
             btnSimulate.setEnabled(false);
-            lbStatus.setText(message);
-            lbStatus.setForeground(COLOR_WARN);
+
+            setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
+
         });
+
     }
 
+
+
     @Override
+
     public void onCycleCompleted(com.peripheral.workflow.WorkflowContext context) {
+
     }
 
+
+
     @Override
+
     public void onReadingRecorded(WorkflowReadingRecord record) {
+
         SwingUtilities.invokeLater(() -> addReadingToHistory(record));
+
     }
 
+
+
     @Override
+
     public void onSessionCleared() {
+
         SwingUtilities.invokeLater(this::clearHistory);
+
     }
 
+
+
     @Override
+
     public void onWaitingForNext() {
+
         SwingUtilities.invokeLater(this::setWaitingForNextState);
+
     }
 
+
+
     @Override
+
     public void onError(String message, Throwable cause) {
+
         SwingUtilities.invokeLater(() -> {
-            lbStatus.setText("Erro: " + message);
-            lbStatus.setForeground(Color.RED);
+
+            setStatus("Erro: " + message, WorkflowUiTheme.DANGER, WorkflowUiTheme.DANGER);
+
             btnStartWeighing.setEnabled(true);
+
             btnNext.setEnabled(false);
+
             btnRestartSession.setEnabled(true);
+
         });
+
     }
 
+
+
     @Override
+
     public void onStopped() {
+
         SwingUtilities.invokeLater(() -> {
+
             clearHistory();
+
             btnStartWeighing.setEnabled(false);
+
             btnNext.setEnabled(false);
+
             btnRestartSession.setEnabled(false);
-            lbStatus.setText("Fluxo parado.");
-            lbStatus.setForeground(COLOR_MUTED);
+
+            setStatus("Fluxo parado.", WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
+
             dispose();
+
         });
+
     }
+
 }
+

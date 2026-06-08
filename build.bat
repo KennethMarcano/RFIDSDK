@@ -5,8 +5,9 @@ cd /d "%~dp0"
 set "OUT=out"
 set "SRC=src"
 set "LIBS=libs\lib_reader.jar;libs\lib_connect.jar;libs\jSerialComm-2.11.4.jar"
+set "PDFBOX=libs\pdfbox-2.0.31.jar;libs\fontbox-2.0.31.jar;libs\commons-logging-1.2.jar"
 set "MERCURY=SDKMERCURY\mercuryapi.jar;SDKMERCURY\ltkjava-1.0.0.6.jar;SDKMERCURY\slf4j-dependencies.jar"
-set "CP=%LIBS%;%MERCURY%"
+set "CP=%LIBS%;%PDFBOX%;%MERCURY%"
 
 if not exist "%OUT%\resources" mkdir "%OUT%\resources"
 copy /Y "%SRC%\resources\images.png" "%OUT%\resources\images.png" >nul 2>&1

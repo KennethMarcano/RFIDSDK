@@ -19,6 +19,7 @@ fi
 "$ROOT/build.sh"
 
 CP="${ROOT}/libs/lib_reader.jar:${ROOT}/libs/lib_connect.jar:${ROOT}/libs/jSerialComm-2.11.4.jar"
+CP="${CP}:${ROOT}/libs/pdfbox-2.0.31.jar:${ROOT}/libs/fontbox-2.0.31.jar:${ROOT}/libs/commons-logging-1.2.jar"
 CP="${CP}:${ROOT}/SDKMERCURY/mercuryapi.jar:${ROOT}/SDKMERCURY/ltkjava-1.0.0.6.jar:${ROOT}/SDKMERCURY/slf4j-dependencies.jar"
 CP="${CP}:${ROOT}/out"
 

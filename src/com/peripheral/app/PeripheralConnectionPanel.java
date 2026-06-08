@@ -16,7 +16,6 @@ import com.rfid.core.SerialPortDiscovery;
 import com.rfid.core.SerialPortInfo;
 
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -42,16 +41,21 @@ public class PeripheralConnectionPanel extends JPanel {
     private final JComboBox<String> cbVendor = new JComboBox<>();
     private final JComboBox<DeviceModelEntry> cbModel = new JComboBox<>();
     private final JComboBox<SerialPortInfo> cbPort = new JComboBox<>();
-    private final JButton btnRefreshPorts = new JButton("Atualizar portas");
-    private final JButton btnTestPort = new JButton("Testar porta");
-    private final JButton btnConnect = new JButton("Conectar");
-    private final JButton btnDisconnect = new JButton("Desconectar");
+    private final ThemedButton btnRefreshPorts =
+            WorkflowUiTheme.button("Atualizar portas", ThemedButton.Variant.SECONDARY);
+    private final ThemedButton btnTestPort =
+            WorkflowUiTheme.button("Testar porta", ThemedButton.Variant.SECONDARY);
+    private final ThemedButton btnConnect =
+            WorkflowUiTheme.button("Conectar", ThemedButton.Variant.PRIMARY);
+    private final ThemedButton btnDisconnect =
+            WorkflowUiTheme.button("Desconectar", ThemedButton.Variant.DANGER);
     private final JLabel lbStatus = new JLabel("Desconectado");
     private final JLabel lbDeviceInfo = new JLabel("-");
 
     private final JPanel rfidOptionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
     private final JSpinner spPower = new JSpinner(new SpinnerNumberModel(50, 1, 100, 1));
-    private final JButton btnApplyPower = new JButton("Aplicar potência");
+    private final ThemedButton btnApplyPower =
+            WorkflowUiTheme.button("Aplicar potência", ThemedButton.Variant.SECONDARY);
     private final JPanel antennaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
     private final JCheckBox[] antennaChecks = new JCheckBox[16];
 
@@ -72,7 +76,7 @@ public class PeripheralConnectionPanel extends JPanel {
         this.sessionManager = sessionManager;
         this.connectionListener = connectionListener;
         this.portConflictChecker = portConflictChecker;
-        setBorder(new TitledBorder(slot.getLabel()));
+        setOpaque(false);
         buildUi();
         refreshVendors();
         refreshPorts();
@@ -104,14 +108,15 @@ public class PeripheralConnectionPanel extends JPanel {
 
     private void buildUi() {
         JPanel selection = new JPanel(new GridBagLayout());
+        selection.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(3, 3, 3, 3);
+        gbc.insets = new Insets(6, 0, 6, 8);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         gbc.gridx = 0;
         gbc.gridy = 0;
-        selection.add(new JLabel("Fabricante:"), gbc);
+        selection.add(fieldLabel("Fabricante:"), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1;
         selection.add(cbVendor, gbc);
@@ -119,7 +124,7 @@ public class PeripheralConnectionPanel extends JPanel {
         gbc.gridx = 0;
         gbc.gridy = 1;
         gbc.weightx = 0;
-        selection.add(new JLabel("Modelo:"), gbc);
+        selection.add(fieldLabel("Modelo:"), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1;
         cbModel.setRenderer(new DefaultListCellRenderer() {
@@ -135,8 +140,9 @@ public class PeripheralConnectionPanel extends JPanel {
         });
         selection.add(cbModel, gbc);
 
-        JPanel portRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        portRow.add(new JLabel("Porta:"));
+        JPanel portRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        portRow.setOpaque(false);
+        portRow.add(fieldLabel("Porta:"));
         setupPortCombo();
         portRow.add(cbPort);
         portRow.add(btnRefreshPorts);
@@ -150,7 +156,13 @@ public class PeripheralConnectionPanel extends JPanel {
         rfidOptionsPanel.setVisible(isRfid);
         scaleOptionsPanel.setVisible(!isRfid);
 
+        lbStatus.setFont(WorkflowUiTheme.fontStatus(lbStatus));
+        lbStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+        lbDeviceInfo.setFont(WorkflowUiTheme.fontMeta(lbDeviceInfo));
+        lbDeviceInfo.setForeground(WorkflowUiTheme.TEXT_MUTED);
+
         JPanel center = new JPanel();
+        center.setOpaque(false);
         center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
         center.add(selection);
         center.add(portRow);
@@ -173,12 +185,22 @@ public class PeripheralConnectionPanel extends JPanel {
         setSelectionEnabled(true);
     }
 
+    private JLabel fieldLabel(String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(WorkflowUiTheme.fontMeta(label));
+        label.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+        return label;
+    }
+
     private void buildRfidOptions() {
-        rfidOptionsPanel.setBorder(new TitledBorder("Opções RFID"));
-        rfidOptionsPanel.add(new JLabel("Potência (%):"));
+        rfidOptionsPanel.setOpaque(false);
+        rfidOptionsPanel.setBorder(WorkflowUiTheme.empty(8, 0, 0, 0));
+        rfidOptionsPanel.add(fieldLabel("Potência (%):"));
         rfidOptionsPanel.add(spPower);
         rfidOptionsPanel.add(btnApplyPower);
-        antennaPanel.setBorder(BorderFactory.createTitledBorder("Antenas"));
+        antennaPanel.setOpaque(false);
+        antennaPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Antenas"));
         for (int i = 0; i < antennaChecks.length; i++) {
             antennaChecks[i] = new JCheckBox(String.valueOf(i));
             if (i == 0) {
@@ -190,28 +212,30 @@ public class PeripheralConnectionPanel extends JPanel {
     }
 
     private void buildScaleOptions() {
-        scaleOptionsPanel.setBorder(new TitledBorder("Opções serial"));
+        scaleOptionsPanel.setOpaque(false);
+        scaleOptionsPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Opções serial"));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(2, 2, 2, 2);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.gridx = 0;
         gbc.gridy = 0;
-        scaleOptionsPanel.add(new JLabel("Baud:"), gbc);
+        scaleOptionsPanel.add(fieldLabel("Baud:"), gbc);
         gbc.gridx = 1;
         scaleOptionsPanel.add(spBaud, gbc);
         gbc.gridx = 0;
         gbc.gridy = 1;
-        scaleOptionsPanel.add(new JLabel("Data bits:"), gbc);
+        scaleOptionsPanel.add(fieldLabel("Data bits:"), gbc);
         gbc.gridx = 1;
         scaleOptionsPanel.add(spDataBits, gbc);
         gbc.gridx = 0;
         gbc.gridy = 2;
-        scaleOptionsPanel.add(new JLabel("Stop bits:"), gbc);
+        scaleOptionsPanel.add(fieldLabel("Stop bits:"), gbc);
         gbc.gridx = 1;
         scaleOptionsPanel.add(spStopBits, gbc);
         gbc.gridx = 0;
         gbc.gridy = 3;
-        scaleOptionsPanel.add(new JLabel("Paridade:"), gbc);
+        scaleOptionsPanel.add(fieldLabel("Paridade:"), gbc);
         gbc.gridx = 1;
         scaleOptionsPanel.add(cbParity, gbc);
     }
@@ -315,7 +339,7 @@ public class PeripheralConnectionPanel extends JPanel {
             cbPort.addItem(SerialPortInfo.placeholder("(erro ao listar portas)"));
             log("ERRO portas (" + slot.getLabel() + "): " + e.getMessage());
             lbStatus.setText("Erro ao listar portas");
-            lbStatus.setForeground(Color.RED);
+            WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
         }
     }
 
@@ -374,17 +398,17 @@ public class PeripheralConnectionPanel extends JPanel {
                     log("Teste " + slot.getLabel() + " porta " + port + ": " + result.getStatus());
                     if (result.isMatch()) {
                         lbStatus.setText("Porta OK: " + port);
-                        lbStatus.setForeground(new Color(0, 128, 0));
+                        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.SUCCESS);
                     } else if (result.isBlocking()) {
                         lbStatus.setText("Teste falhou");
-                        lbStatus.setForeground(Color.RED);
+                        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
                     } else {
                         lbStatus.setText("Porta suspeita");
-                        lbStatus.setForeground(new Color(180, 100, 0));
+                        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.WARNING);
                     }
                 } catch (Exception e) {
                     lbStatus.setText("Erro no teste");
-                    lbStatus.setForeground(Color.RED);
+                    WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
                     log("ERRO teste: " + e.getMessage());
                 }
             }
@@ -429,7 +453,7 @@ public class PeripheralConnectionPanel extends JPanel {
                         btnConnect.setEnabled(true);
                         btnTestPort.setEnabled(true);
                         lbStatus.setText("Erro: " + probe.getMessage());
-                        lbStatus.setForeground(Color.RED);
+                        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
                         showProbeResultDialog("Conexão — " + slot.getLabel(), probe);
                         return;
                     }
@@ -488,13 +512,13 @@ public class PeripheralConnectionPanel extends JPanel {
                 if (error != null) {
                     btnConnect.setEnabled(true);
                     lbStatus.setText("Erro: " + error);
-                    lbStatus.setForeground(Color.RED);
+                    WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
                     log("ERRO conexão " + slot.getLabel() + ": " + error);
                     notifyConnectionChanged(false);
                     return;
                 }
                 lbStatus.setText("Conectado em " + port);
-                lbStatus.setForeground(new Color(0, 128, 0));
+                WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.SUCCESS);
                 lbDeviceInfo.setText(sessionManager.getDevice(slot).getDeviceInfo());
                 btnDisconnect.setEnabled(true);
                 btnTestPort.setEnabled(false);
@@ -508,7 +532,7 @@ public class PeripheralConnectionPanel extends JPanel {
     public void disconnectDevice() {
         sessionManager.disconnect(slot);
         lbStatus.setText("Desconectado");
-        lbStatus.setForeground(Color.BLACK);
+        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.TEXT_SECONDARY);
         lbDeviceInfo.setText("-");
         btnDisconnect.setEnabled(false);
         setSelectionEnabled(true);

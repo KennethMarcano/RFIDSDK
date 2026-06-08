@@ -13,7 +13,6 @@ import com.peripheral.workflow.WorkflowListener;
 import com.peripheral.workflow.WorkflowStep;
 
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -23,18 +22,16 @@ import java.util.function.Consumer;
 
 public class AutomatedWorkflowPanel extends JPanel {
 
-    private static final Color COLOR_OK = new Color(0, 128, 0);
-    private static final Color COLOR_WARN = new Color(180, 100, 0);
-    private static final Color COLOR_MUTED = new Color(100, 100, 100);
-
     private final PeripheralSessionManager sessionManager;
     private final Consumer<String> logConsumer;
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss");
 
     private final JLabel lbScaleSummary = new JLabel();
     private final JLabel lbRfidSummary = new JLabel();
-    private final JButton btnConfigScale = new JButton("Configurar");
-    private final JButton btnConfigRfid = new JButton("Configurar");
+    private final ThemedButton btnConfigScale =
+            WorkflowUiTheme.button("Configurar", ThemedButton.Variant.SECONDARY);
+    private final ThemedButton btnConfigRfid =
+            WorkflowUiTheme.button("Configurar", ThemedButton.Variant.SECONDARY);
 
     private final JCheckBox cbRfid = new JCheckBox("Leitura RFID após estabilizar", true);
     private final JCheckBox cbPhoto = new JCheckBox("Capturar foto", false);
@@ -43,9 +40,12 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final JCheckBox cbSimulation = new JCheckBox("Modo simulação (sem hardware)", false);
 
     private final JLabel lbWorkflowStatus = new JLabel("Pronto para iniciar o fluxo");
-    private final JButton btnStartWorkflow = new JButton("Iniciar fluxo");
-    private final JButton btnStopWorkflow = new JButton("Parar fluxo");
-    private final JButton btnRestartWorkflow = new JButton("Reiniciar sessão");
+    private final ThemedButton btnStartWorkflow =
+            WorkflowUiTheme.button("Iniciar fluxo", ThemedButton.Variant.PRIMARY);
+    private final ThemedButton btnStopWorkflow =
+            WorkflowUiTheme.button("Parar fluxo", ThemedButton.Variant.DANGER);
+    private final ThemedButton btnRestartWorkflow =
+            WorkflowUiTheme.button("Reiniciar sessão", ThemedButton.Variant.SECONDARY);
 
     private WeighingWorkflowOrchestrator orchestrator;
     private WorkflowOperationWindow operationWindow;
@@ -53,10 +53,11 @@ public class AutomatedWorkflowPanel extends JPanel {
     private boolean workflowRunning;
 
     public AutomatedWorkflowPanel(PeripheralSessionManager sessionManager, Consumer<String> logConsumer) {
-        super(new BorderLayout(10, 10));
+        super(new BorderLayout(0, 0));
         this.sessionManager = sessionManager;
         this.logConsumer = logConsumer;
-        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        WorkflowUiTheme.stylePanel(this);
+        setBorder(WorkflowUiTheme.empty(12, 12, 12, 12));
         buildUi();
         refreshPeripheralSummaries();
         updateWorkflowControls();
@@ -78,13 +79,11 @@ public class AutomatedWorkflowPanel extends JPanel {
 
     private void buildUi() {
         JPanel top = new JPanel();
+        top.setOpaque(false);
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
         top.add(buildPeripheralsSection());
-        top.add(Box.createVerticalStrut(10));
         top.add(buildProcessSection());
-        top.add(Box.createVerticalStrut(10));
         top.add(buildOperationHintSection());
-
         add(top, BorderLayout.NORTH);
 
         btnConfigScale.addActionListener(e -> openConfigDialog(PeripheralSlot.SCALE));
@@ -92,100 +91,123 @@ public class AutomatedWorkflowPanel extends JPanel {
         btnStartWorkflow.addActionListener(e -> startWorkflow());
         btnStopWorkflow.addActionListener(e -> stopWorkflow());
         btnRestartWorkflow.addActionListener(e -> restartWorkflowSession());
-
         cbRfid.addActionListener(e -> updateWorkflowControls());
         cbSimulation.addActionListener(e -> updateWorkflowControls());
     }
 
     private JPanel buildPeripheralsSection() {
-        JPanel section = new JPanel(new BorderLayout(8, 8));
-        section.setBorder(new TitledBorder("Periféricos"));
-
         JPanel grid = new JPanel(new GridBagLayout());
+        grid.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(6, 6, 6, 6);
+        gbc.insets = new Insets(6, 0, 6, 8);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
+        JLabel lbScale = new JLabel("Balança *");
+        lbScale.setFont(WorkflowUiTheme.fontMeta(lbScale));
+        lbScale.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weightx = 0;
-        grid.add(new JLabel("Balança *"), gbc);
+        grid.add(lbScale, gbc);
 
         gbc.gridx = 1;
         gbc.weightx = 1;
-        lbScaleSummary.setFont(lbScaleSummary.getFont().deriveFont(Font.PLAIN, 13f));
+        lbScaleSummary.setFont(WorkflowUiTheme.fontStatus(lbScaleSummary));
         grid.add(lbScaleSummary, gbc);
 
         gbc.gridx = 2;
         gbc.weightx = 0;
         grid.add(btnConfigScale, gbc);
 
+        JLabel lbRfid = new JLabel("Leitor RFID");
+        lbRfid.setFont(WorkflowUiTheme.fontMeta(lbRfid));
+        lbRfid.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
         gbc.gridx = 0;
         gbc.gridy = 1;
-        grid.add(new JLabel("Leitor RFID"), gbc);
+        grid.add(lbRfid, gbc);
 
         gbc.gridx = 1;
         gbc.weightx = 1;
-        lbRfidSummary.setFont(lbRfidSummary.getFont().deriveFont(Font.PLAIN, 13f));
+        lbRfidSummary.setFont(WorkflowUiTheme.fontStatus(lbRfidSummary));
         grid.add(lbRfidSummary, gbc);
 
         gbc.gridx = 2;
         gbc.weightx = 0;
         grid.add(btnConfigRfid, gbc);
 
-        section.add(grid, BorderLayout.CENTER);
-        return section;
+        return WorkflowUiTheme.createSection("Periféricos", grid);
     }
 
     private JPanel buildProcessSection() {
-        JPanel section = new JPanel(new BorderLayout(8, 8));
-        section.setBorder(new TitledBorder("Processos do fluxo"));
-
         JPanel checks = new JPanel();
+        checks.setOpaque(false);
         checks.setLayout(new BoxLayout(checks, BoxLayout.Y_AXIS));
         cbWeighing.setSelected(true);
         cbWeighing.setEnabled(false);
+        cbWeighing.setOpaque(false);
+        cbWeighing.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
+        styleCheckBox(cbRfid);
+        styleCheckBox(cbPhoto);
+        styleCheckBox(cbLabel);
+        styleCheckBox(cbSimulation);
         checks.add(cbWeighing);
         checks.add(cbRfid);
         checks.add(cbPhoto);
         checks.add(cbLabel);
         checks.add(cbSimulation);
 
-        JLabel help = new JLabel("<html><small>Após estabilizar 1,5 s → RFID (1 s) → foto → etiqueta. "
-                + "Cada execução guarda um histórico de leituras na janela de operação. "
-                + "Use <b>Reiniciar sessão</b> para limpar o histórico sem parar o fluxo.</small></html>");
-        help.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+        JLabel help = WorkflowUiTheme.createHintLabel(
+                "<html>Após estabilizar 1,5 s → RFID (1 s) → foto → etiqueta. "
+                        + "Cada execução guarda um histórico na janela de operação. "
+                        + "Use <b>Reiniciar sessão</b> para limpar o histórico sem parar o fluxo.</html>");
+        help.setBorder(WorkflowUiTheme.empty(10, 0, 0, 0));
 
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         btnStopWorkflow.setEnabled(false);
         btnRestartWorkflow.setEnabled(false);
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        actions.setOpaque(false);
         actions.add(btnStartWorkflow);
         actions.add(btnStopWorkflow);
         actions.add(btnRestartWorkflow);
 
+        lbWorkflowStatus.setFont(WorkflowUiTheme.fontStatus(lbWorkflowStatus));
+        lbWorkflowStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+
         JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        statusRow.add(new JLabel("Status:"));
+        statusRow.setOpaque(false);
+        JLabel lbStatusCaption = new JLabel("Status:");
+        lbStatusCaption.setFont(WorkflowUiTheme.fontMeta(lbStatusCaption));
+        lbStatusCaption.setForeground(WorkflowUiTheme.TEXT_MUTED);
+        statusRow.add(lbStatusCaption);
         statusRow.add(lbWorkflowStatus);
 
-        JPanel south = new JPanel(new BorderLayout());
+        JPanel south = new JPanel(new BorderLayout(0, 8));
+        south.setOpaque(false);
         south.add(actions, BorderLayout.NORTH);
         south.add(statusRow, BorderLayout.SOUTH);
 
-        section.add(checks, BorderLayout.NORTH);
-        section.add(help, BorderLayout.CENTER);
-        section.add(south, BorderLayout.SOUTH);
-        return section;
+        JPanel content = new JPanel(new BorderLayout(0, 8));
+        content.setOpaque(false);
+        content.add(checks, BorderLayout.NORTH);
+        content.add(help, BorderLayout.CENTER);
+        content.add(south, BorderLayout.SOUTH);
+
+        return WorkflowUiTheme.createSection("Processos do fluxo", content);
     }
 
     private JPanel buildOperationHintSection() {
-        JPanel section = new JPanel(new BorderLayout(8, 8));
-        section.setBorder(new TitledBorder("Operação"));
-        JLabel hint = new JLabel("<html>A operação abre em uma janela separada ao iniciar o fluxo. "
-                + "Use <b>Iniciar pesagem</b> e <b>Próximo</b> nessa janela para controlar cada ciclo.</html>");
-        hint.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        section.add(hint, BorderLayout.CENTER);
-        return section;
+        JLabel hint = WorkflowUiTheme.createHintLabel(
+                "<html>A operação abre em uma janela separada ao iniciar o fluxo. "
+                        + "Use <b>Iniciar pesagem</b> e <b>Próximo</b> nessa janela para controlar cada ciclo.</html>");
+        return WorkflowUiTheme.createSection("Operação", hint);
+    }
+
+    private void styleCheckBox(JCheckBox checkBox) {
+        checkBox.setOpaque(false);
+        checkBox.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
+        checkBox.setFont(WorkflowUiTheme.fontMeta(checkBox));
     }
 
     private void openConfigDialog(PeripheralSlot slot) {
@@ -232,16 +254,16 @@ public class AutomatedWorkflowPanel extends JPanel {
                 text = text + " | " + port;
             }
             label.setText(text);
-            label.setForeground(COLOR_OK);
+            WorkflowUiTheme.setStatusColor(label, WorkflowUiTheme.SUCCESS);
             label.setToolTipText(model.getDisplayLabel() + (port != null ? " @ " + port : ""));
             return;
         }
         if (required) {
             label.setText("Não configurada (obrigatória)");
-            label.setForeground(COLOR_WARN);
+            WorkflowUiTheme.setStatusColor(label, WorkflowUiTheme.WARNING);
         } else {
             label.setText("Não configurada (opcional)");
-            label.setForeground(COLOR_MUTED);
+            WorkflowUiTheme.setStatusColor(label, WorkflowUiTheme.TEXT_MUTED);
         }
         label.setToolTipText(null);
     }
@@ -270,6 +292,7 @@ public class AutomatedWorkflowPanel extends JPanel {
         } else if (!workflowRunning) {
             lbWorkflowStatus.setText("Pronto para iniciar o fluxo");
         }
+        WorkflowUiTheme.setStatusColor(lbWorkflowStatus, WorkflowUiTheme.TEXT_SECONDARY);
     }
 
     private void startWorkflow() {

@@ -302,8 +302,13 @@ public class WeighingWorkflowOrchestrator {
                 return;
             }
             if (config.isEnabled(WorkflowStep.PRINT_LABEL)) {
-                notifyStep(WorkflowStep.PRINT_LABEL, "Imprimindo etiqueta...");
-                labelPrintService.printLabel(context);
+                int labelIndex = sessionStore.getNextLabelIndex();
+                notifyStep(WorkflowStep.PRINT_LABEL, "Gerando etiqueta PDF...");
+                labelPrintService.generateLabelPdf(
+                        context, sessionStore.getSessionDirectory(), labelIndex);
+                notifyStep(WorkflowStep.PRINT_LABEL, "Imprimindo etiqueta (PDF → ZPL)...");
+                labelPrintService.printLabel(
+                        context, sessionStore.getSessionDirectory(), labelIndex);
             }
             if (!running.get()) {
                 return;

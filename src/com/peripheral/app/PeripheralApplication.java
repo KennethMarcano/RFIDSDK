@@ -12,6 +12,7 @@ public class PeripheralApplication {
             javax.swing.UIManager.setLookAndFeel(javax.swing.UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {
         }
+        WorkflowUiTheme.install();
         javax.swing.SwingUtilities.invokeLater(MainFrame::new);
     }
 

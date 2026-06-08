@@ -15,10 +15,15 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
 
         JPanel content = new JPanel(new BorderLayout(12, 12));
-        content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        content.setOpaque(false);
+        content.setBorder(WorkflowUiTheme.empty(16, 16, 16, 16));
 
         JLabel imageLabel = new JLabel("", SwingConstants.CENTER);
         imageLabel.setPreferredSize(new Dimension(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE));
+        imageLabel.setOpaque(true);
+        imageLabel.setBackground(WorkflowUiTheme.BG_CARD);
+        imageLabel.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+        imageLabel.setBorder(BorderFactory.createLineBorder(WorkflowUiTheme.BORDER));
 
         if (photoFile != null && photoFile.isFile() && photoFile.length() > 0) {
             ImageIcon icon = new ImageIcon(photoFile.getAbsolutePath());
@@ -32,14 +37,18 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
             imageLabel.setText("Arquivo de foto não encontrado ou vazio.");
         }
 
-        content.add(new JScrollPane(imageLabel), BorderLayout.CENTER);
+        JScrollPane scroll = new JScrollPane(imageLabel);
+        WorkflowUiTheme.styleScrollPane(scroll);
+        content.add(scroll, BorderLayout.CENTER);
 
-        JButton btnClose = new JButton("Fechar");
+        ThemedButton btnClose = WorkflowUiTheme.button("Fechar", ThemedButton.Variant.SECONDARY);
         btnClose.addActionListener(e -> dispose());
-        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        south.setOpaque(false);
         south.add(btnClose);
         content.add(south, BorderLayout.SOUTH);
 
+        getContentPane().setBackground(WorkflowUiTheme.BG_PAGE);
         setContentPane(content);
         getRootPane().setDefaultButton(btnClose);
         getRootPane().registerKeyboardAction(
@@ -48,7 +57,7 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         pack();
-        setMinimumSize(new Dimension(Math.max(400, getWidth()), Math.max(300, getHeight())));
+        setMinimumSize(new Dimension(Math.max(420, getWidth()), Math.max(320, getHeight())));
         setLocationRelativeTo(owner);
     }
 
@@ -62,7 +71,7 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
         File file = new File(photoPath);
         if (!file.isFile() || file.length() == 0) {
             JOptionPane.showMessageDialog(owner,
-                    "Arquivo de foto não encontrado: " + photoPath,
+                    "Arquivo de foto não encontrado.",
                     "Foto", JOptionPane.WARNING_MESSAGE);
             return;
         }

@@ -19,7 +19,6 @@ import com.rfid.core.SerialPortDiscovery;
 import com.rfid.core.SerialPortInfo;
 
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -46,16 +45,21 @@ public class MainFrame extends JFrame {
     private final JComboBox<DeviceModelEntry> cbModel = new JComboBox<>();
 
     private final JComboBox<SerialPortInfo> cbPort = new JComboBox<>();
-    private final JButton btnRefreshPorts = new JButton("Atualizar portas");
-    private final JButton btnTestPort = new JButton("Testar porta");
-    private final JButton btnConnect = new JButton("Conectar");
-    private final JButton btnDisconnect = new JButton("Desconectar");
+    private final ThemedButton btnRefreshPorts =
+            WorkflowUiTheme.button("Atualizar portas", ThemedButton.Variant.SECONDARY);
+    private final ThemedButton btnTestPort =
+            WorkflowUiTheme.button("Testar porta", ThemedButton.Variant.SECONDARY);
+    private final ThemedButton btnConnect =
+            WorkflowUiTheme.button("Conectar", ThemedButton.Variant.PRIMARY);
+    private final ThemedButton btnDisconnect =
+            WorkflowUiTheme.button("Desconectar", ThemedButton.Variant.DANGER);
     private final JLabel lbStatus = new JLabel("Selecione periférico, fabricante e modelo.");
     private final JLabel lbDeviceInfo = new JLabel("-");
 
     private final JPanel rfidOptionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
     private final JSpinner spPower = new JSpinner(new SpinnerNumberModel(50, 1, 100, 1));
-    private final JButton btnApplyPower = new JButton("Aplicar potência");
+    private final ThemedButton btnApplyPower =
+            WorkflowUiTheme.button("Aplicar potência", ThemedButton.Variant.SECONDARY);
     private final JPanel antennaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
     private final JCheckBox[] antennaChecks = new JCheckBox[16];
 
@@ -65,8 +69,10 @@ public class MainFrame extends JFrame {
     private final JSpinner spStopBits = new JSpinner(new SpinnerNumberModel(1, 1, 2, 1));
     private final JComboBox<ParityOption> cbParity = new JComboBox<>(ParityOption.values());
 
-    private final JButton btnToggleContinuous = new JButton("Iniciar leitura contínua");
-    private final JButton btnReadOnce = new JButton("Ler agora");
+    private final ThemedButton btnToggleContinuous =
+            WorkflowUiTheme.button("Iniciar leitura contínua", ThemedButton.Variant.PRIMARY);
+    private final ThemedButton btnReadOnce =
+            WorkflowUiTheme.button("Ler agora", ThemedButton.Variant.SECONDARY);
     private final DefaultTableModel dataModel = new DefaultTableModel(
             new String[]{"Hora", "Periférico", "Fabricante", "Dado"}, 0) {
         @Override
@@ -102,6 +108,7 @@ public class MainFrame extends JFrame {
             }
         });
         buildUi();
+        WorkflowUiTheme.styleFrame(this);
         refreshPorts();
         onPeripheralChanged();
         pack();
@@ -110,52 +117,45 @@ public class MainFrame extends JFrame {
         setVisible(true);
     }
 
-    private JPanel createHeaderPanel() {
-        JPanel header = new JPanel(new BorderLayout(8, 0));
-        header.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
-
-        JLabel lbTitle = new JLabel("Periféricos eship");
-        lbTitle.setFont(lbTitle.getFont().deriveFont(Font.BOLD, 16f));
-        header.add(lbTitle, BorderLayout.WEST);
-
-        JPanel logoPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-        logoPanel.add(BrandingAssets.createEshipLogoLabel(100));
-        header.add(logoPanel, BorderLayout.EAST);
-        return header;
-    }
-
     private void buildUi() {
-        setLayout(new BorderLayout(8, 8));
+        setLayout(new BorderLayout(0, 0));
 
         JPanel manualTab = buildManualTestTab();
         workflowPanel = new AutomatedWorkflowPanel(sessionManager, this::appendLog);
         workflowPanel.setOwnerWindow(this);
 
         JTabbedPane tabs = new JTabbedPane();
+        WorkflowUiTheme.styleTabbedPane(tabs);
+        tabs.setBorder(WorkflowUiTheme.empty(0, 12, 12, 12));
         tabs.addTab("Teste manual", manualTab);
         tabs.addTab("Fluxo automatizado", workflowPanel);
 
         JPanel northStack = new JPanel();
+        northStack.setOpaque(false);
         northStack.setLayout(new BoxLayout(northStack, BoxLayout.Y_AXIS));
-        northStack.add(createHeaderPanel());
+        northStack.add(WorkflowUiTheme.createHeader(
+                "Periféricos eship",
+                "Teste manual de RFID e balança, ou execute o fluxo automatizado de pesagem"));
 
         add(northStack, BorderLayout.NORTH);
         add(tabs, BorderLayout.CENTER);
     }
 
     private JPanel buildManualTestTab() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
+        JPanel root = new JPanel(new BorderLayout(0, 0));
+        WorkflowUiTheme.stylePanel(root);
+        root.setBorder(WorkflowUiTheme.empty(4, 0, 0, 0));
 
         JPanel selection = new JPanel(new GridBagLayout());
-        selection.setBorder(new TitledBorder("Seleção"));
+        selection.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 4, 4, 4);
+        gbc.insets = new Insets(6, 0, 6, 8);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         gbc.gridx = 0;
         gbc.gridy = 0;
-        selection.add(new JLabel("Periférico:"), gbc);
+        selection.add(createFieldLabel("Periférico:"), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1;
         selection.add(cbPeripheral, gbc);
@@ -163,7 +163,7 @@ public class MainFrame extends JFrame {
         gbc.gridx = 0;
         gbc.gridy = 1;
         gbc.weightx = 0;
-        selection.add(new JLabel("Fabricante:"), gbc);
+        selection.add(createFieldLabel("Fabricante:"), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1;
         selection.add(cbVendor, gbc);
@@ -171,7 +171,7 @@ public class MainFrame extends JFrame {
         gbc.gridx = 0;
         gbc.gridy = 2;
         gbc.weightx = 0;
-        selection.add(new JLabel("Modelo:"), gbc);
+        selection.add(createFieldLabel("Modelo:"), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1;
         cbModel.setRenderer(new DefaultListCellRenderer() {
@@ -187,53 +187,67 @@ public class MainFrame extends JFrame {
         });
         selection.add(cbModel, gbc);
 
-        JPanel connection = new JPanel();
-        connection.setLayout(new BoxLayout(connection, BoxLayout.Y_AXIS));
-        connection.setBorder(new TitledBorder("Conexão"));
+        JPanel connectionBody = new JPanel();
+        connectionBody.setOpaque(false);
+        connectionBody.setLayout(new BoxLayout(connectionBody, BoxLayout.Y_AXIS));
 
-        JPanel portRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        portRow.add(new JLabel("Porta:"));
+        JPanel portRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        portRow.setOpaque(false);
+        portRow.add(createFieldLabel("Porta:"));
         setupPortCombo();
         portRow.add(cbPort);
         portRow.add(btnRefreshPorts);
         portRow.add(btnTestPort);
         portRow.add(btnConnect);
         portRow.add(btnDisconnect);
-        connection.add(portRow);
-        connection.add(lbStatus);
-        connection.add(lbDeviceInfo);
+        connectionBody.add(portRow);
+
+        lbStatus.setFont(WorkflowUiTheme.fontStatus(lbStatus));
+        lbStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+        lbStatus.setBorder(WorkflowUiTheme.empty(4, 0, 0, 0));
+        connectionBody.add(lbStatus);
+
+        lbDeviceInfo.setFont(WorkflowUiTheme.fontMeta(lbDeviceInfo));
+        lbDeviceInfo.setForeground(WorkflowUiTheme.TEXT_MUTED);
+        connectionBody.add(lbDeviceInfo);
 
         buildRfidOptions();
         buildScaleOptions();
-        connection.add(rfidOptionsPanel);
-        connection.add(scaleOptionsPanel);
+        connectionBody.add(rfidOptionsPanel);
+        connectionBody.add(scaleOptionsPanel);
 
-        JPanel reading = new JPanel(new BorderLayout(4, 4));
-        reading.setBorder(new TitledBorder("Leitura"));
-        JPanel readBtns = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel readingBody = new JPanel(new BorderLayout(0, 10));
+        readingBody.setOpaque(false);
+        JPanel readBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        readBtns.setOpaque(false);
         readBtns.add(btnToggleContinuous);
         readBtns.add(btnReadOnce);
-        reading.add(readBtns, BorderLayout.NORTH);
+        readingBody.add(readBtns, BorderLayout.NORTH);
 
         dataTable.setAutoCreateRowSorter(true);
         dataTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        WorkflowUiTheme.styleTable(dataTable);
         JScrollPane scrollData = new JScrollPane(dataTable);
+        WorkflowUiTheme.styleScrollPane(scrollData);
         scrollData.setPreferredSize(new Dimension(860, 260));
-        reading.add(scrollData, BorderLayout.CENTER);
+        readingBody.add(scrollData, BorderLayout.CENTER);
 
         taLog.setEditable(false);
         taLog.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        WorkflowUiTheme.styleTextArea(taLog);
         JScrollPane scrollLog = new JScrollPane(taLog);
-        scrollLog.setBorder(new TitledBorder("Log"));
-        reading.add(scrollLog, BorderLayout.SOUTH);
+        WorkflowUiTheme.styleScrollPane(scrollLog);
+        scrollLog.setPreferredSize(new Dimension(860, 120));
+        readingBody.add(scrollLog, BorderLayout.SOUTH);
 
         JPanel northManual = new JPanel();
+        northManual.setOpaque(false);
         northManual.setLayout(new BoxLayout(northManual, BoxLayout.Y_AXIS));
-        northManual.add(selection);
+        northManual.add(WorkflowUiTheme.createSection("Seleção", selection));
+        northManual.add(WorkflowUiTheme.createSection("Conexão", connectionBody));
 
         root.add(northManual, BorderLayout.NORTH);
-        root.add(connection, BorderLayout.CENTER);
-        root.add(reading, BorderLayout.SOUTH);
+        root.add(WorkflowUiTheme.createSection("Leitura", readingBody), BorderLayout.CENTER);
 
         cbPeripheral.addActionListener(e -> onPeripheralChanged());
         cbVendor.addActionListener(e -> onVendorChanged());
@@ -251,12 +265,22 @@ public class MainFrame extends JFrame {
         return root;
     }
 
+    private JLabel createFieldLabel(String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(WorkflowUiTheme.fontMeta(label));
+        label.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+        return label;
+    }
+
     private void buildRfidOptions() {
-        rfidOptionsPanel.setBorder(new TitledBorder("Opções RFID"));
-        rfidOptionsPanel.add(new JLabel("Potência (%):"));
+        rfidOptionsPanel.setOpaque(false);
+        rfidOptionsPanel.setBorder(WorkflowUiTheme.empty(8, 0, 0, 0));
+        rfidOptionsPanel.add(createFieldLabel("Potência (%):"));
         rfidOptionsPanel.add(spPower);
         rfidOptionsPanel.add(btnApplyPower);
-        antennaPanel.setBorder(BorderFactory.createTitledBorder("Antenas"));
+        antennaPanel.setOpaque(false);
+        antennaPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Antenas"));
         for (int i = 0; i < antennaChecks.length; i++) {
             antennaChecks[i] = new JCheckBox(String.valueOf(i));
             if (i == 0) {
@@ -268,7 +292,9 @@ public class MainFrame extends JFrame {
     }
 
     private void buildScaleOptions() {
-        scaleOptionsPanel.setBorder(new TitledBorder("Opções serial (balança)"));
+        scaleOptionsPanel.setOpaque(false);
+        scaleOptionsPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Opções serial (balança)"));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(3, 3, 3, 3);
         gbc.anchor = GridBagConstraints.WEST;
@@ -415,7 +441,7 @@ public class MainFrame extends JFrame {
             }
             appendLog("Solução: use jSerialComm 2.11.4+ com Java 25, ou JDK 21 LTS.");
             lbStatus.setText("Erro ao carregar jSerialComm — veja o log");
-            lbStatus.setForeground(Color.RED);
+            WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
         }
     }
 
@@ -449,7 +475,7 @@ public class MainFrame extends JFrame {
         btnTestPort.setEnabled(false);
         btnConnect.setEnabled(false);
         lbStatus.setText("Testando " + port + "...");
-        lbStatus.setForeground(Color.BLACK);
+        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.TEXT_PRIMARY);
 
         new SwingWorker<PortProbeResult, Void>() {
             @Override
@@ -468,17 +494,17 @@ public class MainFrame extends JFrame {
                     appendLog("Teste porta " + port + ": " + result.getStatus() + " — " + result.getMessage());
                     if (result.isMatch()) {
                         lbStatus.setText("Porta OK: " + port);
-                        lbStatus.setForeground(new Color(0, 128, 0));
+                        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.SUCCESS);
                     } else if (result.isBlocking()) {
                         lbStatus.setText("Teste falhou: " + result.getMessage());
-                        lbStatus.setForeground(Color.RED);
+                        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
                     } else {
                         lbStatus.setText("Porta suspeita: " + port);
-                        lbStatus.setForeground(new Color(180, 100, 0));
+                        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.WARNING);
                     }
                 } catch (Exception e) {
                     lbStatus.setText("Erro no teste");
-                    lbStatus.setForeground(Color.RED);
+                    WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
                     appendLog("ERRO teste porta: " + e.getMessage());
                 }
             }
@@ -515,7 +541,7 @@ public class MainFrame extends JFrame {
         btnConnect.setEnabled(false);
         btnTestPort.setEnabled(false);
         lbStatus.setText("Verificando porta " + port + "...");
-        lbStatus.setForeground(Color.BLACK);
+        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.TEXT_PRIMARY);
 
         new SwingWorker<PortProbeResult, Void>() {
             @Override
@@ -532,7 +558,7 @@ public class MainFrame extends JFrame {
                         btnConnect.setEnabled(true);
                         btnTestPort.setEnabled(true);
                         lbStatus.setText("Erro: " + probe.getMessage());
-                        lbStatus.setForeground(Color.RED);
+                        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
                         showProbeResultDialog("Conexão", probe);
                         appendLog("ERRO verificação porta: " + probe.getMessage());
                         return;
@@ -553,7 +579,7 @@ public class MainFrame extends JFrame {
                             btnConnect.setEnabled(true);
                             btnTestPort.setEnabled(true);
                             lbStatus.setText("Conexão cancelada — porta suspeita");
-                            lbStatus.setForeground(new Color(180, 100, 0));
+                            WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.WARNING);
                             appendLog("Conexão cancelada: porta " + port + " não confirmada pelo usuário");
                             return;
                         }
@@ -565,7 +591,7 @@ public class MainFrame extends JFrame {
                     btnConnect.setEnabled(true);
                     btnTestPort.setEnabled(true);
                     lbStatus.setText("Erro na verificação");
-                    lbStatus.setForeground(Color.RED);
+                    WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
                     appendLog("ERRO verificação: " + e.getMessage());
                 }
             }
@@ -574,7 +600,7 @@ public class MainFrame extends JFrame {
 
     private void performConnect(String port) {
         lbStatus.setText("Conectando...");
-        lbStatus.setForeground(Color.BLACK);
+        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.TEXT_PRIMARY);
 
         new SwingWorker<Void, Void>() {
             private String error;
@@ -605,7 +631,7 @@ public class MainFrame extends JFrame {
                 btnTestPort.setEnabled(false);
                 if (error != null) {
                     lbStatus.setText("Erro: " + error);
-                    lbStatus.setForeground(Color.RED);
+                    WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
                     appendLog("ERRO conexão: " + error);
                     if (selectedModel.getSdk().requiresNativeLibrary()) {
                         appendLog("Dica: " + selectedModel.getSdk().getLibraryHint());
@@ -613,7 +639,7 @@ public class MainFrame extends JFrame {
                     return;
                 }
                 lbStatus.setText("Conectado em " + port + " — " + selectedModel.getDisplayLabel());
-                lbStatus.setForeground(new Color(0, 128, 0));
+                WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.SUCCESS);
                 lbDeviceInfo.setText(device.getDeviceInfo());
                 btnDisconnect.setEnabled(true);
                 setSelectionEnabled(false);
@@ -633,7 +659,7 @@ public class MainFrame extends JFrame {
         continuousActive = false;
         btnToggleContinuous.setText("Iniciar leitura contínua");
         lbStatus.setText("Desconectado");
-        lbStatus.setForeground(Color.BLACK);
+        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.TEXT_PRIMARY);
         lbDeviceInfo.setText("-");
         btnDisconnect.setEnabled(false);
         setSelectionEnabled(true);
@@ -693,7 +719,7 @@ public class MainFrame extends JFrame {
                 appendLog("AVISO: nenhum peso recebido em " + (SCALE_NO_DATA_WARNING_MS / 1000)
                         + " s — confirme se a porta COM selecionada é a da balança.");
                 lbStatus.setText("Sem dados da balança — verifique a porta COM");
-                lbStatus.setForeground(new Color(180, 100, 0));
+                WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.WARNING);
             }
             cancelScaleNoDataTimer();
         });

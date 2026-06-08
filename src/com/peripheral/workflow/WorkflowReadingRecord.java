@@ -11,9 +11,10 @@ public class WorkflowReadingRecord {
     private final double weightKg;
     private final List<String> tagCodes;
     private final String photoPath;
+    private final String labelPdfPath;
 
     public WorkflowReadingRecord(int index, long timestampMs, double weightKg,
-                                 List<String> tagCodes, String photoPath) {
+                                 List<String> tagCodes, String photoPath, String labelPdfPath) {
         this.index = index;
         this.timestampMs = timestampMs;
         this.weightKg = weightKg;
@@ -21,6 +22,7 @@ public class WorkflowReadingRecord {
                 ? Collections.unmodifiableList(new ArrayList<>(tagCodes))
                 : Collections.emptyList();
         this.photoPath = photoPath;
+        this.labelPdfPath = labelPdfPath;
     }
 
     public int getIndex() {
@@ -43,7 +45,15 @@ public class WorkflowReadingRecord {
         return photoPath;
     }
 
+    public String getLabelPdfPath() {
+        return labelPdfPath;
+    }
+
     public boolean hasPhoto() {
         return photoPath != null && !photoPath.trim().isEmpty();
+    }
+
+    public boolean hasLabel() {
+        return labelPdfPath != null && !labelPdfPath.trim().isEmpty();
     }
 }
