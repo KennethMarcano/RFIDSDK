@@ -38,6 +38,8 @@ public class MainFrame extends JFrame {
     private static final int READ_ONCE_TIMEOUT_MS = 2000;
     private static final int SCALE_NO_DATA_WARNING_MS = 8000;
 
+    private static final int MANUAL_CONFIG_SCROLL_HEIGHT = 268;
+
     private final PeripheralSessionManager sessionManager = new PeripheralSessionManager();
 
     private final JComboBox<PeripheralType> cbPeripheral = new JComboBox<>(PeripheralType.values());
@@ -229,16 +231,22 @@ public class MainFrame extends JFrame {
         WorkflowUiTheme.styleTable(dataTable);
         JScrollPane scrollData = new JScrollPane(dataTable);
         WorkflowUiTheme.styleScrollPane(scrollData);
-        scrollData.setPreferredSize(new Dimension(860, 260));
-        readingBody.add(scrollData, BorderLayout.CENTER);
+        scrollData.setPreferredSize(new Dimension(860, 300));
+        scrollData.setMinimumSize(new Dimension(0, 160));
 
         taLog.setEditable(false);
         taLog.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
         WorkflowUiTheme.styleTextArea(taLog);
         JScrollPane scrollLog = new JScrollPane(taLog);
         WorkflowUiTheme.styleScrollPane(scrollLog);
-        scrollLog.setPreferredSize(new Dimension(860, 120));
-        readingBody.add(scrollLog, BorderLayout.SOUTH);
+        scrollLog.setPreferredSize(new Dimension(860, 300));
+        scrollLog.setMinimumSize(new Dimension(0, 160));
+
+        JTabbedPane readingTabs = new JTabbedPane();
+        WorkflowUiTheme.styleTabbedPane(readingTabs);
+        readingTabs.addTab("Dados", scrollData);
+        readingTabs.addTab("Log", scrollLog);
+        readingBody.add(readingTabs, BorderLayout.CENTER);
 
         JPanel northManual = new JPanel();
         northManual.setOpaque(false);
@@ -246,7 +254,14 @@ public class MainFrame extends JFrame {
         northManual.add(WorkflowUiTheme.createSection("Seleção", selection));
         northManual.add(WorkflowUiTheme.createSection("Conexão", connectionBody));
 
-        root.add(northManual, BorderLayout.NORTH);
+        JScrollPane configScroll = new JScrollPane(northManual);
+        configScroll.setBorder(null);
+        WorkflowUiTheme.styleScrollPane(configScroll);
+        configScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        configScroll.getVerticalScrollBar().setUnitIncrement(16);
+        configScroll.setPreferredSize(new Dimension(860, MANUAL_CONFIG_SCROLL_HEIGHT));
+
+        root.add(configScroll, BorderLayout.NORTH);
         root.add(WorkflowUiTheme.createSection("Leitura", readingBody), BorderLayout.CENTER);
 
         cbPeripheral.addActionListener(e -> onPeripheralChanged());
