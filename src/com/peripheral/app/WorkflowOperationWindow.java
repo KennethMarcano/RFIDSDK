@@ -2,8 +2,9 @@ package com.peripheral.app;
 
 
 
-import com.peripheral.workflow.WeighingWorkflowOrchestrator;
-
+import com.peripheral.pedido.Pedido;
+import com.peripheral.workflow.PedidoValidationService;
+import com.peripheral.workflow.WorkflowController;
 import com.peripheral.workflow.WorkflowConfig;
 
 import com.peripheral.workflow.WorkflowListener;
@@ -38,13 +39,35 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
 
 
-    private final WeighingWorkflowOrchestrator orchestrator;
+    private final WorkflowController orchestrator;
 
     private final boolean photoEnabled;
 
     private final boolean labelEnabled;
 
     private final boolean simulationMode;
+
+    private final boolean orderValidationEnabled;
+
+    private final JLabel lbVolume = new JLabel("");
+
+    private final JLabel lbLiveWeight = new JLabel("Peso: —");
+
+    private final JLabel lbLiveTags = new JLabel("Tags: —");
+
+    private final JPanel operatorReviewPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+
+    private final ThemedButton btnRereadRfid =
+            WorkflowUiTheme.button("Reler tags", ThemedButton.Variant.SECONDARY);
+
+    private final ThemedButton btnCapturePhoto =
+            WorkflowUiTheme.button("Tirar foto", ThemedButton.Variant.SECONDARY);
+
+    private final ThemedButton btnReanalyze =
+            WorkflowUiTheme.button("Re-analisar IA", ThemedButton.Variant.SECONDARY);
+
+    private final ThemedButton btnConfirmOperator =
+            WorkflowUiTheme.button("Finalizar volume", ThemedButton.Variant.SUCCESS);
 
 
 
@@ -94,9 +117,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     public WorkflowOperationWindow(Window owner,
 
-                                   WeighingWorkflowOrchestrator orchestrator,
+                                   WorkflowController orchestrator,
 
-                                   WorkflowConfig config) {
+                                   WorkflowConfig config,
+
+                                   boolean orderValidationEnabled) {
 
         super(owner, "Operação — Fluxo automatizado", ModalityType.MODELESS);
 
@@ -107,6 +132,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         this.labelEnabled = config.isEnabled(WorkflowStep.PRINT_LABEL);
 
         this.simulationMode = config.isSimulationMode();
+
+        this.orderValidationEnabled = orderValidationEnabled;
 
 
 
@@ -308,7 +335,20 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
         statusBar.add(statusIndicator, BorderLayout.WEST);
 
-        statusBar.add(lbStatus, BorderLayout.CENTER);
+        JPanel statusText = new JPanel();
+        statusText.setOpaque(false);
+        statusText.setLayout(new BoxLayout(statusText, BoxLayout.Y_AXIS));
+        lbVolume.setFont(WorkflowUiTheme.fontMeta(lbVolume));
+        lbVolume.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
+        lbLiveWeight.setFont(WorkflowUiTheme.fontMeta(lbLiveWeight));
+        lbLiveTags.setFont(WorkflowUiTheme.fontMeta(lbLiveTags));
+        statusText.add(lbStatus);
+        if (orderValidationEnabled) {
+            statusText.add(lbVolume);
+            statusText.add(lbLiveWeight);
+            statusText.add(lbLiveTags);
+        }
+        statusBar.add(statusText, BorderLayout.CENTER);
 
         header.add(statusBar, BorderLayout.SOUTH);
 
@@ -329,6 +369,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         mainCenter.setOpaque(false);
 
         mainCenter.add(buildHistoryPanel(), BorderLayout.CENTER);
+
+        if (orderValidationEnabled) {
+            buildOperatorReviewPanel();
+            mainCenter.add(operatorReviewPanel, BorderLayout.NORTH);
+        }
 
         if (simulationMode) {
 
@@ -447,6 +492,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         });
 
         btnRestartSession.addActionListener(e -> restartSession());
+
+        btnRereadRfid.addActionListener(e -> runOperatorAction(() -> orchestrator.operatorRereadRfid()));
+        btnCapturePhoto.addActionListener(e -> runOperatorAction(() -> orchestrator.operatorCapturePhoto()));
+        btnReanalyze.addActionListener(e -> runOperatorAction(() -> orchestrator.operatorReanalyze()));
+        btnConfirmOperator.addActionListener(e -> confirmOperatorVolume());
 
 
 
@@ -784,6 +834,10 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
         btnRestartSession.setEnabled(true);
 
+        setOperatorReviewVisible(false);
+
+        lbLiveTags.setText("Tags: —");
+
         if (simulationMode) {
 
             btnSimulate.setEnabled(false);
@@ -820,9 +874,126 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
 
 
+    private void buildOperatorReviewPanel() {
+        operatorReviewPanel.setOpaque(false);
+        operatorReviewPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Revisão do operador"));
+        operatorReviewPanel.add(btnRereadRfid);
+        operatorReviewPanel.add(btnCapturePhoto);
+        operatorReviewPanel.add(btnReanalyze);
+        operatorReviewPanel.add(btnConfirmOperator);
+        setOperatorReviewVisible(false);
+    }
+
+    private void setOperatorReviewVisible(boolean visible) {
+        operatorReviewPanel.setVisible(visible);
+        btnRereadRfid.setEnabled(visible);
+        btnCapturePhoto.setEnabled(visible);
+        btnReanalyze.setEnabled(visible);
+        btnConfirmOperator.setEnabled(visible);
+    }
+
+    private interface OperatorAction {
+        void run() throws Exception;
+    }
+
+    private void runOperatorAction(OperatorAction action) {
+        if (orchestrator == null) {
+            return;
+        }
+        try {
+            action.run();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Operação", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void confirmOperatorVolume() {
+        if (orchestrator == null || !orchestrator.isOperatorReview()) {
+            return;
+        }
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Confirmo que o volume está OK e pode avançar.",
+                "Finalizar volume",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+        runOperatorAction(() -> orchestrator.operatorConfirmVolume());
+    }
+
+    public void onOrderLoaded(Pedido pedido) {
+        SwingUtilities.invokeLater(() -> {
+            if (pedido != null) {
+                lbVolume.setText("Pedido " + pedido.getNumero() + " — Volume 1 de " + pedido.getVolumeCount());
+            }
+        });
+    }
+
+    public void onVolumeChanged(int currentIndex, int totalVolumes) {
+        SwingUtilities.invokeLater(() -> {
+            lbVolume.setText("Volume " + currentIndex + " de " + totalVolumes);
+            setStatus("Aguardando início do volume " + currentIndex + "...",
+                    WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
+        });
+    }
+
+    public void onValidationResult(PedidoValidationService.ValidationResult result) {
+        SwingUtilities.invokeLater(() -> {
+            if (result == null) {
+                return;
+            }
+            Color color = result.isValid() ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.DANGER;
+            setStatus(result.getSummaryMessage(), color, color);
+        });
+    }
+
+    public void onOperatorReviewRequired(String message, com.peripheral.workflow.WorkflowContext context) {
+        SwingUtilities.invokeLater(() -> {
+            setOperatorReviewVisible(true);
+            btnStartWeighing.setEnabled(false);
+            btnNext.setEnabled(false);
+            setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
+            if (context != null && context.getAiMessage() != null && !context.getAiMessage().isEmpty()) {
+                lbStatus.setText(message + " | IA: " + context.getAiMessage());
+            }
+        });
+    }
+
+    public void onCameraServiceStatus(boolean available, String detail) {
+        SwingUtilities.invokeLater(() -> {
+            if (!available) {
+                setStatus("Câmera indisponível — fluxo continua sem IA automática.",
+                        WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
+            }
+        });
+    }
+
+    public void onOrderCompleted(Pedido pedido) {
+        SwingUtilities.invokeLater(() -> {
+            setOperatorReviewVisible(false);
+            String numero = pedido != null ? pedido.getNumero() : "";
+            setStatus("Pedido " + numero + " concluído.", WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
+        });
+    }
+
+
+
     @Override
 
     public void onWeightUpdate(com.peripheral.core.PeripheralDataEvent event) {
+
+        SwingUtilities.invokeLater(() -> {
+            if (event == null) {
+                return;
+            }
+            String weight = event.getWeight();
+            if (weight != null && !weight.isEmpty()) {
+                lbLiveWeight.setText("Peso: " + weight + " kg"
+                        + (Boolean.TRUE.equals(event.getStable()) ? " (estável)" : ""));
+            }
+        });
 
     }
 
@@ -831,6 +1002,21 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     @Override
 
     public void onTagRead(com.peripheral.core.PeripheralDataEvent event) {
+
+        SwingUtilities.invokeLater(() -> {
+            if (event == null) {
+                return;
+            }
+            String code = event.getCode();
+            if (code != null && !code.isEmpty()) {
+                String current = lbLiveTags.getText();
+                if (current.equals("Tags: —")) {
+                    lbLiveTags.setText("Tags: " + code);
+                } else if (!current.contains(code)) {
+                    lbLiveTags.setText(current + ", " + code);
+                }
+            }
+        });
 
     }
 

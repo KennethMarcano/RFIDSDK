@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.List;
 import java.io.IOException;
 
-public class WeighingWorkflowOrchestrator {
+public class WeighingWorkflowOrchestrator implements WorkflowController {
 
     private final PeripheralSessionManager sessionManager;
     private PhotoCaptureService photoCaptureService;
@@ -419,7 +419,9 @@ public class WeighingWorkflowOrchestrator {
 
     private PhotoCaptureService photoCapture() {
         if (photoCaptureService == null) {
-            photoCaptureService = new PhotoCaptureService();
+            com.peripheral.camera.CameraMicroserviceClient client =
+                    com.peripheral.camera.CameraMicroserviceLifecycle.getInstance().getClient();
+            photoCaptureService = new PhotoCaptureService(client);
         }
         return photoCaptureService;
     }

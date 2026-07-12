@@ -1,7 +1,10 @@
 package com.peripheral.workflow;
 
+import com.peripheral.pedido.PedidoVolume;
+
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 public class WorkflowContext {
@@ -15,6 +18,16 @@ public class WorkflowContext {
     private final Set<String> tagCodes = new LinkedHashSet<>();
     private final Set<String> tagEpcs = new LinkedHashSet<>();
 
+    private String numeroPedido;
+    private int volumeIndex;
+    private PedidoVolume currentVolume;
+    private PedidoValidationService.ValidationResult validationResult;
+    private String aiMessage;
+    private List<String> missingProducts;
+    private String validationStatusLabel;
+    private boolean operatorConfirmed;
+    private boolean operatorOverride;
+
     public void beginCycle(double weightKg, boolean weightStable) {
         this.weightKg = weightKg;
         this.weightStable = weightStable;
@@ -22,6 +35,12 @@ public class WorkflowContext {
         this.photoPath = null;
         this.labelPdfPath = null;
         this.labelZplPath = null;
+        this.validationResult = null;
+        this.aiMessage = null;
+        this.missingProducts = null;
+        this.validationStatusLabel = null;
+        this.operatorConfirmed = false;
+        this.operatorOverride = false;
         tagCodes.clear();
         tagEpcs.clear();
     }
@@ -82,5 +101,82 @@ public class WorkflowContext {
     public void updateWeight(double weightKg, boolean weightStable) {
         this.weightKg = weightKg;
         this.weightStable = weightStable;
+    }
+
+    public String getNumeroPedido() {
+        return numeroPedido;
+    }
+
+    public void setNumeroPedido(String numeroPedido) {
+        this.numeroPedido = numeroPedido;
+    }
+
+    public int getVolumeIndex() {
+        return volumeIndex;
+    }
+
+    public void setVolumeIndex(int volumeIndex) {
+        this.volumeIndex = volumeIndex;
+    }
+
+    public PedidoVolume getCurrentVolume() {
+        return currentVolume;
+    }
+
+    public void setCurrentVolume(PedidoVolume currentVolume) {
+        this.currentVolume = currentVolume;
+    }
+
+    public PedidoValidationService.ValidationResult getValidationResult() {
+        return validationResult;
+    }
+
+    public void setValidationResult(PedidoValidationService.ValidationResult validationResult) {
+        this.validationResult = validationResult;
+    }
+
+    public String getAiMessage() {
+        return aiMessage;
+    }
+
+    public void setAiMessage(String aiMessage) {
+        this.aiMessage = aiMessage;
+    }
+
+    public List<String> getMissingProducts() {
+        return missingProducts;
+    }
+
+    public void setMissingProducts(List<String> missingProducts) {
+        this.missingProducts = missingProducts;
+    }
+
+    public String getValidationStatusLabel() {
+        return validationStatusLabel;
+    }
+
+    public void setValidationStatusLabel(String validationStatusLabel) {
+        this.validationStatusLabel = validationStatusLabel;
+    }
+
+    public boolean isOperatorConfirmed() {
+        return operatorConfirmed;
+    }
+
+    public void setOperatorConfirmed(boolean operatorConfirmed) {
+        this.operatorConfirmed = operatorConfirmed;
+    }
+
+    public boolean isOperatorOverride() {
+        return operatorOverride;
+    }
+
+    public void setOperatorOverride(boolean operatorOverride) {
+        this.operatorOverride = operatorOverride;
+    }
+
+    public void clearTags() {
+        tagCodes.clear();
+        tagEpcs.clear();
     }
 }

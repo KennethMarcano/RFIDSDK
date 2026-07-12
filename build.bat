@@ -11,6 +11,7 @@ set "CP=%LIBS%;%PDFBOX%;%MERCURY%"
 
 if not exist "%OUT%\resources" mkdir "%OUT%\resources"
 copy /Y "%SRC%\resources\images.png" "%OUT%\resources\images.png" >nul 2>&1
+copy /Y "%SRC%\resources\pedidos-mock.json" "%OUT%\resources\pedidos-mock.json" >nul 2>&1
 
 powershell -NoProfile -Command ^
   "Get-ChildItem -LiteralPath '%CD%\%SRC%' -Recurse -Filter '*.java' | " ^

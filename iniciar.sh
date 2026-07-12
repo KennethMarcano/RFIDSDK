@@ -56,6 +56,7 @@ if java --help 2>&1 | grep -q 'enable-native-access'; then
 fi
 
 echo "Iniciando Periféricos eship ..."
+echo "  O microserviço Python da câmera (camera-service/) é iniciado automaticamente pelo Java."
 if [[ "$(uname -m)" == "aarch64" ]]; then
   echo "  ARM64: Mercury RFID usa jSerialComm (JNI ThingMagic não suportado nesta arquitetura)."
 fi

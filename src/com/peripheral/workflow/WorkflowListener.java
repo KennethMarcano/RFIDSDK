@@ -25,4 +25,22 @@ public interface WorkflowListener {
     void onError(String message, Throwable cause);
 
     void onStopped();
+
+    default void onOrderLoaded(com.peripheral.pedido.Pedido pedido) {
+    }
+
+    default void onVolumeChanged(int currentIndex, int totalVolumes) {
+    }
+
+    default void onValidationResult(PedidoValidationService.ValidationResult result) {
+    }
+
+    default void onOperatorReviewRequired(String message, com.peripheral.workflow.WorkflowContext context) {
+    }
+
+    default void onCameraServiceStatus(boolean available, String detail) {
+    }
+
+    default void onOrderCompleted(com.peripheral.pedido.Pedido pedido) {
+    }
 }

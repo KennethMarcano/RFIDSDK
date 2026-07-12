@@ -11,6 +11,7 @@ CP="${LIBS}:${PDFBOX}:${MERCURY}"
 
 mkdir -p "${OUT}/resources"
 cp -f "${SRC}/resources/images.png" "${OUT}/resources/images.png" 2>/dev/null || true
+cp -f "${SRC}/resources/pedidos-mock.json" "${OUT}/resources/pedidos-mock.json" 2>/dev/null || true
 
 mapfile -t SOURCES < <(find "${SRC}" -name '*.java' ! -path '*/payne/test/Test.java' | sort)
 if [[ ${#SOURCES[@]} -eq 0 ]]; then

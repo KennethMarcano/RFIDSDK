@@ -1,5 +1,6 @@
 package com.peripheral.app;
 
+import com.peripheral.camera.CameraMicroserviceLifecycle;
 import com.rfid.util.MercuryTransportBootstrap;
 
 import java.io.File;
@@ -11,12 +12,22 @@ public class PeripheralApplication {
     public static void main(String[] args) {
         MercuryTransportBootstrap.installIfLinux();
         configureMercuryNativeLibrary();
+        startCameraServiceAsync();
         try {
             javax.swing.UIManager.setLookAndFeel(javax.swing.UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {
         }
         WorkflowUiTheme.install();
         javax.swing.SwingUtilities.invokeLater(MainFrame::new);
+    }
+
+    private static void startCameraServiceAsync() {
+        Thread starter = new Thread(() -> {
+            CameraMicroserviceLifecycle lifecycle = CameraMicroserviceLifecycle.getInstance();
+            lifecycle.start();
+        }, "camera-service-starter");
+        starter.setDaemon(true);
+        starter.start();
     }
 
     private static void configureMercuryNativeLibrary() {

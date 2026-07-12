@@ -71,7 +71,12 @@ public class WorkflowSessionStore {
                 context.getWeightKg(),
                 new ArrayList<>(context.getTagCodes()),
                 context.getPhotoPath(),
-                context.getLabelPdfPath());
+                context.getLabelPdfPath(),
+                context.getNumeroPedido(),
+                context.getVolumeIndex(),
+                context.getValidationStatusLabel(),
+                context.getAiMessage(),
+                context.isOperatorConfirmed());
         records.add(record);
         return record;
     }
