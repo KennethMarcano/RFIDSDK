@@ -220,6 +220,7 @@ public class AutomatedWorkflowPanel extends JPanel {
                 sb.append(" | ");
             }
             sb.append("Vol.").append(vol.getIndice()).append(" (")
+                    .append(vol.getTotalSeriais()).append(" seriais, ")
                     .append(String.format("%.3f", vol.getPesoEsperadoKg())).append(" kg)");
         }
         return sb.toString();

@@ -5,7 +5,6 @@ import java.util.Collections;
 import java.util.List;
 
 public class PedidoVolume {
-
     private final int indice;
     private final List<PedidoItem> itens;
 
@@ -28,6 +27,27 @@ public class PedidoVolume {
         double total = 0;
         for (PedidoItem item : itens) {
             total += item.getPesoTotalEsperadoKg();
+        }
+        return total;
+    }
+
+    public String formatSeriaisParaSimulacao() {
+        StringBuilder sb = new StringBuilder();
+        for (PedidoItem item : itens) {
+            for (PedidoSerial serial : item.getSeriais()) {
+                if (sb.length() > 0) {
+                    sb.append(", ");
+                }
+                sb.append(serial.getSerial());
+            }
+        }
+        return sb.toString();
+    }
+
+    public int getTotalSeriais() {
+        int total = 0;
+        for (PedidoItem item : itens) {
+            total += item.getSeriais().size();
         }
         return total;
     }

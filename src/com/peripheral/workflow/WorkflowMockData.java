@@ -6,7 +6,7 @@ import java.util.List;
 public final class WorkflowMockData {
 
     public static final String DEFAULT_TAGS_TEXT =
-            "BOX-001:E2801160600002033A1B2C3D4, BOX-002:E2801160600002033A1B2C3D5, PALLET-99";
+            "SN1001-001, SN1001-002, SN1001-003";
 
     private WorkflowMockData() {
     }
@@ -34,10 +34,10 @@ public final class WorkflowMockData {
                 String code = token.substring(0, colon).trim();
                 String epc = token.substring(colon + 1).trim();
                 if (!code.isEmpty()) {
-                    tags.add(new WorkflowMockScenario.MockTag(code, epc.isEmpty() ? mockEpc(code) : epc));
+                    tags.add(new WorkflowMockScenario.MockTag(code, epc.isEmpty() ? code : epc));
                 }
             } else {
-                tags.add(new WorkflowMockScenario.MockTag(token, mockEpc(token)));
+                tags.add(new WorkflowMockScenario.MockTag(token, token));
             }
         }
         return tags;
@@ -58,13 +58,5 @@ public final class WorkflowMockData {
             }
         }
         return sb.toString();
-    }
-
-    private static String mockEpc(String code) {
-        String normalized = code.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
-        if (normalized.isEmpty()) {
-            normalized = "TAG";
-        }
-        return "MOCK" + normalized;
     }
 }

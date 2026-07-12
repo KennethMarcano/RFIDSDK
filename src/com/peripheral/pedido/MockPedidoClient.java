@@ -59,7 +59,6 @@ public class MockPedidoClient implements PedidoClient {
         Path[] candidates = new Path[]{
                 Paths.get("src/resources/pedidos-mock.json"),
                 Paths.get("resources/pedidos-mock.json"),
-                Paths.get("camera-service/fixtures/pedidos.json"),
                 Paths.get("out/resources/pedidos-mock.json")
         };
         for (Path p : candidates) {
@@ -136,17 +135,77 @@ public class MockPedidoClient implements PedidoClient {
             if (codeIdx < 0) {
                 break;
             }
-            String code = parseStringAfterKey(arrayJson, codeIdx);
-            int nameIdx = arrayJson.indexOf("\"nome\"", codeIdx);
-            String name = nameIdx >= 0 ? parseStringAfterKey(arrayJson, nameIdx) : code;
-            int qtyIdx = arrayJson.indexOf("\"quantidadeEsperada\"", codeIdx);
-            int qty = qtyIdx >= 0 ? parseIntAfterKey(arrayJson, qtyIdx) : 1;
-            int weightIdx = arrayJson.indexOf("\"pesoUnitarioKg\"", codeIdx);
-            double weight = weightIdx >= 0 ? parseDoubleAfterKey(arrayJson, weightIdx) : 0;
-            items.add(new PedidoItem(code, name, qty, weight));
+            int nextCodeIdx = arrayJson.indexOf("\"codigoProduto\"", codeIdx + 10);
+            int itemEnd = nextCodeIdx >= 0 ? nextCodeIdx : arrayJson.length();
+            String itemBlock = arrayJson.substring(codeIdx, itemEnd);
+
+            String code = parseStringAfterKey(itemBlock, 0);
+            int nameIdx = itemBlock.indexOf("\"nome\"");
+            String name = nameIdx >= 0 ? parseStringAfterKey(itemBlock, nameIdx) : code;
+            int weightIdx = itemBlock.indexOf("\"pesoUnitarioKg\"");
+            double weight = weightIdx >= 0 ? parseDoubleAfterKey(itemBlock, weightIdx) : 0;
+
+            List<PedidoSerial> seriais = parseSeriais(itemBlock);
+            if (seriais.isEmpty()) {
+                int qtyIdx = itemBlock.indexOf("\"quantidadeEsperada\"");
+                int qty = qtyIdx >= 0 ? parseIntAfterKey(itemBlock, qtyIdx) : 1;
+                items.add(new PedidoItem(code, name, qty, weight));
+            } else {
+                items.add(new PedidoItem(code, name, weight, seriais));
+            }
             searchFrom = codeIdx + 10;
         }
         return items;
+    }
+
+    private static List<PedidoSerial> parseSeriais(String itemBlock) {
+        List<PedidoSerial> seriais = new ArrayList<>();
+        int seriaisIdx = itemBlock.indexOf("\"seriais\"");
+        if (seriaisIdx < 0) {
+            return seriais;
+        }
+        int arrayStart = itemBlock.indexOf('[', seriaisIdx);
+        int arrayEnd = findMatchingBracket(itemBlock, arrayStart);
+        if (arrayStart < 0 || arrayEnd < 0) {
+            return seriais;
+        }
+        String seriaisJson = itemBlock.substring(arrayStart, arrayEnd + 1);
+
+        if (!seriaisJson.contains("{")) {
+            int from = 0;
+            while (true) {
+                int q = seriaisJson.indexOf('"', from);
+                if (q < 0) {
+                    break;
+                }
+                int q2 = seriaisJson.indexOf('"', q + 1);
+                if (q2 < 0) {
+                    break;
+                }
+                String value = seriaisJson.substring(q + 1, q2);
+                if (!value.isEmpty()) {
+                    seriais.add(PedidoSerial.of(value));
+                }
+                from = q2 + 1;
+            }
+            return seriais;
+        }
+
+        int searchFrom = 0;
+        while (true) {
+            int serialIdx = seriaisJson.indexOf("\"serial\"", searchFrom);
+            if (serialIdx < 0) {
+                break;
+            }
+            String serial = parseStringAfterKey(seriaisJson, serialIdx);
+            if (!serial.isEmpty()) {
+                int epcIdx = seriaisJson.indexOf("\"epc\"", serialIdx);
+                String epc = epcIdx >= 0 ? parseStringAfterKey(seriaisJson, epcIdx) : serial;
+                seriais.add(new PedidoSerial(serial, epc));
+            }
+            searchFrom = serialIdx + 8;
+        }
+        return seriais;
     }
 
     private static int findMatchingBrace(String text, int start) {

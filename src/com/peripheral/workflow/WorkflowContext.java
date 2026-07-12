@@ -82,11 +82,13 @@ public class WorkflowContext {
     }
 
     public void addTag(String epc, String code) {
+        if (epc != null && !epc.trim().isEmpty()) {
+            if (!tagEpcs.add(epc.trim())) {
+                return;
+            }
+        }
         if (code != null && !code.trim().isEmpty()) {
             tagCodes.add(code.trim());
-        }
-        if (epc != null && !epc.trim().isEmpty()) {
-            tagEpcs.add(epc.trim());
         }
     }
 

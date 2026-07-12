@@ -586,9 +586,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
 
 
-        JLabel hint = new JLabel("<html><small>Formato: <code>CODIGO:EPC</code> separados por vírgula. "
-
-                + "Use <b>Iniciar pesagem</b> e depois <b>Simular pesagem estável</b>.</small></html>");
+        JLabel hint = new JLabel("<html><small>Informe os <b>seriais</b> esperados do volume, separados por vírgula "
+                + "(EPC = serial). Ex. vol. 1 pedido 1001: <code>SN1001-001, SN1001-002, SN1001-003</code>. "
+                + "Peso ≈ 1,800 kg. Use <b>Iniciar pesagem</b> e depois <b>Simular pesagem estável</b>.</small></html>");
 
         gbc.gridy = 3;
 
