@@ -678,7 +678,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
         orchestrator.simulateWeighing(scenario);
 
-        btnSimulate.setEnabled(false);
+        btnSimulate.setEnabled(orchestrator.isOperatorReview());
 
     }
 
@@ -954,6 +954,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             setOperatorReviewVisible(true);
             btnStartWeighing.setEnabled(false);
             btnNext.setEnabled(false);
+            if (simulationMode) {
+                btnSimulate.setEnabled(true);
+            }
             setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
             if (context != null && context.getAiMessage() != null && !context.getAiMessage().isEmpty()) {
                 lbStatus.setText(message + " | IA: " + context.getAiMessage());
@@ -1034,10 +1037,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
             setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
 
-            if (simulationMode && step == WorkflowStep.WEIGHING) {
-
+            if (simulationMode && (step == WorkflowStep.WEIGHING || step == WorkflowStep.RFID_READ)) {
                 btnSimulate.setEnabled(true);
-
+            }
+            if (step == WorkflowStep.RFID_READ && orchestrator != null && orchestrator.isOperatorReview()) {
+                lbLiveTags.setText("Tags: —");
             }
 
         });

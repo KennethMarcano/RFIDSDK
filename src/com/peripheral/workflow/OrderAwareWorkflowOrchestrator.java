@@ -209,7 +209,14 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (!running.get() || scenario == null || config == null || !config.isSimulationMode()) {
             return;
         }
-        if (cycleInProgress.get() || waitingForNext.get() || operatorReview.get() || !armed.get()) {
+        if (cycleInProgress.get() || waitingForNext.get()) {
+            return;
+        }
+        if (operatorReview.get()) {
+            executor.submit(() -> runSimulatedOperatorRetry(scenario));
+            return;
+        }
+        if (!armed.get()) {
             return;
         }
         armed.set(false);
@@ -235,7 +242,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         }
         context.clearTags();
         if (config.isSimulationMode()) {
-            notifyStep(WorkflowStep.RFID_READ, "Simulação — informe tags no painel e simule novamente.");
+            notifyStep(WorkflowStep.RFID_READ,
+                    "Seriais limpos — ajuste peso/seriais e clique em Simular pesagem estável.");
             return;
         }
         try {
@@ -266,6 +274,61 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             return;
         }
         runAiAnalysis();
+    }
+
+    private void runSimulatedOperatorRetry(WorkflowMockScenario scenario) {
+        if (!operatorReview.get() || !cycleInProgress.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            notifyStep(WorkflowStep.WEIGHING, "Re-simulando peso e seriais...");
+            context.clearTags();
+            context.updateWeight(scenario.getWeightKg(), true);
+            if (listener != null) {
+                listener.onWeightUpdate(PeripheralDataEvent.builder(null)
+                        .weight(String.format(java.util.Locale.US, "%.3f", scenario.getWeightKg()))
+                        .stable(true)
+                        .build());
+            }
+
+            if (config.isEnabled(WorkflowStep.RFID_READ)) {
+                runSimulatedRfidBurst(scenario);
+            }
+
+            PedidoVolume volume = context.getCurrentVolume();
+            PedidoValidationService.ValidationResult validation = validationService.validate(
+                    volume,
+                    context.getTagCodes(),
+                    scenario.getWeightKg(),
+                    config.getWeightTolerancePercent(),
+                    config.getWeightToleranceKg());
+
+            context.setValidationResult(validation);
+            if (listener != null) {
+                listener.onValidationResult(validation);
+            }
+
+            if (validation.isValid()) {
+                context.setValidationStatusLabel("REVALIDADO_OK");
+                notifyStep(WorkflowStep.VALIDATE_ORDER,
+                        "Revalidação OK — peso e seriais conferem. Clique em Finalizar volume.");
+            } else {
+                notifyStep(WorkflowStep.VALIDATE_ORDER, validation.getSummaryMessage());
+                if (context.getPhotoPath() != null && !context.getPhotoPath().isEmpty()) {
+                    runAiAnalysis();
+                }
+            }
+
+            if (listener != null) {
+                listener.onOperatorReviewRequired(validation.getSummaryMessage(), context);
+            }
+        } catch (Exception e) {
+            if (listener != null) {
+                listener.onError(e.getMessage() != null ? e.getMessage() : "Erro na re-simulação", e);
+            }
+        } finally {
+            cycleInProgress.set(false);
+        }
     }
 
     private void runSimulatedWeighing(WorkflowMockScenario scenario) {
@@ -584,6 +647,12 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                 return;
             }
             context.addTag(tag.getEpc(), tag.getCode());
+            if (listener != null) {
+                listener.onTagRead(PeripheralDataEvent.builder(null)
+                        .code(tag.getCode())
+                        .epc(tag.getEpc())
+                        .build());
+            }
             Thread.sleep(intervalMs);
         }
     }
