@@ -108,11 +108,22 @@ public class AutomatedWorkflowPanel extends JPanel {
         JPanel top = new JPanel();
         top.setOpaque(false);
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
-        top.add(buildPeripheralsSection());
-        top.add(buildOrderSection());
-        top.add(buildProcessSection());
-        top.add(buildOperationHintSection());
-        add(top, BorderLayout.NORTH);
+        top.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel peripherals = buildPeripheralsSection();
+        JPanel order = buildOrderSection();
+        JPanel process = buildProcessSection();
+        JPanel hint = buildOperationHintSection();
+        alignSectionWidth(peripherals);
+        alignSectionWidth(order);
+        alignSectionWidth(process);
+        alignSectionWidth(hint);
+        top.add(peripherals);
+        top.add(order);
+        top.add(process);
+        top.add(hint);
+
+        add(WorkflowUiTheme.wrapVerticalScroll(top), BorderLayout.CENTER);
 
         btnConfigScale.addActionListener(e -> openConfigDialog(PeripheralSlot.SCALE));
         btnConfigRfid.addActionListener(e -> openConfigDialog(PeripheralSlot.RFID_READER));
@@ -124,6 +135,10 @@ public class AutomatedWorkflowPanel extends JPanel {
         cbOrderValidation.addActionListener(e -> updateWorkflowControls());
         btnLoadPedido.addActionListener(e -> loadPedido());
         btnRecalibrateCamera.addActionListener(e -> recalibrateCamera());
+    }
+
+    private static void alignSectionWidth(JComponent section) {
+        section.setAlignmentX(Component.LEFT_ALIGNMENT);
     }
 
     private JPanel buildOrderSection() {

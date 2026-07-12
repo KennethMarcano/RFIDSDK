@@ -37,6 +37,12 @@ import java.util.List;
 
 public class WorkflowOperationWindow extends JDialog implements WorkflowListener {
 
+    private static final int HISTORY_VIEWPORT_HEIGHT = 240;
+
+    private static void alignPanelWidth(JComponent panel) {
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    }
+
 
 
     private final WorkflowController orchestrator;
@@ -217,7 +223,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
         content.add(buildHeader(), BorderLayout.NORTH);
 
-        content.add(buildMainCenter(), BorderLayout.CENTER);
+        JScrollPane mainScroll = WorkflowUiTheme.wrapVerticalScroll(buildMainCenter());
+        content.add(mainScroll, BorderLayout.CENTER);
 
         content.add(buildFooter(), BorderLayout.SOUTH);
 
@@ -364,21 +371,30 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     private JPanel buildMainCenter() {
 
-        JPanel mainCenter = new JPanel(new BorderLayout(0, 12));
-
+        JPanel mainCenter = new JPanel();
         mainCenter.setOpaque(false);
-
-        mainCenter.add(buildHistoryPanel(), BorderLayout.CENTER);
+        mainCenter.setLayout(new BoxLayout(mainCenter, BoxLayout.Y_AXIS));
+        mainCenter.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         if (orderValidationEnabled) {
             buildOperatorReviewPanel();
-            mainCenter.add(operatorReviewPanel, BorderLayout.NORTH);
+            alignPanelWidth(operatorReviewPanel);
+            mainCenter.add(operatorReviewPanel);
+            mainCenter.add(Box.createVerticalStrut(12));
         }
 
+        JPanel history = buildHistoryPanel();
+        alignPanelWidth(history);
+        history.setPreferredSize(new Dimension(0, HISTORY_VIEWPORT_HEIGHT));
+        history.setMinimumSize(new Dimension(0, 120));
+        history.setMaximumSize(new Dimension(Integer.MAX_VALUE, HISTORY_VIEWPORT_HEIGHT));
+        mainCenter.add(history);
+
         if (simulationMode) {
-
-            mainCenter.add(buildSimulationPanel(), BorderLayout.SOUTH);
-
+            mainCenter.add(Box.createVerticalStrut(12));
+            JPanel simulation = buildSimulationPanel();
+            alignPanelWidth(simulation);
+            mainCenter.add(simulation);
         }
 
         return mainCenter;

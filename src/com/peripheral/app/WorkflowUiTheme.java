@@ -114,6 +114,18 @@ public final class WorkflowUiTheme {
         scroll.getViewport().setBackground(BG_CARD);
     }
 
+    /** Envolve conteúdo vertical excedente com barra de rolagem. */
+    public static JScrollPane wrapVerticalScroll(JComponent content) {
+        content.setOpaque(false);
+        JScrollPane scroll = new JScrollPane(content);
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        scroll.setBorder(null);
+        scroll.getViewport().setBackground(BG_PAGE);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        return scroll;
+    }
+
     public static JLabel createSectionTitle(String text) {
         JLabel label = new JLabel(text);
         label.setFont(label.getFont().deriveFont(Font.BOLD, 13f));

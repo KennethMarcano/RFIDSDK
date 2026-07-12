@@ -144,7 +144,10 @@ public class MainFrame extends JFrame {
     }
 
     private JPanel buildManualTestTab() {
-        JPanel root = new JPanel(new BorderLayout(0, 0));
+        JPanel root = new JPanel();
+        root.setOpaque(false);
+        root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
+        root.setAlignmentX(Component.LEFT_ALIGNMENT);
         WorkflowUiTheme.stylePanel(root);
         root.setBorder(WorkflowUiTheme.empty(4, 0, 0, 0));
 
@@ -260,9 +263,15 @@ public class MainFrame extends JFrame {
         configScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         configScroll.getVerticalScrollBar().setUnitIncrement(16);
         configScroll.setPreferredSize(new Dimension(860, MANUAL_CONFIG_SCROLL_HEIGHT));
+        configScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, MANUAL_CONFIG_SCROLL_HEIGHT));
+        configScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        root.add(configScroll, BorderLayout.NORTH);
-        root.add(WorkflowUiTheme.createSection("Leitura", readingBody), BorderLayout.CENTER);
+        JPanel readingSection = WorkflowUiTheme.createSection("Leitura", readingBody);
+        readingSection.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        root.add(configScroll);
+        root.add(Box.createVerticalStrut(8));
+        root.add(readingSection);
 
         cbPeripheral.addActionListener(e -> onPeripheralChanged());
         cbVendor.addActionListener(e -> onVendorChanged());
@@ -277,7 +286,11 @@ public class MainFrame extends JFrame {
 
         setReadingEnabled(false);
         btnDisconnect.setEnabled(false);
-        return root;
+
+        JPanel tab = new JPanel(new BorderLayout(0, 0));
+        WorkflowUiTheme.stylePanel(tab);
+        tab.add(WorkflowUiTheme.wrapVerticalScroll(root), BorderLayout.CENTER);
+        return tab;
     }
 
     private JLabel createFieldLabel(String text) {
