@@ -697,14 +697,20 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
 
     private void capturePhotoOptional() throws IOException {
         notifyStep(WorkflowStep.CAPTURE_PHOTO, "Capturando foto (opcional)...");
-        photoCapture().capturePhoto(context, sessionStore.getSessionDirectory(),
-                sessionStore.getNextPhotoIndex(), false);
+        try {
+            photoCapture().capturePhoto(context, sessionStore.getSessionDirectory(),
+                    sessionStore.getNextPhotoIndex(), false);
+            notifyStep(WorkflowStep.CAPTURE_PHOTO, "Foto salva: " + context.getPhotoPath());
+        } catch (IOException e) {
+            notifyStep(WorkflowStep.CAPTURE_PHOTO, "Foto não capturada: " + e.getMessage());
+        }
     }
 
     private void capturePhotoMandatory() throws IOException {
         notifyStep(WorkflowStep.CAPTURE_PHOTO, "Capturando foto (divergência)...");
         photoCapture().capturePhoto(context, sessionStore.getSessionDirectory(),
                 sessionStore.getNextPhotoIndex(), true);
+        notifyStep(WorkflowStep.CAPTURE_PHOTO, "Foto salva: " + context.getPhotoPath());
     }
 
     private void printLabel() throws IOException, PeripheralException {

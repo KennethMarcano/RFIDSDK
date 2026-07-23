@@ -177,6 +177,87 @@ public final class CameraHardware {
         }
     }
 
+    /**
+     * Recalibração/verificação via hardware (lista câmeras novamente).
+     */
+    public static String recalibrate() throws CameraServiceException {
+        invalidateCache();
+        if (!isRpicamAvailable()) {
+            throw new CameraServiceException(
+                    "rpicam não encontrado. Instale rpicam-apps no Raspberry Pi.");
+        }
+        if (!isCameraPresent()) {
+            throw new CameraServiceException(
+                    "Nenhuma câmera detectada após verificação. Confira o cabo CSI da IMX500.");
+        }
+        return "Câmera verificada / pronta (IMX500).\n" + describeCamera();
+    }
+
+    /**
+     * Captura still com rpicam-still. Encerra preview se estiver aberto (câmera exclusiva).
+     *
+     * @return caminho absoluto do arquivo gerado
+     */
+    public static synchronized String captureStill(java.nio.file.Path outputPath)
+            throws CameraServiceException {
+        if (outputPath == null) {
+            throw new CameraServiceException("Caminho de saída da foto não informado.");
+        }
+        stopPreview();
+        String still = resolveStillCommand();
+        if (still == null) {
+            throw new CameraServiceException(
+                    "rpicam-still não encontrado. Instale rpicam-apps no Raspberry Pi.");
+        }
+        try {
+            java.nio.file.Files.createDirectories(outputPath.getParent() != null
+                    ? outputPath.getParent()
+                    : java.nio.file.Paths.get("."));
+        } catch (Exception e) {
+            throw new CameraServiceException("Não foi possível criar pasta da foto: " + e.getMessage(), e);
+        }
+
+        String suffix = outputPath.getFileName() != null
+                ? outputPath.getFileName().toString().toLowerCase()
+                : "";
+        java.nio.file.Path target = (suffix.endsWith(".jpg") || suffix.endsWith(".jpeg")
+                || suffix.endsWith(".png"))
+                ? outputPath
+                : outputPath.resolveSibling(outputPath.getFileName() + ".jpg");
+
+        List<String> command = new ArrayList<>(Arrays.asList(
+                still,
+                "--nopreview",
+                "--immediate",
+                "--timeout", "2000",
+                "-o", target.toAbsolutePath().toString()
+        ));
+        try {
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            String output = readProcessOutput(process, 30_000);
+            boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new CameraServiceException("Timeout na captura rpicam-still.");
+            }
+            if (process.exitValue() != 0
+                    || !java.nio.file.Files.isRegularFile(target)
+                    || java.nio.file.Files.size(target) == 0) {
+                String detail = output != null ? output.trim() : "";
+                throw new CameraServiceException(
+                        "Falha na captura rpicam-still"
+                                + (detail.isEmpty() ? "." : ": " + detail));
+            }
+            return target.toAbsolutePath().toString();
+        } catch (CameraServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CameraServiceException("Erro ao capturar foto: " + e.getMessage(), e);
+        }
+    }
+
     static String resolveHelloCommand() {
         return resolveHelloCommandUncached();
     }

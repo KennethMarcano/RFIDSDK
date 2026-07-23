@@ -9,6 +9,7 @@ import java.nio.file.Files;
 public class WorkflowPhotoPreviewDialog extends JDialog {
 
     private static final int MAX_IMAGE_SIZE = 640;
+    private static final long SUSPICIOUS_MIN_BYTES = 2048;
 
     public WorkflowPhotoPreviewDialog(Window owner, File photoFile) {
         super(owner, "Foto capturada", ModalityType.APPLICATION_MODAL);
@@ -18,6 +19,11 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
         content.setOpaque(false);
         content.setBorder(WorkflowUiTheme.empty(16, 16, 16, 16));
 
+        String absolutePath = photoFile != null ? photoFile.getAbsolutePath() : "(sem arquivo)";
+        JLabel pathLabel = WorkflowUiTheme.createHintLabel(
+                "<html><b>Arquivo:</b> " + escapeHtml(absolutePath) + "</html>");
+        content.add(pathLabel, BorderLayout.NORTH);
+
         JLabel imageLabel = new JLabel("", SwingConstants.CENTER);
         imageLabel.setPreferredSize(new Dimension(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE));
         imageLabel.setOpaque(true);
@@ -25,9 +31,14 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
         imageLabel.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
         imageLabel.setBorder(BorderFactory.createLineBorder(WorkflowUiTheme.BORDER));
 
+        String warning = null;
         if (photoFile != null && photoFile.isFile() && photoFile.length() > 0) {
             ImageIcon icon = new ImageIcon(photoFile.getAbsolutePath());
             if (icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
+                if (photoFile.length() < SUSPICIOUS_MIN_BYTES
+                        || (icon.getIconWidth() <= 32 && icon.getIconHeight() <= 32)) {
+                    warning = "Atenção: imagem muito pequena — pode não ser uma captura real da câmera.";
+                }
                 Image scaled = scaleImage(icon.getImage(), MAX_IMAGE_SIZE, MAX_IMAGE_SIZE);
                 imageLabel.setIcon(new ImageIcon(scaled));
             } else {
@@ -41,11 +52,23 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
         WorkflowUiTheme.styleScrollPane(scroll);
         content.add(scroll, BorderLayout.CENTER);
 
-        ThemedButton btnClose = WorkflowUiTheme.button("Fechar", ThemedButton.Variant.SECONDARY);
-        btnClose.addActionListener(e -> dispose());
-        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        JPanel south = new JPanel(new BorderLayout(8, 0));
         south.setOpaque(false);
-        south.add(btnClose);
+        if (warning != null) {
+            JLabel warnLabel = new JLabel(warning);
+            warnLabel.setForeground(WorkflowUiTheme.WARNING);
+            warnLabel.setFont(WorkflowUiTheme.fontMeta(warnLabel));
+            south.add(warnLabel, BorderLayout.WEST);
+        }
+        ThemedButton btnOpenFolder = WorkflowUiTheme.button("Abrir pasta", ThemedButton.Variant.SECONDARY);
+        ThemedButton btnClose = WorkflowUiTheme.button("Fechar", ThemedButton.Variant.PRIMARY);
+        btnClose.addActionListener(e -> dispose());
+        btnOpenFolder.addActionListener(e -> openParentFolder(photoFile));
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        buttons.setOpaque(false);
+        buttons.add(btnOpenFolder);
+        buttons.add(btnClose);
+        south.add(buttons, BorderLayout.EAST);
         content.add(south, BorderLayout.SOUTH);
 
         getContentPane().setBackground(WorkflowUiTheme.BG_PAGE);
@@ -57,21 +80,22 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         pack();
-        setMinimumSize(new Dimension(Math.max(420, getWidth()), Math.max(320, getHeight())));
+        setMinimumSize(new Dimension(Math.max(480, getWidth()), Math.max(360, getHeight())));
         setLocationRelativeTo(owner);
     }
 
     public static void showPreview(Window owner, String photoPath) {
         if (photoPath == null || photoPath.trim().isEmpty()) {
             JOptionPane.showMessageDialog(owner,
-                    "Nenhuma foto disponível para este ciclo.",
+                    "Nenhuma foto disponível para este ciclo.\n"
+                            + "Verifique se a câmera IMX500 capturou (rpicam) e se \"Capturar foto\" está ativo.",
                     "Foto", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
         File file = new File(photoPath);
         if (!file.isFile() || file.length() == 0) {
             JOptionPane.showMessageDialog(owner,
-                    "Arquivo de foto não encontrado.",
+                    "Arquivo de foto não encontrado:\n" + photoPath,
                     "Foto", JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -80,6 +104,23 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
             dialog.setVisible(true);
         } catch (Exception ex) {
             tryOpenWithDesktop(owner, file);
+        }
+    }
+
+    private static void openParentFolder(File photoFile) {
+        if (photoFile == null) {
+            return;
+        }
+        File folder = photoFile.getParentFile();
+        if (folder == null || !folder.isDirectory()) {
+            return;
+        }
+        try {
+            if (Desktop.isDesktopSupported()
+                    && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(folder);
+            }
+        } catch (Exception ignored) {
         }
     }
 
@@ -103,6 +144,15 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
                     "Erro ao abrir foto: " + ex.getMessage(),
                     "Foto", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private static String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
     }
 
     private static Image scaleImage(Image source, int maxWidth, int maxHeight) {

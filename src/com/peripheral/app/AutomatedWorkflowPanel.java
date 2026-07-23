@@ -260,20 +260,36 @@ public class AutomatedWorkflowPanel extends JPanel {
     }
 
     private void recalibrateCamera() {
-        CameraMicroserviceClient client = CameraMicroserviceLifecycle.getInstance().getClient();
-        if (!client.isAvailable()) {
-            showWorkflowMessage("Serviço de câmera indisponível.", JOptionPane.WARNING_MESSAGE);
-            refreshCameraStatus();
-            return;
-        }
-        try {
-            String msg = client.recalibrate();
-            appendLog("Recalibração: " + msg);
-            JOptionPane.showMessageDialog(getDialogParent(), msg, "Câmera", JOptionPane.INFORMATION_MESSAGE);
-        } catch (Exception e) {
-            showWorkflowMessage("Erro na recalibração: " + e.getMessage(), JOptionPane.ERROR_MESSAGE);
-        }
-        refreshCameraStatus();
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() throws Exception {
+                CameraMicroserviceLifecycle lifecycle = CameraMicroserviceLifecycle.getInstance();
+                CameraMicroserviceClient client = lifecycle.getClient();
+                if (!client.checkHealth()) {
+                    lifecycle.start();
+                    client.checkHealth();
+                }
+                if (client.isAvailable()) {
+                    return client.recalibrate();
+                }
+                return com.peripheral.camera.CameraHardware.recalibrate();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    String msg = get();
+                    appendLog("Recalibração: " + msg);
+                    JOptionPane.showMessageDialog(getDialogParent(), msg, "Câmera",
+                            JOptionPane.INFORMATION_MESSAGE);
+                } catch (Exception e) {
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    showWorkflowMessage("Erro na recalibração: " + cause.getMessage(),
+                            JOptionPane.ERROR_MESSAGE);
+                }
+                refreshCameraStatus();
+            }
+        }.execute();
     }
 
     private void refreshCameraStatus() {

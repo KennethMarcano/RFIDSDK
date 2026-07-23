@@ -1,170 +1,106 @@
 package com.peripheral.app;
 
-
-
+import com.peripheral.camera.CameraHardware;
+import com.peripheral.camera.CameraMicroserviceClient;
+import com.peripheral.camera.CameraMicroserviceLifecycle;
+import com.peripheral.camera.CameraServiceException;
 import com.peripheral.pedido.Pedido;
 import com.peripheral.workflow.PedidoValidationService;
 import com.peripheral.workflow.WorkflowController;
 import com.peripheral.workflow.WorkflowConfig;
-
 import com.peripheral.workflow.WorkflowListener;
-
 import com.peripheral.workflow.WorkflowMockData;
-
 import com.peripheral.workflow.WorkflowMockScenario;
-
 import com.peripheral.workflow.WorkflowReadingRecord;
-
 import com.peripheral.workflow.WorkflowStep;
 
-
-
 import javax.swing.*;
-
 import java.awt.*;
-
 import java.awt.event.WindowAdapter;
-
 import java.awt.event.WindowEvent;
-
 import java.awt.geom.RoundRectangle2D;
-
 import java.util.ArrayList;
-
 import java.util.List;
 
-
-
 public class WorkflowOperationWindow extends JDialog implements WorkflowListener {
-
     private static final int HISTORY_VIEWPORT_HEIGHT = 240;
 
     private static void alignPanelWidth(JComponent panel) {
         panel.setAlignmentX(Component.LEFT_ALIGNMENT);
     }
 
-
-
     private final WorkflowController orchestrator;
-
     private final boolean photoEnabled;
-
     private final boolean labelEnabled;
-
     private final boolean simulationMode;
-
     private final boolean orderValidationEnabled;
-
     private final JLabel lbVolume = new JLabel("");
-
     private final JLabel lbLiveWeight = new JLabel("Peso: —");
-
     private final JLabel lbLiveTags = new JLabel("Tags: —");
-
+    private final JLabel lbCameraStatus = new JLabel("Câmera: verificando...");
+    private final ThemedButton btnCameraPreview =
+            WorkflowUiTheme.button("Abrir vídeo", ThemedButton.Variant.SECONDARY);
+    private final ThemedButton btnCameraRecalibrate =
+            WorkflowUiTheme.button("Recalibrar", ThemedButton.Variant.SECONDARY);
     private final JPanel operatorReviewPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-
     private final ThemedButton btnRereadRfid =
             WorkflowUiTheme.button("Reler tags", ThemedButton.Variant.SECONDARY);
-
     private final ThemedButton btnCapturePhoto =
             WorkflowUiTheme.button("Tirar foto", ThemedButton.Variant.SECONDARY);
-
     private final ThemedButton btnReanalyze =
             WorkflowUiTheme.button("Re-analisar IA", ThemedButton.Variant.SECONDARY);
-
     private final ThemedButton btnConfirmOperator =
             WorkflowUiTheme.button("Finalizar volume", ThemedButton.Variant.SUCCESS);
 
-
-
     private final JLabel lbStatus = new JLabel("Aguardando início do fluxo...");
-
     private final JPanel statusIndicator = new JPanel();
-
     private final JPanel historyList = new JPanel();
-
     private final JPanel emptyState = new JPanel();
-
     private final JLabel lbEmptyTitle = new JLabel("Nenhuma leitura ainda");
-
     private final JLabel lbEmptyHint = new JLabel("As leituras aparecerão aqui após cada ciclo concluído.");
-
     private final List<WorkflowReadingCard> readingCards = new ArrayList<>();
     private JPanel historyHost;
 
-
-
     private final ThemedButton btnStartWeighing =
             WorkflowUiTheme.button("Iniciar pesagem", ThemedButton.Variant.PRIMARY);
-
     private final ThemedButton btnNext =
             WorkflowUiTheme.button("Próximo", ThemedButton.Variant.SUCCESS);
-
     private final ThemedButton btnRestartSession =
             WorkflowUiTheme.button("Reiniciar sessão", ThemedButton.Variant.SECONDARY);
 
-
-
     private final JPanel simulationPanel = new JPanel(new GridBagLayout());
-
     private final JSpinner spMockWeight = new JSpinner(new SpinnerNumberModel(3.125, 0.001, 9999.999, 0.001));
-
     private final JTextField tfMockTags = new JTextField(WorkflowMockData.DEFAULT_TAGS_TEXT, 28);
-
     private final JCheckBox cbFastStabilization = new JCheckBox("Estabilização rápida (~200 ms)", true);
-
     private final ThemedButton btnLoadSample =
             WorkflowUiTheme.button("Exemplo", ThemedButton.Variant.SECONDARY);
-
     private final ThemedButton btnSimulate =
             WorkflowUiTheme.button("Simular pesagem estável", ThemedButton.Variant.PRIMARY);
 
-
-
     public WorkflowOperationWindow(Window owner,
-
                                    WorkflowController orchestrator,
-
                                    WorkflowConfig config,
-
                                    boolean orderValidationEnabled) {
-
         super(owner, "Operação — Fluxo automatizado", ModalityType.MODELESS);
-
         this.orchestrator = orchestrator;
-
         this.photoEnabled = config.isEnabled(WorkflowStep.CAPTURE_PHOTO);
-
         this.labelEnabled = config.isEnabled(WorkflowStep.PRINT_LABEL);
-
         this.simulationMode = config.isSimulationMode();
-
         this.orderValidationEnabled = orderValidationEnabled;
 
-
-
         buildUi();
-
+        refreshCameraStatusAsync();
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
-
         addWindowListener(new WindowAdapter() {
-
             @Override
-
             public void windowClosing(WindowEvent e) {
-
+                CameraHardware.stopPreview();
                 setVisible(false);
-
             }
-
         });
-
-        setSize(simulationMode ? 820 : 780, simulationMode ? 720 : 660);
-
-        setMinimumSize(new Dimension(680, simulationMode ? 600 : 560));
-
+        setSize(simulationMode ? 820 : 780, simulationMode ? 760 : 700);
+        setMinimumSize(new Dimension(680, simulationMode ? 620 : 580));
         setLocationRelativeTo(owner);
-
     }
 
 
@@ -382,6 +318,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             mainCenter.add(operatorReviewPanel);
             mainCenter.add(Box.createVerticalStrut(12));
         }
+
+        JPanel cameraPanel = buildCameraPanel();
+        alignPanelWidth(cameraPanel);
+        mainCenter.add(cameraPanel);
+        mainCenter.add(Box.createVerticalStrut(12));
 
         JPanel history = buildHistoryPanel();
         alignPanelWidth(history);
@@ -901,6 +842,141 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         setOperatorReviewVisible(false);
     }
 
+    private JPanel buildCameraPanel() {
+        JPanel panel = new JPanel(new BorderLayout(8, 4));
+        panel.setOpaque(false);
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder(
+                        BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Câmera Sony IMX500"),
+                WorkflowUiTheme.empty(8, 8, 8, 8)));
+
+        WorkflowUiTheme.styleStatusPill(lbCameraStatus,
+                new Color(0xFE, 0xF3, 0xC7), WorkflowUiTheme.WARNING);
+        panel.add(lbCameraStatus, BorderLayout.WEST);
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        actions.setOpaque(false);
+        btnCameraPreview.addActionListener(e -> openCameraPreview());
+        btnCameraRecalibrate.addActionListener(e -> recalibrateCameraFromOperation());
+        actions.add(btnCameraRecalibrate);
+        actions.add(btnCameraPreview);
+        panel.add(actions, BorderLayout.EAST);
+
+        JLabel hint = WorkflowUiTheme.createHintLabel(
+                photoEnabled
+                        ? "Preview em vídeo e recalibração. A foto do fluxo usa rpicam-still (não o logo)."
+                        : "Preview disponível. Ative \"Capturar foto\" no fluxo para gravar imagens.");
+        panel.add(hint, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private void refreshCameraStatusAsync() {
+        new SwingWorker<Boolean, Void>() {
+            @Override
+            protected Boolean doInBackground() {
+                CameraMicroserviceClient client = CameraMicroserviceLifecycle.getInstance().getClient();
+                boolean serviceOk = client.checkHealth();
+                boolean hardwareOk = CameraHardware.isCameraPresent();
+                return serviceOk || hardwareOk;
+            }
+
+            @Override
+            protected void done() {
+                boolean ok = false;
+                try {
+                    ok = Boolean.TRUE.equals(get());
+                } catch (Exception ignored) {
+                }
+                applyCameraStatus(ok, ok ? "Câmera online" : "Câmera indisponível");
+            }
+        }.execute();
+    }
+
+    private void applyCameraStatus(boolean available, String text) {
+        lbCameraStatus.setText(text != null ? text : (available ? "Câmera online" : "Câmera indisponível"));
+        if (available) {
+            WorkflowUiTheme.styleStatusPill(lbCameraStatus,
+                    new Color(0xD1, 0xFA, 0xE5), WorkflowUiTheme.SUCCESS);
+        } else {
+            WorkflowUiTheme.styleStatusPill(lbCameraStatus,
+                    new Color(0xFE, 0xF3, 0xC7), WorkflowUiTheme.WARNING);
+        }
+        btnCameraPreview.setEnabled(true);
+        btnCameraRecalibrate.setEnabled(true);
+    }
+
+    private void openCameraPreview() {
+        btnCameraPreview.setEnabled(false);
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() {
+                try {
+                    CameraHardware.startPreview();
+                    return null;
+                } catch (CameraServiceException e) {
+                    return e.getMessage();
+                }
+            }
+
+            @Override
+            protected void done() {
+                btnCameraPreview.setEnabled(true);
+                try {
+                    String error = get();
+                    if (error != null) {
+                        JOptionPane.showMessageDialog(WorkflowOperationWindow.this, error,
+                                "Preview câmera", JOptionPane.ERROR_MESSAGE);
+                        applyCameraStatus(false, "Câmera: falha no preview");
+                    } else {
+                        applyCameraStatus(true, "Câmera: preview aberto");
+                        setStatus("Preview da câmera aberto (rpicam-hello --timeout 0).",
+                                WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
+                    }
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(WorkflowOperationWindow.this, e.getMessage(),
+                            "Preview câmera", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    private void recalibrateCameraFromOperation() {
+        btnCameraRecalibrate.setEnabled(false);
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() throws Exception {
+                CameraMicroserviceLifecycle lifecycle = CameraMicroserviceLifecycle.getInstance();
+                CameraMicroserviceClient client = lifecycle.getClient();
+                if (!client.checkHealth()) {
+                    lifecycle.start();
+                    client.checkHealth();
+                }
+                if (client.isAvailable()) {
+                    return client.recalibrate();
+                }
+                return CameraHardware.recalibrate();
+            }
+
+            @Override
+            protected void done() {
+                btnCameraRecalibrate.setEnabled(true);
+                try {
+                    String msg = get();
+                    applyCameraStatus(true, "Câmera online");
+                    JOptionPane.showMessageDialog(WorkflowOperationWindow.this, msg,
+                            "Recalibrar câmera", JOptionPane.INFORMATION_MESSAGE);
+                    setStatus("Câmera recalibrada.", WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
+                } catch (Exception e) {
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    applyCameraStatus(false, "Câmera indisponível");
+                    JOptionPane.showMessageDialog(WorkflowOperationWindow.this,
+                            "Erro na recalibração: " + cause.getMessage(),
+                            "Recalibrar câmera", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
     private void setOperatorReviewVisible(boolean visible) {
         operatorReviewPanel.setVisible(visible);
         btnRereadRfid.setEnabled(visible);
@@ -982,8 +1058,12 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     public void onCameraServiceStatus(boolean available, String detail) {
         SwingUtilities.invokeLater(() -> {
+            String text = available
+                    ? (detail != null && !detail.isEmpty() ? "Câmera: " + detail : "Câmera online")
+                    : "Câmera indisponível";
+            applyCameraStatus(available, text);
             if (!available) {
-                setStatus("Câmera indisponível — fluxo continua sem IA automática.",
+                setStatus("Câmera indisponível — fluxo continua; foto usará rpicam se possível.",
                         WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
             }
         });
