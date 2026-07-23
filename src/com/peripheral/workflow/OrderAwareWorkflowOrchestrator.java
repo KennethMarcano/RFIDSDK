@@ -374,13 +374,14 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             if (!running.get() || event == null) {
                 return;
             }
+            // Monitor da balança: sempre atualiza a UI em tempo real
+            if (listener != null) {
+                listener.onWeightUpdate(event);
+            }
             if (operatorReview.get()) {
                 double weight = parseWeight(event);
                 boolean stable = Boolean.TRUE.equals(event.getStable());
                 context.updateWeight(weight, stable);
-                if (listener != null) {
-                    listener.onWeightUpdate(event);
-                }
                 return;
             }
             if (cycleInProgress.get() || waitingForNext.get() || !armed.get()) {
@@ -389,9 +390,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             double weight = parseWeight(event);
             boolean stable = Boolean.TRUE.equals(event.getStable());
             context.updateWeight(weight, stable);
-            if (listener != null) {
-                listener.onWeightUpdate(event);
-            }
             evaluateStabilization(weight, stable);
         }
 

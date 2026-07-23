@@ -35,7 +35,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final boolean simulationMode;
     private final boolean orderValidationEnabled;
     private final JLabel lbVolume = new JLabel("");
-    private final JLabel lbLiveWeight = new JLabel("Peso: —");
+    private final JLabel lbLiveWeightValue = new JLabel("—.—", SwingConstants.CENTER);
+    private final JLabel lbLiveWeightUnit = new JLabel("kg", SwingConstants.CENTER);
+    private final JLabel lbLiveWeightStable = new JLabel("Aguardando leitura da balança", SwingConstants.CENTER);
     private final JLabel lbLiveTags = new JLabel("Tags: —");
     private final JLabel lbCameraStatus = new JLabel("Câmera: verificando...");
     private final ThemedButton btnCameraPreview =
@@ -98,8 +100,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                 setVisible(false);
             }
         });
-        setSize(simulationMode ? 820 : 780, simulationMode ? 760 : 700);
-        setMinimumSize(new Dimension(680, simulationMode ? 620 : 580));
+        setSize(simulationMode ? 860 : 820, simulationMode ? 820 : 760);
+        setMinimumSize(new Dimension(720, simulationMode ? 680 : 640));
         setLocationRelativeTo(owner);
     }
 
@@ -283,10 +285,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         statusText.setLayout(new BoxLayout(statusText, BoxLayout.Y_AXIS));
         lbVolume.setFont(WorkflowUiTheme.fontMeta(lbVolume));
         lbVolume.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
-        lbLiveWeight.setFont(WorkflowUiTheme.fontMeta(lbLiveWeight));
         lbLiveTags.setFont(WorkflowUiTheme.fontMeta(lbLiveTags));
         statusText.add(lbStatus);
-        statusText.add(lbLiveWeight);
         if (orderValidationEnabled) {
             statusText.add(lbVolume);
             statusText.add(lbLiveTags);
@@ -295,12 +295,52 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
         header.add(statusBar, BorderLayout.SOUTH);
 
-
-
         header.setBorder(WorkflowUiTheme.empty(0, 0, 12, 0));
 
         return header;
+    }
 
+    private JPanel buildScaleMonitorPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, 6));
+        panel.setOpaque(true);
+        panel.setBackground(new Color(0x0F, 0x17, 0x2A));
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(0x1E, 0x29, 0x3B), 1),
+                WorkflowUiTheme.empty(18, 20, 18, 20)));
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel caption = new JLabel("MONITOR DA BALANÇA", SwingConstants.CENTER);
+        caption.setFont(caption.getFont().deriveFont(Font.BOLD, 13f));
+        caption.setForeground(new Color(0x94, 0xA3, 0xB8));
+        caption.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        lbLiveWeightValue.setFont(lbLiveWeightValue.getFont().deriveFont(Font.BOLD, 72f));
+        lbLiveWeightValue.setForeground(Color.WHITE);
+        lbLiveWeightValue.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        lbLiveWeightUnit.setFont(lbLiveWeightUnit.getFont().deriveFont(Font.BOLD, 22f));
+        lbLiveWeightUnit.setForeground(new Color(0xCB, 0xD5, 0xE1));
+        lbLiveWeightUnit.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        lbLiveWeightStable.setFont(lbLiveWeightStable.getFont().deriveFont(Font.PLAIN, 14f));
+        lbLiveWeightStable.setForeground(new Color(0x94, 0xA3, 0xB8));
+        lbLiveWeightStable.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JPanel center = new JPanel();
+        center.setOpaque(false);
+        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
+        center.add(caption);
+        center.add(Box.createVerticalStrut(8));
+        center.add(lbLiveWeightValue);
+        center.add(Box.createVerticalStrut(2));
+        center.add(lbLiveWeightUnit);
+        center.add(Box.createVerticalStrut(10));
+        center.add(lbLiveWeightStable);
+
+        panel.add(center, BorderLayout.CENTER);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 220));
+        panel.setPreferredSize(new Dimension(0, 200));
+        return panel;
     }
 
 
@@ -311,6 +351,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         mainCenter.setOpaque(false);
         mainCenter.setLayout(new BoxLayout(mainCenter, BoxLayout.Y_AXIS));
         mainCenter.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel scaleMonitor = buildScaleMonitorPanel();
+        alignPanelWidth(scaleMonitor);
+        mainCenter.add(scaleMonitor);
+        mainCenter.add(Box.createVerticalStrut(12));
 
         if (orderValidationEnabled) {
             buildOperatorReviewPanel();
@@ -1080,20 +1125,28 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
 
     @Override
-
     public void onWeightUpdate(com.peripheral.core.PeripheralDataEvent event) {
-
         SwingUtilities.invokeLater(() -> {
             if (event == null) {
                 return;
             }
             String weight = event.getWeight();
-            if (weight != null && !weight.isEmpty()) {
-                lbLiveWeight.setText("Peso: " + weight + " kg"
-                        + (Boolean.TRUE.equals(event.getStable()) ? " (estável)" : ""));
+            if (weight == null || weight.isEmpty()) {
+                if (event.getDisplayText() != null && !event.getDisplayText().isEmpty()) {
+                    lbLiveWeightValue.setText(event.getDisplayText());
+                    lbLiveWeightUnit.setText("");
+                }
+                return;
             }
+            boolean stable = Boolean.TRUE.equals(event.getStable());
+            lbLiveWeightValue.setText(weight);
+            lbLiveWeightUnit.setText("kg");
+            lbLiveWeightValue.setForeground(stable ? new Color(0x34, 0xD3, 0x99) : Color.WHITE);
+            lbLiveWeightStable.setText(stable ? "●  PESO ESTÁVEL" : "○  PESO INSTÁVEL — aguarde");
+            lbLiveWeightStable.setForeground(stable
+                    ? new Color(0x34, 0xD3, 0x99)
+                    : new Color(0xFB, 0xBF, 0x24));
         });
-
     }
 
 

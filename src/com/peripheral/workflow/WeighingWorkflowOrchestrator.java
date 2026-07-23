@@ -210,6 +210,10 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             if (!running.get() || event == null) {
                 return;
             }
+            // Monitor da balança: sempre atualiza a UI em tempo real
+            if (listener != null) {
+                listener.onWeightUpdate(event);
+            }
             if (cycleInProgress.get() || waitingForNext.get() || !armed.get()) {
                 return;
             }
