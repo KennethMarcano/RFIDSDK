@@ -3,13 +3,16 @@ package com.peripheral.app;
 import com.peripheral.core.DeviceModelEntry;
 import com.peripheral.core.ParityOption;
 import com.peripheral.core.PeripheralCatalog;
+import com.peripheral.core.PeripheralDataEvent;
 import com.peripheral.core.PeripheralException;
 import com.peripheral.core.PeripheralType;
 import com.peripheral.core.PortProbeFactory;
 import com.peripheral.core.PortProbeResult;
+import com.peripheral.core.ReadablePeripheral;
 import com.peripheral.core.RfidConfigurable;
 import com.peripheral.core.SerialConnectionConfig;
 import com.peripheral.core.SerialPortProber;
+import com.peripheral.session.PeripheralConnectionHandle;
 import com.peripheral.session.PeripheralSessionManager;
 import com.peripheral.session.PeripheralSlot;
 import com.rfid.core.SerialPortDiscovery;
@@ -65,8 +68,13 @@ public class PeripheralConnectionPanel extends JPanel {
     private final JSpinner spStopBits = new JSpinner(new SpinnerNumberModel(1, 1, 2, 1));
     private final JComboBox<ParityOption> cbParity = new JComboBox<>(ParityOption.values());
 
+    private final JPanel liveWeightPanel = new JPanel(new BorderLayout(8, 4));
+    private final JLabel lbLiveWeight = new JLabel("Peso: —", SwingConstants.CENTER);
+    private final JLabel lbLiveWeightHint = new JLabel("Conecte a balança para ver o peso em tempo real");
+
     private DeviceModelEntry selectedModel;
     private Window ownerWindow;
+    private boolean liveWeightActive;
 
     public PeripheralConnectionPanel(PeripheralSlot slot, PeripheralSessionManager sessionManager,
                                      ConnectionListener connectionListener,
@@ -152,9 +160,12 @@ public class PeripheralConnectionPanel extends JPanel {
 
         buildRfidOptions();
         buildScaleOptions();
+        buildLiveWeightPanel();
         boolean isRfid = slot.getPeripheralType() == PeripheralType.RFID_READER;
+        boolean isScale = slot.getPeripheralType() == PeripheralType.SCALE;
         rfidOptionsPanel.setVisible(isRfid);
-        scaleOptionsPanel.setVisible(!isRfid);
+        scaleOptionsPanel.setVisible(isScale);
+        liveWeightPanel.setVisible(isScale);
 
         lbStatus.setFont(WorkflowUiTheme.fontStatus(lbStatus));
         lbStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
@@ -170,6 +181,7 @@ public class PeripheralConnectionPanel extends JPanel {
         center.add(lbDeviceInfo);
         center.add(rfidOptionsPanel);
         center.add(scaleOptionsPanel);
+        center.add(liveWeightPanel);
 
         add(center, BorderLayout.CENTER);
 
@@ -238,6 +250,109 @@ public class PeripheralConnectionPanel extends JPanel {
         scaleOptionsPanel.add(fieldLabel("Paridade:"), gbc);
         gbc.gridx = 1;
         scaleOptionsPanel.add(cbParity, gbc);
+    }
+
+    private void buildLiveWeightPanel() {
+        liveWeightPanel.setOpaque(false);
+        liveWeightPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder(
+                        BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Peso em tempo real"),
+                WorkflowUiTheme.empty(8, 12, 8, 12)));
+        liveWeightPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        lbLiveWeight.setFont(lbLiveWeight.getFont().deriveFont(Font.BOLD, 32f));
+        lbLiveWeight.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
+        lbLiveWeight.setOpaque(true);
+        lbLiveWeight.setBackground(WorkflowUiTheme.CHIP_BG);
+        lbLiveWeight.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.CHIP_BORDER),
+                WorkflowUiTheme.empty(16, 12, 16, 12)));
+
+        lbLiveWeightHint.setFont(WorkflowUiTheme.fontMeta(lbLiveWeightHint));
+        lbLiveWeightHint.setForeground(WorkflowUiTheme.TEXT_MUTED);
+
+        liveWeightPanel.add(lbLiveWeight, BorderLayout.CENTER);
+        liveWeightPanel.add(lbLiveWeightHint, BorderLayout.SOUTH);
+    }
+
+    public void syncFromSession() {
+        if (!isConnected()) {
+            resetLiveWeightDisplay();
+            return;
+        }
+        PeripheralConnectionHandle handle = sessionManager.getHandle(slot);
+        if (handle != null && handle.getModel() != null) {
+            selectedModel = handle.getModel();
+            lbDeviceInfo.setText(sessionManager.getDevice(slot).getDeviceInfo());
+        }
+        String port = sessionManager.getHandle(slot) != null
+                ? sessionManager.getHandle(slot).getPortName() : null;
+        lbStatus.setText(port != null ? "Conectado em " + port : "Conectado");
+        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.SUCCESS);
+        btnDisconnect.setEnabled(true);
+        setSelectionEnabled(false);
+        startLiveWeightReading();
+    }
+
+    public void startLiveWeightReading() {
+        if (slot.getPeripheralType() != PeripheralType.SCALE) {
+            return;
+        }
+        ReadablePeripheral device = sessionManager.getDevice(slot);
+        if (device == null || !device.isConnected()) {
+            resetLiveWeightDisplay();
+            return;
+        }
+        try {
+            if (device.isReading()) {
+                device.stopContinuousReading();
+            }
+            liveWeightActive = true;
+            lbLiveWeightHint.setText("Atualizando continuamente — coloque o item sobre a balança");
+            device.startContinuousReading(event -> SwingUtilities.invokeLater(() -> updateLiveWeight(event)));
+        } catch (PeripheralException e) {
+            liveWeightActive = false;
+            lbLiveWeightHint.setText("Não foi possível iniciar a leitura: " + e.getMessage());
+            WorkflowUiTheme.setStatusColor(lbLiveWeightHint, WorkflowUiTheme.WARNING);
+            log("ERRO peso ao vivo: " + e.getMessage());
+        }
+    }
+
+    public void stopLiveWeightReading() {
+        if (!liveWeightActive && slot.getPeripheralType() != PeripheralType.SCALE) {
+            return;
+        }
+        liveWeightActive = false;
+        ReadablePeripheral device = sessionManager.getDevice(slot);
+        if (device != null && device.isReading()) {
+            device.stopContinuousReading();
+        }
+    }
+
+    private void updateLiveWeight(PeripheralDataEvent event) {
+        if (!liveWeightActive || event == null) {
+            return;
+        }
+        String weight = event.getWeight();
+        if (weight != null && !weight.isEmpty()) {
+            boolean stable = Boolean.TRUE.equals(event.getStable());
+            lbLiveWeight.setText("Peso: " + weight + " kg" + (stable ? "  ● estável" : "  ○ instável"));
+            lbLiveWeight.setForeground(stable ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.WARNING);
+            lbLiveWeightHint.setText(stable
+                    ? "Peso estável — pronto para o fluxo"
+                    : "Aguardando estabilização...");
+            WorkflowUiTheme.setStatusColor(lbLiveWeightHint,
+                    stable ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.WARNING);
+        } else if (event.getDisplayText() != null && !event.getDisplayText().isEmpty()) {
+            lbLiveWeight.setText(event.getDisplayText());
+        }
+    }
+
+    private void resetLiveWeightDisplay() {
+        lbLiveWeight.setText("Peso: —");
+        lbLiveWeight.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
+        lbLiveWeightHint.setText("Conecte a balança para ver o peso em tempo real");
+        lbLiveWeightHint.setForeground(WorkflowUiTheme.TEXT_MUTED);
     }
 
     private void refreshVendors() {
@@ -524,18 +639,21 @@ public class PeripheralConnectionPanel extends JPanel {
                 btnTestPort.setEnabled(false);
                 setSelectionEnabled(false);
                 log("Conectado " + slot.getLabel() + " @ " + port);
+                startLiveWeightReading();
                 notifyConnectionChanged(true);
             }
         }.execute();
     }
 
     public void disconnectDevice() {
+        stopLiveWeightReading();
         sessionManager.disconnect(slot);
         lbStatus.setText("Desconectado");
         WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.TEXT_SECONDARY);
         lbDeviceInfo.setText("-");
         btnDisconnect.setEnabled(false);
         setSelectionEnabled(true);
+        resetLiveWeightDisplay();
         notifyConnectionChanged(false);
     }
 

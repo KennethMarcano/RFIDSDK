@@ -10,7 +10,6 @@ import com.peripheral.pedido.Pedido;
 import com.peripheral.pedido.PedidoClient;
 import com.peripheral.pedido.PedidoClients;
 import com.peripheral.pedido.PedidoException;
-import com.peripheral.pedido.PedidoItem;
 import com.peripheral.pedido.PedidoVolume;
 import com.peripheral.session.PeripheralSessionManager;
 import com.peripheral.session.PeripheralSlot;
@@ -39,10 +38,13 @@ public class AutomatedWorkflowPanel extends JPanel {
 
     private final JLabel lbScaleSummary = new JLabel();
     private final JLabel lbRfidSummary = new JLabel();
+    private final JLabel lbCameraSummary = new JLabel();
     private final ThemedButton btnConfigScale =
             WorkflowUiTheme.button("Configurar", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnConfigRfid =
             WorkflowUiTheme.button("Configurar", ThemedButton.Variant.SECONDARY);
+    private final ThemedButton btnTestCamera =
+            WorkflowUiTheme.button("Testar", ThemedButton.Variant.SECONDARY);
 
     private final JCheckBox cbRfid = new JCheckBox("Leitura RFID após estabilizar", true);
     private final JCheckBox cbPhoto = new JCheckBox("Capturar foto", false);
@@ -114,19 +116,21 @@ public class AutomatedWorkflowPanel extends JPanel {
         JPanel order = buildOrderSection();
         JPanel process = buildProcessSection();
         JPanel hint = buildOperationHintSection();
-        alignSectionWidth(peripherals);
-        alignSectionWidth(order);
-        alignSectionWidth(process);
-        alignSectionWidth(hint);
-        top.add(peripherals);
-        top.add(order);
+        WorkflowUiTheme.prepareBoxSection(process);
+        WorkflowUiTheme.prepareBoxSection(hint);
+
+        JPanel configRow = WorkflowUiTheme.createResponsiveColumns(peripherals, order);
+        top.add(configRow);
+        top.add(Box.createVerticalStrut(4));
         top.add(process);
+        top.add(Box.createVerticalStrut(4));
         top.add(hint);
 
         add(WorkflowUiTheme.wrapVerticalScroll(top), BorderLayout.CENTER);
 
         btnConfigScale.addActionListener(e -> openConfigDialog(PeripheralSlot.SCALE));
         btnConfigRfid.addActionListener(e -> openConfigDialog(PeripheralSlot.RFID_READER));
+        btnTestCamera.addActionListener(e -> openCameraTestDialog());
         btnStartWorkflow.addActionListener(e -> startWorkflow());
         btnStopWorkflow.addActionListener(e -> stopWorkflow());
         btnRestartWorkflow.addActionListener(e -> restartWorkflowSession());
@@ -137,69 +141,81 @@ public class AutomatedWorkflowPanel extends JPanel {
         btnRecalibrateCamera.addActionListener(e -> recalibrateCamera());
     }
 
-    private static void alignSectionWidth(JComponent section) {
-        section.setAlignmentX(Component.LEFT_ALIGNMENT);
-    }
-
     private JPanel buildOrderSection() {
-        JPanel grid = new JPanel(new GridBagLayout());
-        grid.setOpaque(false);
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 0, 4, 8);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-
         styleCheckBox(cbOrderValidation);
         styleCheckBox(cbPedidoMock);
         styleCheckBox(cbDemoDivergence);
+        WorkflowUiTheme.styleCompactTextField(tfPedidoNumero, 8);
+        WorkflowUiTheme.styleCompactSpinner(spTolerancePercent);
+        WorkflowUiTheme.styleCompactSpinner(spToleranceKg);
 
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.gridwidth = 3;
-        grid.add(cbOrderValidation, gbc);
+        JPanel column = new JPanel();
+        column.setOpaque(false);
+        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+        column.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        gbc.gridwidth = 1;
-        gbc.gridy = 1;
-        gbc.gridx = 0;
-        grid.add(new JLabel("Nº pedido:"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1;
-        grid.add(tfPedidoNumero, gbc);
-        gbc.gridx = 2;
-        gbc.weightx = 0;
-        grid.add(btnLoadPedido, gbc);
+        cbOrderValidation.setFont(cbOrderValidation.getFont().deriveFont(Font.BOLD, 12f));
+        JPanel toggleRow = WorkflowUiTheme.formRow(cbOrderValidation);
+        column.add(toggleRow);
+        column.add(Box.createVerticalStrut(12));
 
-        gbc.gridy = 2;
-        gbc.gridx = 0;
-        grid.add(new JLabel("Tolerância ±%:"), gbc);
-        gbc.gridx = 1;
-        grid.add(spTolerancePercent, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 3;
-        grid.add(new JLabel("Tolerância ±kg:"), gbc);
-        gbc.gridx = 1;
-        grid.add(spToleranceKg, gbc);
+        JPanel searchContent = WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("Nº pedido"),
+                tfPedidoNumero,
+                btnLoadPedido);
+        JPanel searchGroup = WorkflowUiTheme.createInsetGroup("Identificação do pedido", searchContent);
+        searchGroup.setAlignmentX(Component.LEFT_ALIGNMENT);
+        column.add(searchGroup);
+        column.add(Box.createVerticalStrut(10));
 
-        gbc.gridx = 0;
-        gbc.gridy = 4;
-        gbc.gridwidth = 3;
-        grid.add(cbPedidoMock, gbc);
-        gbc.gridy = 5;
-        grid.add(cbDemoDivergence, gbc);
+        JPanel toleranceContent = new JPanel();
+        toleranceContent.setOpaque(false);
+        toleranceContent.setLayout(new BoxLayout(toleranceContent, BoxLayout.Y_AXIS));
+        toleranceContent.add(WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("± %"), spTolerancePercent));
+        toleranceContent.add(Box.createVerticalStrut(6));
+        toleranceContent.add(WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("± kg"), spToleranceKg));
+
+        JPanel demoContent = new JPanel();
+        demoContent.setOpaque(false);
+        demoContent.setLayout(new BoxLayout(demoContent, BoxLayout.Y_AXIS));
+        demoContent.add(cbPedidoMock);
+        demoContent.add(Box.createVerticalStrut(4));
+        demoContent.add(cbDemoDivergence);
+
+        JPanel settingsRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        settingsRow.setOpaque(false);
+        settingsRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        settingsRow.add(WorkflowUiTheme.createInsetGroup("Tolerância de peso", toleranceContent));
+        settingsRow.add(WorkflowUiTheme.createInsetGroup("Opções demo", demoContent));
+        column.add(settingsRow);
+        column.add(Box.createVerticalStrut(10));
 
         lbPedidoResumo.setFont(WorkflowUiTheme.fontMeta(lbPedidoResumo));
         lbPedidoResumo.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
-        gbc.gridy = 6;
-        grid.add(lbPedidoResumo, gbc);
+        styleCameraStatusPill(false);
 
-        lbCameraStatus.setFont(WorkflowUiTheme.fontMeta(lbCameraStatus));
-        gbc.gridy = 7;
-        grid.add(lbCameraStatus, gbc);
+        JPanel statusStrip = WorkflowUiTheme.createStatusStrip();
+        JLabel statusCaption = WorkflowUiTheme.formLabel("Status");
+        WorkflowUiTheme.styleMutedCaption(statusCaption);
+        statusStrip.add(statusCaption);
+        statusStrip.add(lbPedidoResumo);
+        statusStrip.add(lbCameraStatus);
+        statusStrip.add(btnRecalibrateCamera);
+        column.add(statusStrip);
 
-        gbc.gridy = 8;
-        grid.add(btnRecalibrateCamera, gbc);
+        return WorkflowUiTheme.createSection("Pedido e câmera", column);
+    }
 
-        return WorkflowUiTheme.createSection("Pedido e câmera", grid);
+    private void styleCameraStatusPill(boolean online) {
+        if (online) {
+            WorkflowUiTheme.styleStatusPill(lbCameraStatus,
+                    new Color(0xD1, 0xFA, 0xE5), WorkflowUiTheme.SUCCESS);
+        } else {
+            WorkflowUiTheme.styleStatusPill(lbCameraStatus,
+                    new Color(0xFE, 0xF3, 0xC7), WorkflowUiTheme.WARNING);
+        }
     }
 
     private void loadPedido() {
@@ -215,7 +231,9 @@ public class AutomatedWorkflowPanel extends JPanel {
                 System.setProperty("rfidsdk.pedido.mock", "false");
             }
             loadedPedido = client.fetchPedido(tfPedidoNumero.getText().trim());
-            lbPedidoResumo.setText(formatPedidoResumo(loadedPedido));
+            String resumo = formatPedidoResumo(loadedPedido);
+            lbPedidoResumo.setText(resumo);
+            lbPedidoResumo.setToolTipText(resumo);
             appendLog("Pedido carregado: " + loadedPedido.getNumero()
                     + " (" + loadedPedido.getVolumeCount() + " volumes)");
         } catch (PedidoException e) {
@@ -259,60 +277,98 @@ public class AutomatedWorkflowPanel extends JPanel {
     }
 
     private void refreshCameraStatus() {
-        CameraMicroserviceClient client = CameraMicroserviceLifecycle.getInstance().getClient();
-        boolean ok = client.checkHealth();
-        lbCameraStatus.setText(ok ? "Câmera: online" : "Câmera: indisponível");
-        WorkflowUiTheme.setStatusColor(lbCameraStatus, ok ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.WARNING);
+        new SwingWorker<int[], Void>() {
+            @Override
+            protected int[] doInBackground() {
+                CameraMicroserviceClient client = CameraMicroserviceLifecycle.getInstance().getClient();
+                boolean serviceOk = client.checkHealth();
+                boolean rpicam = com.peripheral.camera.CameraHardware.isRpicamAvailable();
+                boolean hardwareOk = rpicam && com.peripheral.camera.CameraHardware.isCameraPresent();
+                return new int[]{serviceOk ? 1 : 0, hardwareOk ? 1 : 0, rpicam ? 1 : 0};
+            }
+
+            @Override
+            protected void done() {
+                boolean serviceOk = false;
+                boolean hardwareOk = false;
+                try {
+                    int[] flags = get();
+                    serviceOk = flags[0] == 1;
+                    hardwareOk = flags[1] == 1;
+                } catch (Exception ignored) {
+                }
+                boolean ok = serviceOk || hardwareOk;
+                if (hardwareOk) {
+                    lbCameraStatus.setText("Câmera online");
+                    lbCameraSummary.setText("Sony IMX500 — disponível");
+                    WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.SUCCESS);
+                } else if (serviceOk) {
+                    lbCameraStatus.setText("Câmera online");
+                    lbCameraSummary.setText("Serviço de câmera online");
+                    WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.SUCCESS);
+                } else {
+                    lbCameraStatus.setText("Câmera indisponível");
+                    lbCameraSummary.setText("Não detectada — use Testar");
+                    WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.WARNING);
+                }
+                styleCameraStatusPill(ok);
+            }
+        }.execute();
+    }
+
+    private void openCameraTestDialog() {
+        if (workflowRunning) {
+            JOptionPane.showMessageDialog(getDialogParent(),
+                    "Pare o fluxo antes de testar a câmera.",
+                    "Câmera", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        Window parent = ownerWindow;
+        if (parent == null) {
+            Component ancestor = SwingUtilities.getWindowAncestor(this);
+            if (ancestor instanceof Window) {
+                parent = (Window) ancestor;
+            }
+        }
+        CameraTestDialog dialog = new CameraTestDialog(parent, this::appendLog);
+        dialog.showDialog();
+        refreshCameraStatus();
+    }
+
+    private JPanel buildPeripheralRow(String title, boolean required, JLabel summary, ThemedButton action) {
+        JPanel row = new JPanel(new BorderLayout(12, 0));
+        row.setOpaque(false);
+        row.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, WorkflowUiTheme.BORDER),
+                WorkflowUiTheme.empty(10, 0, 10, 0)));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 52));
+
+        JLabel name = WorkflowUiTheme.formLabel(title + (required ? " *" : ""));
+        name.setPreferredSize(new Dimension(96, name.getPreferredSize().height));
+        row.add(name, BorderLayout.WEST);
+
+        summary.setFont(WorkflowUiTheme.fontStatus(summary));
+        row.add(summary, BorderLayout.CENTER);
+        row.add(action, BorderLayout.EAST);
+        return row;
     }
 
     private JPanel buildPeripheralsSection() {
-        JPanel grid = new JPanel(new GridBagLayout());
-        grid.setOpaque(false);
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(6, 0, 6, 8);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-
-        JLabel lbScale = new JLabel("Balança *");
-        lbScale.setFont(WorkflowUiTheme.fontMeta(lbScale));
-        lbScale.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.weightx = 0;
-        grid.add(lbScale, gbc);
-
-        gbc.gridx = 1;
-        gbc.weightx = 1;
-        lbScaleSummary.setFont(WorkflowUiTheme.fontStatus(lbScaleSummary));
-        grid.add(lbScaleSummary, gbc);
-
-        gbc.gridx = 2;
-        gbc.weightx = 0;
-        grid.add(btnConfigScale, gbc);
-
-        JLabel lbRfid = new JLabel("Leitor RFID");
-        lbRfid.setFont(WorkflowUiTheme.fontMeta(lbRfid));
-        lbRfid.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        grid.add(lbRfid, gbc);
-
-        gbc.gridx = 1;
-        gbc.weightx = 1;
-        lbRfidSummary.setFont(WorkflowUiTheme.fontStatus(lbRfidSummary));
-        grid.add(lbRfidSummary, gbc);
-
-        gbc.gridx = 2;
-        gbc.weightx = 0;
-        grid.add(btnConfigRfid, gbc);
-
-        return WorkflowUiTheme.createSection("Periféricos", grid);
+        JPanel rows = new JPanel();
+        rows.setOpaque(false);
+        rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
+        rows.add(buildPeripheralRow("Balança", true, lbScaleSummary, btnConfigScale));
+        rows.add(buildPeripheralRow("Leitor RFID", false, lbRfidSummary, btnConfigRfid));
+        lbCameraSummary.setText("Verificando...");
+        WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.TEXT_MUTED);
+        rows.add(buildPeripheralRow("Câmera", false, lbCameraSummary, btnTestCamera));
+        return WorkflowUiTheme.createSection("Periféricos", rows);
     }
 
     private JPanel buildProcessSection() {
-        JPanel checks = new JPanel();
+        JPanel checks = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 6));
         checks.setOpaque(false);
-        checks.setLayout(new BoxLayout(checks, BoxLayout.Y_AXIS));
+        checks.setAlignmentX(Component.LEFT_ALIGNMENT);
         cbWeighing.setSelected(true);
         cbWeighing.setEnabled(false);
         cbWeighing.setOpaque(false);
@@ -332,12 +388,13 @@ public class AutomatedWorkflowPanel extends JPanel {
                         + "Divergência: foto + IA fallback + revisão do operador. "
                         + "Caminho OK: etiqueta (e foto se marcada). "
                         + "Use <b>Reiniciar sessão</b> para limpar o histórico sem parar o fluxo.</html>");
-        help.setBorder(WorkflowUiTheme.empty(10, 0, 0, 0));
+        help.setBorder(WorkflowUiTheme.empty(4, 0, 0, 0));
+        help.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         btnStopWorkflow.setEnabled(false);
         btnRestartWorkflow.setEnabled(false);
 
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         actions.setOpaque(false);
         actions.add(btnStartWorkflow);
         actions.add(btnStopWorkflow);
@@ -348,22 +405,30 @@ public class AutomatedWorkflowPanel extends JPanel {
 
         JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         statusRow.setOpaque(false);
-        JLabel lbStatusCaption = new JLabel("Status:");
-        lbStatusCaption.setFont(WorkflowUiTheme.fontMeta(lbStatusCaption));
-        lbStatusCaption.setForeground(WorkflowUiTheme.TEXT_MUTED);
+        JLabel lbStatusCaption = WorkflowUiTheme.formLabel("Status");
+        WorkflowUiTheme.styleMutedCaption(lbStatusCaption);
         statusRow.add(lbStatusCaption);
         statusRow.add(lbWorkflowStatus);
 
-        JPanel south = new JPanel(new BorderLayout(0, 8));
-        south.setOpaque(false);
-        south.add(actions, BorderLayout.NORTH);
-        south.add(statusRow, BorderLayout.SOUTH);
+        JPanel actionBar = new JPanel(new BorderLayout(0, 8));
+        actionBar.setOpaque(true);
+        actionBar.setBackground(WorkflowUiTheme.CHIP_BG);
+        actionBar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.CHIP_BORDER),
+                WorkflowUiTheme.empty(12, 12, 12, 12)));
+        actionBar.setAlignmentX(Component.LEFT_ALIGNMENT);
+        actionBar.add(actions, BorderLayout.NORTH);
+        actionBar.add(statusRow, BorderLayout.SOUTH);
 
-        JPanel content = new JPanel(new BorderLayout(0, 8));
+        JPanel content = new JPanel();
         content.setOpaque(false);
-        content.add(checks, BorderLayout.NORTH);
-        content.add(help, BorderLayout.CENTER);
-        content.add(south, BorderLayout.SOUTH);
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(checks);
+        content.add(Box.createVerticalStrut(10));
+        content.add(help);
+        content.add(Box.createVerticalStrut(12));
+        content.add(actionBar);
 
         return WorkflowUiTheme.createSection("Processos do fluxo", content);
     }
@@ -809,9 +874,16 @@ public class AutomatedWorkflowPanel extends JPanel {
             @Override
             public void onCameraServiceStatus(boolean available, String detail) {
                 SwingUtilities.invokeLater(() -> {
-                    lbCameraStatus.setText(available ? "Câmera: online" : "Câmera: indisponível");
-                    WorkflowUiTheme.setStatusColor(lbCameraStatus,
-                            available ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.WARNING);
+                    lbCameraStatus.setText(available ? "Câmera online" : "Câmera indisponível");
+                    styleCameraStatusPill(available);
+                    if (available) {
+                        lbCameraSummary.setText(detail != null && !detail.isEmpty()
+                                ? detail : "Câmera disponível");
+                        WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.SUCCESS);
+                    } else {
+                        lbCameraSummary.setText("Não detectada — use Testar");
+                        WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.WARNING);
+                    }
                     window.onCameraServiceStatus(available, detail);
                 });
             }

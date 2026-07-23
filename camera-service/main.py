@@ -34,11 +34,17 @@ class AnalyzeRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    status = imx500_camera.status()
+    return {
+        "ok": True,
+        "camera_ready": bool(status.get("ready")),
+        "stub_mode": bool(status.get("stub_mode")),
+    }
 
 
 @app.get("/camera/status")
 def camera_status():
+    imx500_camera.probe()
     return imx500_camera.status()
 
 

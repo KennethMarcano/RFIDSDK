@@ -1,57 +1,155 @@
-"""Wrapper Sony IMX500 — stub quando CAMERA_STUB_MODE=1."""
+"""Wrapper Sony IMX500 — usa rpicam quando disponível; stub só se CAMERA_STUB_MODE=1."""
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
+from typing import Optional
 
 from config import STUB_MODE
 
-_ready = True
-_last_error: str | None = None
+_ready = False
+_last_error = None  # type: Optional[str]
+_camera_info = ""
+_probed = False
 
 
-def status() -> dict:
+def _resolve_cmd(names):
+    for name in names:
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+
+def _list_cameras():
+    cmd = _resolve_cmd(["rpicam-hello", "libcamera-hello"])
+    if not cmd:
+        return False, "rpicam-hello não encontrado no PATH"
+    try:
+        completed = subprocess.run(
+            [cmd, "--list-cameras"],
+            capture_output=True,
+            text=True,
+            timeout=12,
+            check=False,
+        )
+        output = (completed.stdout or "") + (completed.stderr or "")
+        lower = output.lower()
+        if "no cameras available" in lower or "no camera available" in lower:
+            return False, output.strip() or "Nenhuma câmera disponível"
+        present = (
+            "available cameras" in lower
+            or "imx500" in lower
+            or "/base/" in lower
+            or completed.returncode == 0
+        )
+        return present, output.strip() or ("OK" if present else "Câmera não detectada")
+    except Exception as exc:
+        return False, str(exc)
+
+
+def probe():
+    """Atualiza estado da câmera (hardware real ou stub)."""
+    global _ready, _last_error, _camera_info, _probed
+    if STUB_MODE:
+        _ready = True
+        _last_error = None
+        _camera_info = "stub_mode"
+        _probed = True
+        return
+    present, info = _list_cameras()
+    _camera_info = info
+    _ready = present
+    _last_error = None if present else info
+    _probed = True
+
+
+def status():
+    if not _probed:
+        probe()
     return {
         "ready": _ready,
         "model_loaded": _ready,
         "stub_mode": STUB_MODE,
         "last_error": _last_error,
+        "camera_info": _camera_info,
+        "imx500": "imx500" in (_camera_info or "").lower(),
     }
 
 
-def recalibrate() -> tuple[bool, str]:
+def recalibrate():
     global _ready, _last_error
     if STUB_MODE:
         _ready = True
         _last_error = None
         return True, "Recalibração simulada concluída."
     try:
-        _ready = True
+        probe()
+        if not _ready:
+            return False, _last_error or "Câmera não detectada"
         _last_error = None
-        return True, "Recalibração concluída."
+        return True, "Câmera verificada / pronta (IMX500)."
     except Exception as exc:
         _last_error = str(exc)
         _ready = False
         return False, str(exc)
 
 
-def capture(output_path: str) -> tuple[bool, str, str]:
+def capture(output_path):
     global _last_error
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    if STUB_MODE:
+        try:
+            _write_stub_png(path)
+            _last_error = None
+            resolved = str(path.resolve())
+            return True, resolved, "Foto capturada (stub)."
+        except Exception as exc:
+            _last_error = str(exc)
+            return False, "", str(exc)
+
+    still = _resolve_cmd(["rpicam-still", "libcamera-still"])
+    if not still:
+        _last_error = "rpicam-still não encontrado"
+        return False, "", _last_error
+
+    # --nopreview / --immediate: captura sem janela e sem timeout curto de preview
+    # --timeout 2000: margem para o sensor IMX500 inicializar
+    suffix = path.suffix.lower()
+    target = path if suffix in (".png", ".jpg", ".jpeg") else path.with_suffix(".jpg")
+    cmd = [
+        still,
+        "--nopreview",
+        "--immediate",
+        "--timeout",
+        "2000",
+        "-o",
+        str(target),
+    ]
     try:
-        _write_stub_png(path)
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if completed.returncode != 0 or not target.is_file() or target.stat().st_size == 0:
+            err = (completed.stderr or completed.stdout or "captura falhou").strip()
+            _last_error = err
+            return False, "", err
         _last_error = None
-        resolved = str(path.resolve())
-        suffix = " (stub)." if STUB_MODE else "."
-        return True, resolved, "Foto capturada" + suffix
+        return True, str(target.resolve()), "Foto capturada (rpicam-still)."
     except Exception as exc:
         _last_error = str(exc)
         return False, "", str(exc)
 
 
-def _write_stub_png(path: Path) -> None:
+def _write_stub_png(path):
     png_bytes = bytes([
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
         0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,

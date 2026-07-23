@@ -114,16 +114,276 @@ public final class WorkflowUiTheme {
         scroll.getViewport().setBackground(BG_CARD);
     }
 
-    /** Envolve conteúdo vertical excedente com barra de rolagem. */
+    /** Envolve conteúdo com rolagem vertical e largura adaptável ao viewport (sem scroll horizontal). */
     public static JScrollPane wrapVerticalScroll(JComponent content) {
         content.setOpaque(false);
-        JScrollPane scroll = new JScrollPane(content);
+        JScrollPane scroll = new JScrollPane(new ScrollableColumnPanel(content));
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         scroll.setBorder(null);
         scroll.getViewport().setBackground(BG_PAGE);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         return scroll;
+    }
+
+    public static JLabel formLabel(String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(fontMeta(label));
+        label.setForeground(TEXT_SECONDARY);
+        return label;
+    }
+
+    public static JPanel formRow(Component... items) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 4));
+        row.setOpaque(false);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        for (Component item : items) {
+            row.add(item);
+        }
+        return row;
+    }
+
+    public static void styleCompactTextField(JTextField field, int columns) {
+        field.setColumns(columns);
+        field.setFont(fontMeta(field));
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER),
+                empty(6, 10, 6, 10)));
+        Dimension pref = field.getPreferredSize();
+        int height = Math.max(pref.height, 32);
+        int width = Math.min(Math.max(pref.width, 72), 168);
+        field.setPreferredSize(new Dimension(width, height));
+        field.setMinimumSize(new Dimension(72, height));
+        field.setMaximumSize(new Dimension(168, height));
+    }
+
+    public static void styleCompactSpinner(JSpinner spinner) {
+        spinner.setFont(fontMeta(spinner));
+        JComponent editor = spinner.getEditor();
+        if (editor instanceof JSpinner.DefaultEditor) {
+            JTextField textField = ((JSpinner.DefaultEditor) editor).getTextField();
+            textField.setFont(fontMeta(textField));
+            textField.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(BORDER),
+                    empty(4, 8, 4, 8)));
+            textField.setColumns(5);
+        }
+        Dimension pref = spinner.getPreferredSize();
+        int height = Math.max(pref.height, 32);
+        spinner.setPreferredSize(new Dimension(96, height));
+        spinner.setMinimumSize(new Dimension(88, height));
+        spinner.setMaximumSize(new Dimension(112, height));
+    }
+
+    public static void styleFormCombo(JComboBox<?> combo, int minWidth, int maxWidth) {
+        combo.setFont(fontMeta(combo));
+        Dimension pref = combo.getPreferredSize();
+        int height = Math.max(pref.height, 32);
+        int width = Math.min(Math.max(pref.width, minWidth), maxWidth);
+        combo.setPreferredSize(new Dimension(width, height));
+        combo.setMinimumSize(new Dimension(minWidth, height));
+        combo.setMaximumSize(new Dimension(maxWidth, height));
+    }
+
+    public static JPanel createInsetGroup(String title, Component content) {
+        JPanel group = new JPanel(new BorderLayout(0, 8));
+        group.setOpaque(true);
+        group.setBackground(CHIP_BG);
+        group.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(CHIP_BORDER),
+                empty(10, 12, 10, 12)));
+
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setFont(fontChip(titleLabel).deriveFont(Font.BOLD));
+        titleLabel.setForeground(TEXT_SECONDARY);
+        group.add(titleLabel, BorderLayout.NORTH);
+        group.add(content, BorderLayout.CENTER);
+        return group;
+    }
+
+    public static JPanel createStatusStrip() {
+        JPanel strip = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 4));
+        strip.setOpaque(true);
+        strip.setBackground(BG_CARD_HIGHLIGHT);
+        strip.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_FOCUS),
+                empty(8, 12, 8, 12)));
+        strip.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return strip;
+    }
+
+    public static void styleStatusPill(JLabel label, Color background, Color foreground) {
+        label.setOpaque(true);
+        label.setBackground(background);
+        label.setForeground(foreground);
+        label.setFont(fontChip(label));
+        label.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(blend(foreground, 0.25f)),
+                empty(3, 10, 3, 10)));
+    }
+
+    public static void styleMutedCaption(JLabel label) {
+        label.setFont(fontChip(label).deriveFont(Font.BOLD));
+        label.setForeground(TEXT_MUTED);
+    }
+
+    public static void prepareBoxSection(JComponent section) {
+        section.setAlignmentX(Component.LEFT_ALIGNMENT);
+    }
+
+    /** Duas seções lado a lado (50/50); empilha verticalmente em telas estreitas. */
+    public static JPanel createResponsiveColumns(JComponent left, JComponent right) {
+        return new ResponsiveColumnsPanel(left, right);
+    }
+
+    private static final class ResponsiveColumnsPanel extends JPanel {
+
+        private static final int GAP = 12;
+        private static final int MIN_COLUMN_WIDTH = 300;
+        private static final int DEFAULT_WIDTH = 720;
+
+        private final JComponent left;
+        private final JComponent right;
+
+        ResponsiveColumnsPanel(JComponent left, JComponent right) {
+            this.left = left;
+            this.right = right;
+            setOpaque(false);
+            setLayout(null);
+            setAlignmentX(Component.LEFT_ALIGNMENT);
+            prepareBoxSection(left);
+            prepareBoxSection(right);
+            add(left);
+            add(right);
+            addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentResized(java.awt.event.ComponentEvent e) {
+                    revalidate();
+                    repaint();
+                }
+            });
+        }
+
+        private boolean isStacked(int width) {
+            return width < MIN_COLUMN_WIDTH * 2 + GAP;
+        }
+
+        @Override
+        public void doLayout() {
+            int width = Math.max(getWidth(), 0);
+            if (width == 0) {
+                return;
+            }
+            if (isStacked(width)) {
+                int y = 0;
+                int leftHeight = preferredHeightAtWidth(left, width);
+                left.setBounds(0, y, width, leftHeight);
+                y += leftHeight + GAP;
+                int rightHeight = preferredHeightAtWidth(right, width);
+                right.setBounds(0, y, width, rightHeight);
+            } else {
+                int colWidth = (width - GAP) / 2;
+                int leftHeight = preferredHeightAtWidth(left, colWidth);
+                int rightHeight = preferredHeightAtWidth(right, colWidth);
+                int rowHeight = Math.max(leftHeight, rightHeight);
+                left.setBounds(0, 0, colWidth, rowHeight);
+                right.setBounds(colWidth + GAP, 0, colWidth, rowHeight);
+            }
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            return sizeForWidth(resolveLayoutWidth());
+        }
+
+        @Override
+        public Dimension getMinimumSize() {
+            return sizeForWidth(MIN_COLUMN_WIDTH);
+        }
+
+        private int resolveLayoutWidth() {
+            int width = getWidth();
+            if (width > 0) {
+                return width;
+            }
+            Container parent = getParent();
+            while (parent != null) {
+                if (parent.getWidth() > 0) {
+                    return parent.getWidth();
+                }
+                parent = parent.getParent();
+            }
+            return DEFAULT_WIDTH;
+        }
+
+        private Dimension sizeForWidth(int width) {
+            int effectiveWidth = Math.max(width, MIN_COLUMN_WIDTH);
+            if (isStacked(effectiveWidth)) {
+                int leftHeight = preferredHeightAtWidth(left, effectiveWidth);
+                int rightHeight = preferredHeightAtWidth(right, effectiveWidth);
+                return new Dimension(effectiveWidth, leftHeight + GAP + rightHeight);
+            }
+            int colWidth = (effectiveWidth - GAP) / 2;
+            int rowHeight = Math.max(
+                    preferredHeightAtWidth(left, colWidth),
+                    preferredHeightAtWidth(right, colWidth));
+            return new Dimension(effectiveWidth, rowHeight);
+        }
+
+        private static int preferredHeightAtWidth(JComponent component, int width) {
+            if (width <= 0) {
+                return component.getPreferredSize().height;
+            }
+            Dimension current = component.getSize();
+            component.setSize(width, Short.MAX_VALUE);
+            int height = component.getPreferredSize().height;
+            component.setSize(current);
+            return height;
+        }
+    }
+
+    private static Color blend(Color base, float alphaTowardWhite) {
+        int r = (int) (base.getRed() + (255 - base.getRed()) * alphaTowardWhite);
+        int g = (int) (base.getGreen() + (255 - base.getGreen()) * alphaTowardWhite);
+        int b = (int) (base.getBlue() + (255 - base.getBlue()) * alphaTowardWhite);
+        return new Color(r, g, b);
+    }
+
+    private static final class ScrollableColumnPanel extends JPanel implements Scrollable {
+
+        ScrollableColumnPanel(JComponent content) {
+            setLayout(new BorderLayout());
+            setOpaque(false);
+            add(content, BorderLayout.NORTH);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            if (orientation == SwingConstants.VERTICAL) {
+                return Math.max(visibleRect.height - 48, 64);
+            }
+            return Math.max(visibleRect.width - 48, 64);
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
     }
 
     public static JLabel createSectionTitle(String text) {

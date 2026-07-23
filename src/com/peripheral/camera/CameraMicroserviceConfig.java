@@ -32,9 +32,22 @@ public final class CameraMicroserviceConfig {
         String host = System.getProperty("rfidsdk.camera.host", "127.0.0.1");
         int port = parseInt(System.getProperty("rfidsdk.camera.port"), DEFAULT_PORT);
         String python = System.getProperty("rfidsdk.camera.python", detectPython());
-        boolean stub = !"false".equalsIgnoreCase(System.getProperty("rfidsdk.camera.stub", "true"));
+        boolean stub = resolveStubMode();
         Path dir = findServiceDirectory();
         return new CameraMicroserviceConfig(host, port, dir, python, stub);
+    }
+
+    /**
+     * Stub só por padrão quando não há rpicam (dev Windows).
+     * No Raspberry Pi com IMX500, usa câmera real automaticamente.
+     * Override: {@code -Drfidsdk.camera.stub=true|false}
+     */
+    private static boolean resolveStubMode() {
+        String prop = System.getProperty("rfidsdk.camera.stub");
+        if (prop != null && !prop.trim().isEmpty()) {
+            return !"false".equalsIgnoreCase(prop.trim());
+        }
+        return !CameraHardware.isRpicamAvailable();
     }
 
     private static String detectPython() {

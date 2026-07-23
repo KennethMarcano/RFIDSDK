@@ -759,8 +759,17 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (listener == null) {
             return;
         }
-        boolean available = cameraClient != null && cameraClient.isAvailable();
-        String detail = available ? "online" : "indisponível";
+        boolean serviceOk = cameraClient != null && cameraClient.isAvailable();
+        boolean hardwareOk = com.peripheral.camera.CameraHardware.isCameraPresent();
+        boolean available = serviceOk || hardwareOk;
+        String detail;
+        if (hardwareOk) {
+            detail = "Sony IMX500 — disponível";
+        } else if (serviceOk) {
+            detail = "online";
+        } else {
+            detail = "indisponível";
+        }
         listener.onCameraServiceStatus(available, detail);
     }
 

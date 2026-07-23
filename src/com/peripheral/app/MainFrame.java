@@ -38,7 +38,7 @@ public class MainFrame extends JFrame {
     private static final int READ_ONCE_TIMEOUT_MS = 2000;
     private static final int SCALE_NO_DATA_WARNING_MS = 8000;
 
-    private static final int MANUAL_CONFIG_SCROLL_HEIGHT = 268;
+    private static final int MANUAL_READING_VIEWPORT_HEIGHT = 260;
 
     private final PeripheralSessionManager sessionManager = new PeripheralSessionManager();
 
@@ -114,7 +114,7 @@ public class MainFrame extends JFrame {
         refreshPorts();
         onPeripheralChanged();
         pack();
-        setMinimumSize(new Dimension(960, 680));
+        setMinimumSize(new Dimension(720, 560));
         setLocationRelativeTo(null);
         setVisible(true);
     }
@@ -144,133 +144,22 @@ public class MainFrame extends JFrame {
     }
 
     private JPanel buildManualTestTab() {
+        styleManualControls();
+
         JPanel root = new JPanel();
         root.setOpaque(false);
         root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
         root.setAlignmentX(Component.LEFT_ALIGNMENT);
-        WorkflowUiTheme.stylePanel(root);
-        root.setBorder(WorkflowUiTheme.empty(4, 0, 0, 0));
 
-        JPanel selection = new JPanel(new GridBagLayout());
-        selection.setOpaque(false);
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(6, 0, 6, 8);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+        JPanel selectionSection = buildManualSelectionSection();
+        JPanel connectionSection = buildManualConnectionSection();
+        JPanel readingSection = buildManualReadingSection();
 
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        selection.add(createFieldLabel("Periférico:"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1;
-        selection.add(cbPeripheral, gbc);
+        WorkflowUiTheme.prepareBoxSection(readingSection);
 
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        gbc.weightx = 0;
-        selection.add(createFieldLabel("Fabricante:"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1;
-        selection.add(cbVendor, gbc);
-
-        gbc.gridx = 0;
-        gbc.gridy = 2;
-        gbc.weightx = 0;
-        selection.add(createFieldLabel("Modelo:"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1;
-        cbModel.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-                                                          boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof DeviceModelEntry) {
-                    setText(((DeviceModelEntry) value).getDisplayLabel());
-                }
-                return this;
-            }
-        });
-        selection.add(cbModel, gbc);
-
-        JPanel connectionBody = new JPanel();
-        connectionBody.setOpaque(false);
-        connectionBody.setLayout(new BoxLayout(connectionBody, BoxLayout.Y_AXIS));
-
-        JPanel portRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        portRow.setOpaque(false);
-        portRow.add(createFieldLabel("Porta:"));
-        setupPortCombo();
-        portRow.add(cbPort);
-        portRow.add(btnRefreshPorts);
-        portRow.add(btnTestPort);
-        portRow.add(btnConnect);
-        portRow.add(btnDisconnect);
-        connectionBody.add(portRow);
-
-        lbStatus.setFont(WorkflowUiTheme.fontStatus(lbStatus));
-        lbStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
-        lbStatus.setBorder(WorkflowUiTheme.empty(4, 0, 0, 0));
-        connectionBody.add(lbStatus);
-
-        lbDeviceInfo.setFont(WorkflowUiTheme.fontMeta(lbDeviceInfo));
-        lbDeviceInfo.setForeground(WorkflowUiTheme.TEXT_MUTED);
-        connectionBody.add(lbDeviceInfo);
-
-        buildRfidOptions();
-        buildScaleOptions();
-        connectionBody.add(rfidOptionsPanel);
-        connectionBody.add(scaleOptionsPanel);
-
-        JPanel readingBody = new JPanel(new BorderLayout(0, 10));
-        readingBody.setOpaque(false);
-        JPanel readBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        readBtns.setOpaque(false);
-        readBtns.add(btnToggleContinuous);
-        readBtns.add(btnReadOnce);
-        readingBody.add(readBtns, BorderLayout.NORTH);
-
-        dataTable.setAutoCreateRowSorter(true);
-        dataTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        WorkflowUiTheme.styleTable(dataTable);
-        JScrollPane scrollData = new JScrollPane(dataTable);
-        WorkflowUiTheme.styleScrollPane(scrollData);
-        scrollData.setPreferredSize(new Dimension(860, 300));
-        scrollData.setMinimumSize(new Dimension(0, 160));
-
-        taLog.setEditable(false);
-        taLog.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
-        WorkflowUiTheme.styleTextArea(taLog);
-        JScrollPane scrollLog = new JScrollPane(taLog);
-        WorkflowUiTheme.styleScrollPane(scrollLog);
-        scrollLog.setPreferredSize(new Dimension(860, 300));
-        scrollLog.setMinimumSize(new Dimension(0, 160));
-
-        JTabbedPane readingTabs = new JTabbedPane();
-        WorkflowUiTheme.styleTabbedPane(readingTabs);
-        readingTabs.addTab("Dados", scrollData);
-        readingTabs.addTab("Log", scrollLog);
-        readingBody.add(readingTabs, BorderLayout.CENTER);
-
-        JPanel northManual = new JPanel();
-        northManual.setOpaque(false);
-        northManual.setLayout(new BoxLayout(northManual, BoxLayout.Y_AXIS));
-        northManual.add(WorkflowUiTheme.createSection("Seleção", selection));
-        northManual.add(WorkflowUiTheme.createSection("Conexão", connectionBody));
-
-        JScrollPane configScroll = new JScrollPane(northManual);
-        configScroll.setBorder(null);
-        WorkflowUiTheme.styleScrollPane(configScroll);
-        configScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        configScroll.getVerticalScrollBar().setUnitIncrement(16);
-        configScroll.setPreferredSize(new Dimension(860, MANUAL_CONFIG_SCROLL_HEIGHT));
-        configScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, MANUAL_CONFIG_SCROLL_HEIGHT));
-        configScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JPanel readingSection = WorkflowUiTheme.createSection("Leitura", readingBody);
-        readingSection.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        root.add(configScroll);
-        root.add(Box.createVerticalStrut(8));
+        JPanel configRow = WorkflowUiTheme.createResponsiveColumns(selectionSection, connectionSection);
+        root.add(configRow);
+        root.add(Box.createVerticalStrut(4));
         root.add(readingSection);
 
         cbPeripheral.addActionListener(e -> onPeripheralChanged());
@@ -289,67 +178,198 @@ public class MainFrame extends JFrame {
 
         JPanel tab = new JPanel(new BorderLayout(0, 0));
         WorkflowUiTheme.stylePanel(tab);
+        tab.setBorder(WorkflowUiTheme.empty(4, 0, 0, 0));
         tab.add(WorkflowUiTheme.wrapVerticalScroll(root), BorderLayout.CENTER);
         return tab;
     }
 
-    private JLabel createFieldLabel(String text) {
-        JLabel label = new JLabel(text);
-        label.setFont(WorkflowUiTheme.fontMeta(label));
-        label.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
-        return label;
+    private void styleManualControls() {
+        WorkflowUiTheme.styleFormCombo(cbPeripheral, 140, 220);
+        WorkflowUiTheme.styleFormCombo(cbVendor, 140, 260);
+        WorkflowUiTheme.styleFormCombo(cbModel, 180, 360);
+        WorkflowUiTheme.styleFormCombo(cbPort, 160, 280);
+        WorkflowUiTheme.styleFormCombo(cbParity, 100, 140);
+        WorkflowUiTheme.styleCompactSpinner(spPower);
+        WorkflowUiTheme.styleCompactSpinner(spBaud);
+        WorkflowUiTheme.styleCompactSpinner(spDataBits);
+        WorkflowUiTheme.styleCompactSpinner(spStopBits);
+
+        cbModel.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof DeviceModelEntry) {
+                    setText(((DeviceModelEntry) value).getDisplayLabel());
+                }
+                return this;
+            }
+        });
+        setupPortCombo();
+
+        lbStatus.setFont(WorkflowUiTheme.fontStatus(lbStatus));
+        lbStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+        lbDeviceInfo.setFont(WorkflowUiTheme.fontMeta(lbDeviceInfo));
+        lbDeviceInfo.setForeground(WorkflowUiTheme.TEXT_MUTED);
+    }
+
+    private JPanel buildManualSelectionSection() {
+        JPanel column = new JPanel();
+        column.setOpaque(false);
+        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+        column.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        column.add(WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("Periférico"), cbPeripheral));
+        column.add(Box.createVerticalStrut(6));
+        column.add(WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("Fabricante"), cbVendor));
+        column.add(Box.createVerticalStrut(6));
+        column.add(WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("Modelo"), cbModel));
+
+        return WorkflowUiTheme.createSection("Seleção do dispositivo", column);
+    }
+
+    private JPanel buildManualConnectionSection() {
+        buildRfidOptions();
+        buildScaleOptions();
+
+        JPanel portRow = WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("Porta"),
+                cbPort,
+                btnRefreshPorts,
+                btnTestPort,
+                btnConnect,
+                btnDisconnect);
+
+        JPanel statusStrip = WorkflowUiTheme.createStatusStrip();
+        JLabel statusCaption = WorkflowUiTheme.formLabel("Status");
+        WorkflowUiTheme.styleMutedCaption(statusCaption);
+        statusStrip.add(statusCaption);
+        statusStrip.add(lbStatus);
+
+        JPanel column = new JPanel();
+        column.setOpaque(false);
+        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+        column.setAlignmentX(Component.LEFT_ALIGNMENT);
+        column.add(WorkflowUiTheme.createInsetGroup("Porta serial", portRow));
+        column.add(Box.createVerticalStrut(10));
+        column.add(statusStrip);
+        column.add(Box.createVerticalStrut(6));
+        column.add(lbDeviceInfo);
+        column.add(Box.createVerticalStrut(10));
+        column.add(rfidOptionsPanel);
+        column.add(scaleOptionsPanel);
+
+        return WorkflowUiTheme.createSection("Conexão", column);
+    }
+
+    private JPanel buildManualReadingSection() {
+        JPanel actionBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        actionBar.setOpaque(true);
+        actionBar.setBackground(WorkflowUiTheme.CHIP_BG);
+        actionBar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.CHIP_BORDER),
+                WorkflowUiTheme.empty(12, 12, 12, 12)));
+        actionBar.setAlignmentX(Component.LEFT_ALIGNMENT);
+        actionBar.add(btnToggleContinuous);
+        actionBar.add(btnReadOnce);
+
+        dataTable.setAutoCreateRowSorter(true);
+        dataTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        WorkflowUiTheme.styleTable(dataTable);
+        JScrollPane scrollData = new JScrollPane(dataTable);
+        WorkflowUiTheme.styleScrollPane(scrollData);
+        scrollData.setPreferredSize(new Dimension(0, MANUAL_READING_VIEWPORT_HEIGHT));
+        scrollData.setMinimumSize(new Dimension(0, 140));
+
+        taLog.setEditable(false);
+        taLog.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        WorkflowUiTheme.styleTextArea(taLog);
+        JScrollPane scrollLog = new JScrollPane(taLog);
+        WorkflowUiTheme.styleScrollPane(scrollLog);
+        scrollLog.setPreferredSize(new Dimension(0, MANUAL_READING_VIEWPORT_HEIGHT));
+        scrollLog.setMinimumSize(new Dimension(0, 140));
+
+        JTabbedPane readingTabs = new JTabbedPane();
+        WorkflowUiTheme.styleTabbedPane(readingTabs);
+        readingTabs.addTab("Dados", scrollData);
+        readingTabs.addTab("Log", scrollLog);
+        readingTabs.setAlignmentX(Component.LEFT_ALIGNMENT);
+        readingTabs.setPreferredSize(new Dimension(0, MANUAL_READING_VIEWPORT_HEIGHT + 36));
+        readingTabs.setMinimumSize(new Dimension(0, 176));
+        readingTabs.setMaximumSize(new Dimension(Integer.MAX_VALUE, MANUAL_READING_VIEWPORT_HEIGHT + 36));
+
+        JPanel column = new JPanel();
+        column.setOpaque(false);
+        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+        column.setAlignmentX(Component.LEFT_ALIGNMENT);
+        column.add(actionBar);
+        column.add(Box.createVerticalStrut(10));
+        column.add(readingTabs);
+
+        return WorkflowUiTheme.createSection("Leitura", column);
     }
 
     private void buildRfidOptions() {
+        rfidOptionsPanel.removeAll();
         rfidOptionsPanel.setOpaque(false);
-        rfidOptionsPanel.setBorder(WorkflowUiTheme.empty(8, 0, 0, 0));
-        rfidOptionsPanel.add(createFieldLabel("Potência (%):"));
-        rfidOptionsPanel.add(spPower);
-        rfidOptionsPanel.add(btnApplyPower);
+        rfidOptionsPanel.setLayout(new BoxLayout(rfidOptionsPanel, BoxLayout.Y_AXIS));
+        rfidOptionsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel powerRow = WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("Potência (%)"),
+                spPower,
+                btnApplyPower);
+
+        antennaPanel.removeAll();
         antennaPanel.setOpaque(false);
-        antennaPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Antenas"));
+        antennaPanel.setLayout(new FlowLayout(FlowLayout.LEFT, 6, 4));
         for (int i = 0; i < antennaChecks.length; i++) {
-            antennaChecks[i] = new JCheckBox(String.valueOf(i));
+            if (antennaChecks[i] == null) {
+                antennaChecks[i] = new JCheckBox(String.valueOf(i));
+            }
+            antennaChecks[i].setOpaque(false);
+            antennaChecks[i].setFont(WorkflowUiTheme.fontChip(antennaChecks[i]));
             if (i == 0) {
                 antennaChecks[i].setSelected(true);
             }
             antennaPanel.add(antennaChecks[i]);
         }
-        rfidOptionsPanel.add(antennaPanel);
+
+        JPanel rfidContent = new JPanel();
+        rfidContent.setOpaque(false);
+        rfidContent.setLayout(new BoxLayout(rfidContent, BoxLayout.Y_AXIS));
+        rfidContent.add(powerRow);
+        rfidContent.add(Box.createVerticalStrut(8));
+        rfidContent.add(WorkflowUiTheme.createInsetGroup("Antenas ativas", antennaPanel));
+
+        rfidOptionsPanel.add(WorkflowUiTheme.createInsetGroup("Opções RFID", rfidContent));
     }
 
     private void buildScaleOptions() {
+        scaleOptionsPanel.removeAll();
         scaleOptionsPanel.setOpaque(false);
-        scaleOptionsPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Opções serial (balança)"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(3, 3, 3, 3);
-        gbc.anchor = GridBagConstraints.WEST;
+        scaleOptionsPanel.setLayout(new BoxLayout(scaleOptionsPanel, BoxLayout.Y_AXIS));
+        scaleOptionsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        scaleOptionsPanel.add(new JLabel("Baud rate:"), gbc);
-        gbc.gridx = 1;
-        scaleOptionsPanel.add(spBaud, gbc);
+        JPanel serialContent = new JPanel();
+        serialContent.setOpaque(false);
+        serialContent.setLayout(new BoxLayout(serialContent, BoxLayout.Y_AXIS));
+        serialContent.add(WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("Baud rate"), spBaud));
+        serialContent.add(Box.createVerticalStrut(6));
+        serialContent.add(WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("Data bits"), spDataBits));
+        serialContent.add(Box.createVerticalStrut(6));
+        serialContent.add(WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("Stop bits"), spStopBits));
+        serialContent.add(Box.createVerticalStrut(6));
+        serialContent.add(WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("Paridade"), cbParity));
 
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        scaleOptionsPanel.add(new JLabel("Data bits:"), gbc);
-        gbc.gridx = 1;
-        scaleOptionsPanel.add(spDataBits, gbc);
-
-        gbc.gridx = 0;
-        gbc.gridy = 2;
-        scaleOptionsPanel.add(new JLabel("Stop bits:"), gbc);
-        gbc.gridx = 1;
-        scaleOptionsPanel.add(spStopBits, gbc);
-
-        gbc.gridx = 0;
-        gbc.gridy = 3;
-        scaleOptionsPanel.add(new JLabel("Paridade:"), gbc);
-        gbc.gridx = 1;
-        scaleOptionsPanel.add(cbParity, gbc);
+        scaleOptionsPanel.add(WorkflowUiTheme.createInsetGroup("Parâmetros serial (balança)", serialContent));
     }
 
     private void onPeripheralChanged() {

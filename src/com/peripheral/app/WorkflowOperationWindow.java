@@ -350,9 +350,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         lbLiveWeight.setFont(WorkflowUiTheme.fontMeta(lbLiveWeight));
         lbLiveTags.setFont(WorkflowUiTheme.fontMeta(lbLiveTags));
         statusText.add(lbStatus);
+        statusText.add(lbLiveWeight);
         if (orderValidationEnabled) {
             statusText.add(lbVolume);
-            statusText.add(lbLiveWeight);
             statusText.add(lbLiveTags);
         }
         statusBar.add(statusText, BorderLayout.CENTER);

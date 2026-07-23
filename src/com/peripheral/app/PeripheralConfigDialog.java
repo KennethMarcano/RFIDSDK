@@ -54,9 +54,12 @@ public class PeripheralConfigDialog extends JDialog {
         content.setOpaque(false);
         content.setBorder(WorkflowUiTheme.empty(16, 16, 16, 16));
 
-        JLabel hint = WorkflowUiTheme.createHintLabel(
-                "<html>Selecione fabricante, modelo e porta. "
-                        + "Use <b>Testar porta</b> e <b>Conectar</b>. Ao terminar, clique em <b>Concluído</b>.</html>");
+        String hintHtml = slot == PeripheralSlot.SCALE
+                ? "<html>Selecione fabricante, modelo e porta. Use <b>Testar porta</b> e <b>Conectar</b>. "
+                + "Após conectar, o <b>peso atualiza em tempo real</b>. Ao terminar, clique em <b>Concluído</b>.</html>"
+                : "<html>Selecione fabricante, modelo e porta. "
+                + "Use <b>Testar porta</b> e <b>Conectar</b>. Ao terminar, clique em <b>Concluído</b>.</html>";
+        JLabel hint = WorkflowUiTheme.createHintLabel(hintHtml);
         content.add(hint, BorderLayout.NORTH);
 
         JPanel section = WorkflowUiTheme.createSection(slot.getLabel(), connectionPanel);
@@ -80,20 +83,23 @@ public class PeripheralConfigDialog extends JDialog {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
+                connectionPanel.stopLiveWeightReading();
                 notifyClosed();
             }
         });
         pack();
-        setMinimumSize(new Dimension(Math.max(560, getWidth()), Math.max(460, getHeight())));
+        setMinimumSize(new Dimension(Math.max(560, getWidth()), Math.max(520, getHeight())));
         setLocationRelativeTo(owner);
     }
 
     public void showDialog() {
         connectionPanel.refreshPortsFromOutside();
+        connectionPanel.syncFromSession();
         setVisible(true);
     }
 
     private void closeDialog() {
+        connectionPanel.stopLiveWeightReading();
         dispose();
         notifyClosed();
     }
@@ -103,6 +109,7 @@ public class PeripheralConfigDialog extends JDialog {
             return;
         }
         notified = true;
+        connectionPanel.stopLiveWeightReading();
         if (listener != null) {
             listener.onConfigurationClosed(slot, connectionPanel.isConnected());
         }
