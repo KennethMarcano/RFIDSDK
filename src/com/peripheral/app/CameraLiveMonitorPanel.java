@@ -1,5 +1,6 @@
 package com.peripheral.app;
 
+import com.peripheral.camera.CameraFrameStream;
 import com.peripheral.camera.CameraHardware;
 import com.peripheral.camera.CameraMicroserviceClient;
 import com.peripheral.camera.CameraMicroserviceLifecycle;
@@ -7,20 +8,17 @@ import com.peripheral.camera.CameraServiceException;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.HierarchyListener;
+import java.awt.image.BufferedImage;
 
 /**
- * Monitor de vídeo da câmera no estilo do monitor da balança.
- * No Raspberry Pi, o preview nativo do rpicam é posicionado sobre a área de vídeo.
+ * Mini-view de câmera embutido no Swing (frames MJPEG), no estilo do monitor da balança.
  */
-public class CameraLiveMonitorPanel extends JPanel {
+public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.Listener {
 
     private final JLabel lbCaption = new JLabel("MONITOR DA CÂMERA");
-    private final JLabel lbStatus = new JLabel("Aguardando início do fluxo...", SwingConstants.CENTER);
-    private final JPanel videoHost = new JPanel(new BorderLayout());
+    private final JLabel lbVideo = new JLabel("Aguardando vídeo...", SwingConstants.CENTER);
     private final ThemedButton btnRecalibrate =
             WorkflowUiTheme.button("Recalibrar", ThemedButton.Variant.SECONDARY)
                     .withSize(ThemedButton.Size.SMALL);
@@ -28,7 +26,7 @@ public class CameraLiveMonitorPanel extends JPanel {
     private final Timer keepAliveTimer;
     private boolean liveDesired;
     private boolean starting;
-    private String lastGeometry;
+    private ImageIcon currentIcon;
 
     public CameraLiveMonitorPanel() {
         super(new BorderLayout(0, 4));
@@ -48,30 +46,17 @@ public class CameraLiveMonitorPanel extends JPanel {
         header.add(lbCaption, BorderLayout.WEST);
         header.add(btnRecalibrate, BorderLayout.EAST);
 
-        videoHost.setOpaque(true);
-        videoHost.setBackground(new Color(0x08, 0x0F, 0x1C));
-        videoHost.setBorder(BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1));
-
-        lbStatus.setFont(lbStatus.getFont().deriveFont(Font.PLAIN, 12f));
-        lbStatus.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
-        videoHost.add(lbStatus, BorderLayout.CENTER);
+        lbVideo.setOpaque(true);
+        lbVideo.setBackground(WorkflowUiTheme.MONITOR_ROW_BG);
+        lbVideo.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
+        lbVideo.setFont(lbVideo.getFont().deriveFont(Font.PLAIN, 12f));
+        lbVideo.setBorder(BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1));
+        lbVideo.setHorizontalAlignment(SwingConstants.CENTER);
+        lbVideo.setVerticalAlignment(SwingConstants.CENTER);
 
         add(header, BorderLayout.NORTH);
-        add(videoHost, BorderLayout.CENTER);
+        add(lbVideo, BorderLayout.CENTER);
 
-        ComponentAdapter boundsListener = new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent e) {
-                syncPreviewIfNeeded(false);
-            }
-
-            @Override
-            public void componentMoved(ComponentEvent e) {
-                syncPreviewIfNeeded(false);
-            }
-        };
-        addComponentListener(boundsListener);
-        videoHost.addComponentListener(boundsListener);
         addHierarchyListener(new HierarchyListener() {
             @Override
             public void hierarchyChanged(HierarchyEvent e) {
@@ -79,20 +64,18 @@ public class CameraLiveMonitorPanel extends JPanel {
                     if (isShowing() && liveDesired) {
                         startLivePreview();
                     } else if (!isShowing()) {
-                        stopLivePreview();
+                        detachStream(false);
                     }
                 }
             }
         });
 
-        keepAliveTimer = new Timer(1500, e -> {
+        keepAliveTimer = new Timer(2000, e -> {
             if (!liveDesired || starting || !isShowing()) {
                 return;
             }
             if (!CameraHardware.isPreviewRunning()) {
                 startLivePreview();
-            } else {
-                syncPreviewIfNeeded(false);
             }
         });
         keepAliveTimer.setRepeats(true);
@@ -104,32 +87,22 @@ public class CameraLiveMonitorPanel extends JPanel {
             keepAliveTimer.start();
         }
         if (!isShowing() || starting) {
-            setStatus("Iniciando vídeo...", WorkflowUiTheme.MONITOR_CAPTION);
+            setPlaceholder("Iniciando vídeo...");
             return;
         }
-        Rectangle bounds = screenBoundsOf(videoHost);
-        if (bounds.width < 40 || bounds.height < 40) {
-            setStatus("Aguardando layout da câmera...", WorkflowUiTheme.MONITOR_CAPTION);
-            SwingUtilities.invokeLater(() -> {
-                if (liveDesired) {
-                    startLivePreview();
-                }
-            });
-            return;
-        }
-        String geometry = bounds.x + "," + bounds.y + "," + bounds.width + "," + bounds.height;
-        if (CameraHardware.isPreviewRunning() && geometry.equals(lastGeometry)) {
-            setStatus("Vídeo ao vivo", WorkflowUiTheme.MONITOR_VALUE);
+        if (CameraHardware.isPreviewRunning()) {
+            CameraFrameStream.getInstance().addListener(this);
             return;
         }
         starting = true;
-        setStatus("Iniciando vídeo...", WorkflowUiTheme.MONITOR_CAPTION);
+        setPlaceholder("Iniciando vídeo...");
         btnRecalibrate.setEnabled(false);
+        CameraFrameStream.getInstance().addListener(this);
         new SwingWorker<String, Void>() {
             @Override
             protected String doInBackground() {
                 try {
-                    CameraHardware.startPreview(bounds.x, bounds.y, bounds.width, bounds.height);
+                    CameraHardware.startPreview();
                     return null;
                 } catch (CameraServiceException e) {
                     return e.getMessage();
@@ -143,15 +116,10 @@ public class CameraLiveMonitorPanel extends JPanel {
                 try {
                     String error = get();
                     if (error != null) {
-                        lastGeometry = null;
-                        setStatus(shortStatus(error), WorkflowUiTheme.MONITOR_ALERT);
-                    } else {
-                        lastGeometry = geometry;
-                        setStatus("Vídeo ao vivo", WorkflowUiTheme.MONITOR_VALUE);
+                        setPlaceholder(shortStatus(error));
                     }
                 } catch (Exception e) {
-                    lastGeometry = null;
-                    setStatus("Falha no vídeo", WorkflowUiTheme.MONITOR_ALERT);
+                    setPlaceholder("Falha no vídeo");
                 }
             }
         }.execute();
@@ -160,44 +128,34 @@ public class CameraLiveMonitorPanel extends JPanel {
     public void stopLivePreview() {
         liveDesired = false;
         keepAliveTimer.stop();
-        lastGeometry = null;
         starting = false;
-        CameraHardware.stopPreview();
-        setStatus("Vídeo parado", WorkflowUiTheme.MONITOR_CAPTION);
+        detachStream(true);
+        setPlaceholder("Vídeo parado");
         btnRecalibrate.setEnabled(true);
     }
 
     public void ensureLivePreview() {
-        if (!liveDesired) {
-            startLivePreview();
-        } else if (!CameraHardware.isPreviewRunning()) {
+        if (!liveDesired || !CameraHardware.isPreviewRunning()) {
             startLivePreview();
         } else {
-            syncPreviewIfNeeded(true);
+            CameraFrameStream.getInstance().addListener(this);
         }
     }
 
-    private void syncPreviewIfNeeded(boolean forceRestart) {
-        if (!liveDesired || starting || !isShowing()) {
-            return;
+    private void detachStream(boolean stopProcess) {
+        CameraFrameStream.getInstance().removeListener(this);
+        if (stopProcess) {
+            CameraHardware.stopPreview();
         }
-        Rectangle bounds = screenBoundsOf(videoHost);
-        if (bounds.width < 40 || bounds.height < 40) {
-            return;
-        }
-        String geometry = bounds.x + "," + bounds.y + "," + bounds.width + "," + bounds.height;
-        if (!forceRestart && geometry.equals(lastGeometry) && CameraHardware.isPreviewRunning()) {
-            return;
-        }
-        startLivePreview();
+        currentIcon = null;
+        lbVideo.setIcon(null);
     }
 
     private void recalibrate() {
         btnRecalibrate.setEnabled(false);
         boolean wasLive = liveDesired;
         CameraHardware.stopPreview();
-        lastGeometry = null;
-        setStatus("Recalibrando...", WorkflowUiTheme.MONITOR_CAPTION);
+        setPlaceholder("Recalibrando...");
         new SwingWorker<String, Void>() {
             @Override
             protected String doInBackground() throws Exception {
@@ -218,13 +176,13 @@ public class CameraLiveMonitorPanel extends JPanel {
                 btnRecalibrate.setEnabled(true);
                 try {
                     String msg = get();
-                    setStatus("Câmera recalibrada", WorkflowUiTheme.MONITOR_VALUE);
+                    setPlaceholder("Câmera recalibrada");
                     Window owner = SwingUtilities.getWindowAncestor(CameraLiveMonitorPanel.this);
                     JOptionPane.showMessageDialog(owner, msg,
                             "Recalibrar câmera", JOptionPane.INFORMATION_MESSAGE);
                 } catch (Exception e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
-                    setStatus("Recalibração falhou", WorkflowUiTheme.MONITOR_ALERT);
+                    setPlaceholder("Recalibração falhou");
                     Window owner = SwingUtilities.getWindowAncestor(CameraLiveMonitorPanel.this);
                     JOptionPane.showMessageDialog(owner,
                             "Erro na recalibração: " + cause.getMessage(),
@@ -237,9 +195,35 @@ public class CameraLiveMonitorPanel extends JPanel {
         }.execute();
     }
 
-    private void setStatus(String text, Color color) {
-        lbStatus.setText(text != null ? text : "");
-        lbStatus.setForeground(color != null ? color : WorkflowUiTheme.MONITOR_CAPTION);
+    @Override
+    public void onFrame(BufferedImage frame) {
+        if (frame == null) {
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            if (!liveDesired || !isShowing()) {
+                return;
+            }
+            Image scaled = scaleToFit(frame, lbVideo.getWidth(), lbVideo.getHeight());
+            currentIcon = new ImageIcon(scaled);
+            lbVideo.setText(null);
+            lbVideo.setIcon(currentIcon);
+        });
+    }
+
+    @Override
+    public void onStatus(String message, boolean error) {
+        SwingUtilities.invokeLater(() -> {
+            if (lbVideo.getIcon() == null) {
+                setPlaceholder(message != null ? message : (error ? "Erro na câmera" : ""));
+            }
+        });
+    }
+
+    private void setPlaceholder(String text) {
+        lbVideo.setIcon(null);
+        lbVideo.setText(text != null ? text : "");
+        lbVideo.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
     }
 
     private static String shortStatus(String error) {
@@ -252,16 +236,15 @@ public class CameraLiveMonitorPanel extends JPanel {
         return error.substring(0, 45) + "...";
     }
 
-    private static Rectangle screenBoundsOf(Component component) {
-        try {
-            if (!component.isShowing()) {
-                return new Rectangle();
-            }
-            Point location = component.getLocationOnScreen();
-            Dimension size = component.getSize();
-            return new Rectangle(location.x, location.y, size.width, size.height);
-        } catch (IllegalComponentStateException e) {
-            return new Rectangle();
+    private static Image scaleToFit(BufferedImage source, int maxW, int maxH) {
+        int w = Math.max(1, maxW);
+        int h = Math.max(1, maxH);
+        if (w < 8 || h < 8) {
+            return source;
         }
+        double scale = Math.min((double) w / source.getWidth(), (double) h / source.getHeight());
+        int tw = Math.max(1, (int) Math.round(source.getWidth() * scale));
+        int th = Math.max(1, (int) Math.round(source.getHeight() * scale));
+        return source.getScaledInstance(tw, th, Image.SCALE_FAST);
     }
 }

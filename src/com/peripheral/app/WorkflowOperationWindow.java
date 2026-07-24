@@ -193,7 +193,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         lbLiveWeightValue.setForeground(Color.WHITE);
 
         lbLiveWeightUnit.setFont(lbLiveWeightUnit.getFont().deriveFont(Font.BOLD, 18f));
-        lbLiveWeightUnit.setForeground(new Color(0xCB, 0xD5, 0xE1));
+        lbLiveWeightUnit.setForeground(WorkflowUiTheme.MONITOR_TEXT);
         lbLiveWeightUnit.setBorder(WorkflowUiTheme.empty(16, 6, 0, 0));
 
         lbLiveWeightStable.setFont(lbLiveWeightStable.getFont().deriveFont(Font.PLAIN, 12f));

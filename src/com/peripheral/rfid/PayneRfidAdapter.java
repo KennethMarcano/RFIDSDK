@@ -130,7 +130,7 @@ public class PayneRfidAdapter implements ReadablePeripheral, RfidConfigurable {
 
     @Override
     public int[] getAntennaIds() {
-        return reader != null ? reader.getAntennaIds() : new int[]{0};
+        return reader != null ? reader.getAntennaIds() : new int[]{1};
     }
 
     private void ensureConnected() throws PeripheralException {

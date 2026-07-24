@@ -7,16 +7,14 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Acesso à câmera Sony IMX500 via ferramentas rpicam no Raspberry Pi.
- * O preview nativo ({@code rpicam-hello --timeout 0}) abre a própria janela de vídeo.
+ * O vídeo ao vivo usa {@link CameraFrameStream} (MJPEG embutido no Swing, sem janela nativa).
  */
 public final class CameraHardware {
 
     private static final long DETECT_CACHE_MS = 5_000;
-    private static final AtomicReference<Process> previewProcess = new AtomicReference<>();
     private static final String[] CANDIDATE_COMMANDS = {
             "rpicam-hello",
             "libcamera-hello"
@@ -26,7 +24,6 @@ public final class CameraHardware {
     private static volatile Boolean cachedCameraPresent;
     private static volatile long cacheTimestamp;
     private static volatile String cachedDescribe;
-    private static volatile String lastPreviewGeometry;
 
     private CameraHardware() {
     }
@@ -100,100 +97,28 @@ public final class CameraHardware {
         cacheTimestamp = System.currentTimeMillis();
     }
 
-    public static synchronized boolean isPreviewRunning() {
-        Process process = previewProcess.get();
-        return process != null && process.isAlive();
+    public static boolean isPreviewRunning() {
+        return CameraFrameStream.getInstance().isRunning();
     }
 
     /**
-     * Abre a janela nativa de preview com vídeo contínuo (sem timeout).
+     * Inicia o vídeo embutido (MJPEG) para painéis Swing — sem janela nativa.
      */
-    public static synchronized void startPreview() throws CameraServiceException {
-        startPreview(0, 0, 960, 720);
+    public static void startPreview() throws CameraServiceException {
+        CameraFrameStream.getInstance().start();
     }
 
     /**
-     * Abre o preview nativo posicionado em coordenadas de tela (pixels),
-     * para alinhar com um painel Swing no Raspberry Pi.
+     * @deprecated Prefer {@link #startPreview()}; mantido por compatibilidade.
      */
-    public static synchronized void startPreview(int x, int y, int width, int height)
+    @Deprecated
+    public static void startPreview(int x, int y, int width, int height)
             throws CameraServiceException {
-        int safeW = Math.max(80, width);
-        int safeH = Math.max(60, height);
-        String geometry = Math.max(0, x) + "," + Math.max(0, y) + "," + safeW + "," + safeH;
-        if (isPreviewRunning() && geometry.equals(lastPreviewGeometry)) {
-            return;
-        }
-        stopPreview();
-        invalidateCache();
-        String cmd = resolveHelloCommandUncached();
-        if (cmd == null) {
-            throw new CameraServiceException(
-                    "rpicam-hello não encontrado. Instale rpicam-apps no Raspberry Pi.");
-        }
-        if (!isCameraPresent()) {
-            throw new CameraServiceException(
-                    "Nenhuma câmera detectada. Verifique a conexão da Sony IMX500 (CSI).");
-        }
-        try {
-            List<String> command = new ArrayList<>(Arrays.asList(
-                    cmd,
-                    "--timeout", "0",
-                    "--preview", geometry
-            ));
-            ProcessBuilder pb = new ProcessBuilder(command);
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-            previewProcess.set(process);
-            lastPreviewGeometry = geometry;
-            Thread drain = new Thread(() -> {
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                    while (reader.readLine() != null) {
-                        // descarta saída para evitar bloqueio do pipe
-                    }
-                } catch (Exception ignored) {
-                }
-            }, "rpicam-preview-drain");
-            drain.setDaemon(true);
-            drain.start();
-
-            try {
-                TimeUnit.MILLISECONDS.sleep(600);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            if (!process.isAlive()) {
-                previewProcess.compareAndSet(process, null);
-                lastPreviewGeometry = null;
-                throw new CameraServiceException(
-                        "Preview encerrou imediatamente. Verifique a câmera e tente "
-                                + cmd + " --timeout 0 no terminal.");
-            }
-        } catch (CameraServiceException e) {
-            lastPreviewGeometry = null;
-            throw e;
-        } catch (Exception e) {
-            lastPreviewGeometry = null;
-            throw new CameraServiceException("Falha ao abrir preview: " + e.getMessage(), e);
-        }
+        startPreview();
     }
 
-    public static synchronized void stopPreview() {
-        lastPreviewGeometry = null;
-        Process process = previewProcess.getAndSet(null);
-        if (process == null) {
-            return;
-        }
-        process.destroy();
-        try {
-            if (!process.waitFor(2, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-        }
+    public static void stopPreview() {
+        CameraFrameStream.getInstance().stop();
     }
 
     /**

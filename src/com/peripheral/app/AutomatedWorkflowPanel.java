@@ -304,10 +304,10 @@ public class AutomatedWorkflowPanel extends JPanel {
     private void styleCameraStatusPill(boolean online) {
         if (online) {
             WorkflowUiTheme.styleStatusPill(lbCameraStatus,
-                    new Color(0xD1, 0xFA, 0xE5), WorkflowUiTheme.SUCCESS);
+                    WorkflowUiTheme.BG_CARD_HIGHLIGHT, WorkflowUiTheme.SUCCESS);
         } else {
             WorkflowUiTheme.styleStatusPill(lbCameraStatus,
-                    new Color(0xFE, 0xF3, 0xC7), WorkflowUiTheme.WARNING);
+                    WorkflowUiTheme.ACCENT, WorkflowUiTheme.TEXT_ON_ACCENT);
         }
     }
 

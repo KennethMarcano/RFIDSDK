@@ -58,7 +58,7 @@ public class PeripheralConnectionPanel extends JPanel {
     private final JLabel lbDeviceInfo = new JLabel("-");
 
     private final JPanel rfidOptionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-    private final JSpinner spPower = new JSpinner(new SpinnerNumberModel(50, 1, 100, 1));
+    private final JSpinner spPower = new JSpinner(new SpinnerNumberModel(100, 1, 100, 1));
     private final ThemedButton btnApplyPower =
             WorkflowUiTheme.button("Aplicar potência", ThemedButton.Variant.SECONDARY);
     private final JPanel antennaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -262,11 +262,12 @@ public class PeripheralConnectionPanel extends JPanel {
         antennaPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Antenas"));
         for (int i = 0; i < antennaChecks.length; i++) {
-            antennaChecks[i] = new JCheckBox(String.valueOf(i));
+            int antennaId = i + 1; // canais 1..16 — sem opção 0
+            antennaChecks[i] = new JCheckBox(String.valueOf(antennaId));
             antennaChecks[i].setOpaque(false);
             antennaChecks[i].setFont(WorkflowUiTheme.fontChip(antennaChecks[i]));
             antennaChecks[i].setIconTextGap(2);
-            if (i == 0) {
+            if (antennaId == 1) {
                 antennaChecks[i].setSelected(true);
             }
             antennaPanel.add(antennaChecks[i]);
@@ -838,11 +839,11 @@ public class PeripheralConnectionPanel extends JPanel {
         Set<Integer> ids = new LinkedHashSet<>();
         for (int i = 0; i < antennaChecks.length; i++) {
             if (antennaChecks[i] != null && antennaChecks[i].isSelected()) {
-                ids.add(i);
+                ids.add(i + 1); // antenas físicas 1..16
             }
         }
         if (ids.isEmpty()) {
-            ids.add(0);
+            ids.add(1);
         }
         List<Integer> list = new ArrayList<>(ids);
         int[] arr = new int[list.size()];

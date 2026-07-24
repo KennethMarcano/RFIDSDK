@@ -152,7 +152,7 @@ public class ThemedButton extends JButton {
             switch (variant) {
                 case PRIMARY:
                     background = hovered ? WorkflowUiTheme.ACCENT_HOVER : WorkflowUiTheme.ACCENT;
-                    foreground = Color.WHITE;
+                    foreground = WorkflowUiTheme.TEXT_ON_ACCENT;
                     border = background;
                     break;
                 case SUCCESS:

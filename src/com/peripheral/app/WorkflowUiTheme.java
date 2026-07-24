@@ -8,37 +8,38 @@ import java.awt.geom.RoundRectangle2D;
 
 public final class WorkflowUiTheme {
 
-    public static final Color BG_PAGE = new Color(0xF1, 0xF5, 0xF9);
-    public static final Color BG_CARD = Color.WHITE;
-    public static final Color BG_CARD_HIGHLIGHT = new Color(0xEF, 0xF6, 0xFF);
-    public static final Color BORDER = new Color(0xE2, 0xE8, 0xF0);
-    public static final Color BORDER_FOCUS = new Color(0xBF, 0xDB, 0xFE);
+    public static final Color BG_PAGE = new Color(0xED, 0xF3, 0xFC);
+    public static final Color BG_CARD = new Color(0xFF, 0xFF, 0xFF);
+    public static final Color BG_CARD_HIGHLIGHT = new Color(0xCC, 0xD5, 0xE2);
+    public static final Color BORDER = new Color(0xCC, 0xD5, 0xE2);
+    public static final Color BORDER_FOCUS = new Color(0x3C, 0x53, 0x77);
 
-    public static final Color TEXT_PRIMARY = new Color(0x0F, 0x17, 0x2A);
-    public static final Color TEXT_SECONDARY = new Color(0x64, 0x74, 0x8B);
-    public static final Color TEXT_MUTED = new Color(0x94, 0xA3, 0xB8);
+    public static final Color TEXT_PRIMARY = new Color(0x25, 0x2F, 0x3D);
+    public static final Color TEXT_SECONDARY = new Color(0x4F, 0x5E, 0x70);
+    public static final Color TEXT_MUTED = new Color(0x80, 0x8E, 0xA0);
+    public static final Color TEXT_ON_ACCENT = new Color(0x00, 0x00, 0x00);
 
-    public static final Color ACCENT = new Color(0x25, 0x63, 0xEB);
-    public static final Color ACCENT_HOVER = new Color(0x1D, 0x4E, 0xD8);
-    public static final Color SUCCESS = new Color(0x05, 0x96, 0x69);
-    public static final Color WARNING = new Color(0xD9, 0x77, 0x06);
-    public static final Color DANGER = new Color(0xDC, 0x26, 0x26);
+    public static final Color ACCENT = new Color(0xFF, 0xBB, 0x00);
+    public static final Color ACCENT_HOVER = new Color(0xE6, 0xA8, 0x00);
+    public static final Color SUCCESS = new Color(0x3C, 0x53, 0x77);
+    public static final Color WARNING = new Color(0xFF, 0xBB, 0x00);
+    public static final Color DANGER = new Color(0x25, 0x2F, 0x3D);
 
-    public static final Color BADGE_BG = new Color(0xE0, 0xE7, 0xFF);
-    public static final Color BADGE_TEXT = new Color(0x37, 0x41, 0xCF);
-    public static final Color CHIP_BG = new Color(0xF8, 0xFA, 0xFC);
-    public static final Color CHIP_BORDER = new Color(0xE2, 0xE8, 0xF0);
-    public static final Color PILL_BG = new Color(0xF8, 0xFA, 0xFC);
-    public static final Color PILL_BORDER = new Color(0xCB, 0xD5, 0xE1);
-    public static final Color PILL_DISABLED = new Color(0xE2, 0xE8, 0xF0);
+    public static final Color BADGE_BG = new Color(0xCC, 0xD5, 0xE2);
+    public static final Color BADGE_TEXT = new Color(0x25, 0x2F, 0x3D);
+    public static final Color CHIP_BG = new Color(0xED, 0xF3, 0xFC);
+    public static final Color CHIP_BORDER = new Color(0xCC, 0xD5, 0xE2);
+    public static final Color PILL_BG = new Color(0xED, 0xF3, 0xFC);
+    public static final Color PILL_BORDER = new Color(0x80, 0x8E, 0xA0);
+    public static final Color PILL_DISABLED = new Color(0xCC, 0xD5, 0xE2);
 
-    public static final Color MONITOR_BG = new Color(0x0F, 0x17, 0x2A);
-    public static final Color MONITOR_BORDER = new Color(0x1E, 0x29, 0x3B);
-    public static final Color MONITOR_ROW_BG = new Color(0x1B, 0x25, 0x38);
-    public static final Color MONITOR_CAPTION = new Color(0x94, 0xA3, 0xB8);
-    public static final Color MONITOR_VALUE = new Color(0x34, 0xD3, 0x99);
-    public static final Color MONITOR_ALERT = new Color(0xFB, 0xBF, 0x24);
-    public static final Color MONITOR_TEXT = new Color(0xE2, 0xE8, 0xF0);
+    public static final Color MONITOR_BG = new Color(0x25, 0x2F, 0x3D);
+    public static final Color MONITOR_BORDER = new Color(0x3C, 0x53, 0x77);
+    public static final Color MONITOR_ROW_BG = new Color(0x3C, 0x53, 0x77);
+    public static final Color MONITOR_CAPTION = new Color(0x80, 0x8E, 0xA0);
+    public static final Color MONITOR_VALUE = new Color(0xFF, 0xBB, 0x00);
+    public static final Color MONITOR_ALERT = new Color(0xFF, 0xBB, 0x00);
+    public static final Color MONITOR_TEXT = new Color(0xED, 0xF3, 0xFC);
 
     public static final int RADIUS_CARD = 12;
     public static final int RADIUS_PILL = 16;
