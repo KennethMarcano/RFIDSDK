@@ -7,28 +7,36 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.geom.Ellipse2D;
+import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 
+/**
+ * Uma leitura do histórico em linha única, dimensionada para a tela de 7":
+ * índice, peso, hora e quantidade de produtos, com atalhos de foto e etiqueta.
+ * Tocar na linha abre o detalhe com os seriais.
+ */
 public class WorkflowReadingCard extends JPanel {
 
     public interface ActionListener {
         void onViewPhoto(WorkflowReadingRecord record);
 
         void onViewLabel(WorkflowReadingRecord record);
+
+        void onViewDetails(WorkflowReadingRecord record);
     }
+
+    private static final int ROW_HEIGHT = 44;
 
     private final WorkflowReadingRecord record;
     private final boolean photoEnabled;
     private final boolean labelEnabled;
     private boolean highlight;
-    private final SimpleDateFormat timeFormat = new SimpleDateFormat("dd/MM/yyyy  HH:mm:ss");
-
-    private PillButton btnPhoto;
-    private PillButton btnLabel;
+    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss");
 
     public WorkflowReadingCard(WorkflowReadingRecord record,
                                boolean photoEnabled,
@@ -40,10 +48,20 @@ public class WorkflowReadingCard extends JPanel {
         this.labelEnabled = labelEnabled;
         this.highlight = highlight;
         setOpaque(false);
-        setLayout(new BorderLayout(12, 0));
-        setBorder(WorkflowUiTheme.empty(4, 4, 4, 4));
-        setMaximumSize(new Dimension(Integer.MAX_VALUE, Short.MAX_VALUE));
+        setLayout(new BorderLayout(8, 0));
+        setBorder(WorkflowUiTheme.empty(0, 10, 0, 6));
+        setPreferredSize(new Dimension(0, ROW_HEIGHT));
+        setMinimumSize(new Dimension(0, ROW_HEIGHT));
+        setMaximumSize(new Dimension(Integer.MAX_VALUE, ROW_HEIGHT));
         buildContent(listener);
+
+        setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                listener.onViewDetails(record);
+            }
+        });
     }
 
     public WorkflowReadingRecord getRecord() {
@@ -56,16 +74,13 @@ public class WorkflowReadingCard extends JPanel {
     }
 
     private void buildContent(ActionListener listener) {
-        JPanel indexBadge = createIndexBadge();
-        add(indexBadge, BorderLayout.WEST);
+        JLabel lbIndex = new JLabel("#" + record.getIndex());
+        lbIndex.setFont(lbIndex.getFont().deriveFont(Font.BOLD, 12f));
+        lbIndex.setForeground(WorkflowUiTheme.TEXT_MUTED);
+        add(lbIndex, BorderLayout.WEST);
 
-        JPanel center = new JPanel();
-        center.setOpaque(false);
-        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
-
-        JPanel weightRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        weightRow.setOpaque(false);
-        weightRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel info = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        info.setOpaque(false);
 
         JLabel lbWeight = new JLabel(ScaleWeightFormat.formatGrams(record.getWeightKg()));
         lbWeight.setFont(WorkflowUiTheme.fontWeight(lbWeight));
@@ -74,112 +89,55 @@ public class WorkflowReadingCard extends JPanel {
         JLabel lbUnit = new JLabel(ScaleWeightFormat.UNIT);
         lbUnit.setFont(WorkflowUiTheme.fontWeightUnit(lbUnit));
         lbUnit.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
-        lbUnit.setBorder(WorkflowUiTheme.empty(6, 0, 0, 0));
 
-        weightRow.add(lbWeight);
-        weightRow.add(lbUnit);
-
-        JLabel lbTime = new JLabel(timeFormat.format(new Date(record.getTimestampMs())));
-        lbTime.setFont(WorkflowUiTheme.fontMeta(lbTime));
-        lbTime.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
-        lbTime.setAlignmentX(Component.LEFT_ALIGNMENT);
-        lbTime.setBorder(WorkflowUiTheme.empty(2, 0, 6, 0));
-
-        JPanel chips = createProductChips(record.getTagCodes());
-        chips.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        center.add(weightRow);
-        center.add(lbTime);
-        center.add(chips);
-        add(center, BorderLayout.CENTER);
-
-        JPanel actions = new JPanel();
-        actions.setOpaque(false);
-        actions.setLayout(new BoxLayout(actions, BoxLayout.Y_AXIS));
+        info.add(lbWeight);
+        info.add(lbUnit);
+        info.add(separator());
+        info.add(meta(timeFormat.format(new Date(record.getTimestampMs()))));
+        info.add(separator());
+        info.add(meta(describeProducts(record.getTagCodes())));
+        add(info, BorderLayout.CENTER);
 
         boolean photoAvailable = photoEnabled && record.hasPhoto()
                 && new File(record.getPhotoPath()).isFile();
         boolean labelAvailable = labelEnabled && record.hasLabel()
                 && new File(record.getLabelPdfPath()).isFile();
 
-        btnPhoto = new PillButton("Ver foto", photoAvailable, "\uD83D\uDCF7");
-        btnLabel = new PillButton("Ver etiqueta", labelAvailable, "\uD83C\uDFF7");
-
-        if (photoAvailable) {
-            btnPhoto.addAction(() -> listener.onViewPhoto(record));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        actions.setOpaque(false);
+        if (photoEnabled) {
+            actions.add(new IconButton(IconButton.Kind.PHOTO, photoAvailable, "Ver foto",
+                    () -> listener.onViewPhoto(record)));
         }
-        if (labelAvailable) {
-            btnLabel.addAction(() -> listener.onViewLabel(record));
+        if (labelEnabled) {
+            actions.add(new IconButton(IconButton.Kind.LABEL, labelAvailable, "Ver etiqueta",
+                    () -> listener.onViewLabel(record)));
         }
-
-        actions.add(btnPhoto);
-        actions.add(Box.createVerticalStrut(6));
-        actions.add(btnLabel);
-        add(actions, BorderLayout.EAST);
+        if (actions.getComponentCount() > 0) {
+            add(actions, BorderLayout.EAST);
+        }
     }
 
-    private JPanel createIndexBadge() {
-        JPanel badge = new JPanel() {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(WorkflowUiTheme.BADGE_BG);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
-                g2.dispose();
-                super.paintComponent(g);
-            }
-        };
-        badge.setOpaque(false);
-        badge.setPreferredSize(new Dimension(44, 44));
-        badge.setMinimumSize(new Dimension(44, 44));
-        badge.setLayout(new GridBagLayout());
-
-        JLabel lbIndex = new JLabel("#" + record.getIndex());
-        lbIndex.setFont(lbIndex.getFont().deriveFont(Font.BOLD, 13f));
-        lbIndex.setForeground(WorkflowUiTheme.BADGE_TEXT);
-        badge.add(lbIndex);
-        return badge;
+    private JLabel meta(String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(WorkflowUiTheme.fontMeta(label));
+        label.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+        return label;
     }
 
-    private JPanel createProductChips(List<String> tagCodes) {
-        JPanel flow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        flow.setOpaque(false);
-
-        if (tagCodes == null || tagCodes.isEmpty()) {
-            JLabel empty = new JLabel("Nenhum produto identificado");
-            empty.setFont(WorkflowUiTheme.fontMeta(empty));
-            empty.setForeground(WorkflowUiTheme.TEXT_MUTED);
-            flow.add(empty);
-            return flow;
-        }
-
-        for (String code : tagCodes) {
-            flow.add(createChip(code));
-        }
-        return flow;
+    private JLabel separator() {
+        JLabel label = new JLabel("·");
+        label.setFont(WorkflowUiTheme.fontMeta(label));
+        label.setForeground(WorkflowUiTheme.TEXT_MUTED);
+        return label;
     }
 
-    private JComponent createChip(String text) {
-        JLabel chip = new JLabel(text) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(WorkflowUiTheme.CHIP_BG);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), WorkflowUiTheme.RADIUS_CHIP, WorkflowUiTheme.RADIUS_CHIP);
-                g2.setColor(WorkflowUiTheme.CHIP_BORDER);
-                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1,
-                        WorkflowUiTheme.RADIUS_CHIP, WorkflowUiTheme.RADIUS_CHIP);
-                g2.dispose();
-                super.paintComponent(g);
-            }
-        };
-        chip.setOpaque(false);
-        chip.setFont(WorkflowUiTheme.fontChip(chip));
-        chip.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
-        chip.setBorder(WorkflowUiTheme.empty(3, 10, 3, 10));
-        return chip;
+    private static String describeProducts(List<String> tagCodes) {
+        int count = tagCodes != null ? tagCodes.size() : 0;
+        if (count == 0) {
+            return "sem produtos";
+        }
+        return count == 1 ? "1 produto" : count + " produtos";
     }
 
     @Override
@@ -189,47 +147,48 @@ public class WorkflowReadingCard extends JPanel {
 
         int w = getWidth();
         int h = getHeight();
-        int shadowOffset = 2;
-
-        g2.setColor(new Color(0, 0, 0, 12));
-        g2.fill(new RoundRectangle2D.Float(shadowOffset, shadowOffset,
-                w - shadowOffset, h - shadowOffset,
-                WorkflowUiTheme.RADIUS_CARD, WorkflowUiTheme.RADIUS_CARD));
 
         g2.setColor(highlight ? WorkflowUiTheme.BG_CARD_HIGHLIGHT : WorkflowUiTheme.BG_CARD);
-        g2.fill(new RoundRectangle2D.Float(0, 0, w - shadowOffset, h - shadowOffset,
-                WorkflowUiTheme.RADIUS_CARD, WorkflowUiTheme.RADIUS_CARD));
+        g2.fill(new RoundRectangle2D.Float(0, 0, w, h,
+                WorkflowUiTheme.RADIUS_CHIP, WorkflowUiTheme.RADIUS_CHIP));
 
         g2.setColor(highlight ? WorkflowUiTheme.BORDER_FOCUS : WorkflowUiTheme.BORDER);
-        g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, w - shadowOffset - 1, h - shadowOffset - 1,
-                WorkflowUiTheme.RADIUS_CARD, WorkflowUiTheme.RADIUS_CARD));
+        g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, w - 1, h - 1,
+                WorkflowUiTheme.RADIUS_CHIP, WorkflowUiTheme.RADIUS_CHIP));
 
         if (highlight) {
             g2.setColor(WorkflowUiTheme.ACCENT);
-            g2.fillRoundRect(0, 8, 4, h - shadowOffset - 16, 4, 4);
+            g2.fillRoundRect(0, 6, 4, h - 12, 4, 4);
         }
 
         g2.dispose();
         super.paintComponent(g);
     }
 
-    private static final class PillButton extends JComponent {
+    /** Ícone desenhado em vetor: independe de fonte com suporte a emoji no Raspberry Pi. */
+    private static final class IconButton extends JComponent {
 
-        private final String label;
+        enum Kind {
+            PHOTO, LABEL
+        }
+
+        private static final int SIZE = 36;
+
+        private final Kind kind;
         private final boolean enabled;
-        private final String icon;
         private boolean hovered;
-        private Runnable action;
 
-        PillButton(String label, boolean enabled, String icon) {
-            this.label = label;
+        IconButton(Kind kind, boolean enabled, String tooltip, Runnable action) {
+            this.kind = kind;
             this.enabled = enabled;
-            this.icon = icon;
             setOpaque(false);
-            setCursor(enabled ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
-            setPreferredSize(new Dimension(118, 30));
-            setMinimumSize(new Dimension(118, 30));
-            setMaximumSize(new Dimension(118, 30));
+            setToolTipText(tooltip);
+            setPreferredSize(new Dimension(SIZE, SIZE));
+            setMinimumSize(new Dimension(SIZE, SIZE));
+            setMaximumSize(new Dimension(SIZE, SIZE));
+            setCursor(enabled
+                    ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    : Cursor.getDefaultCursor());
 
             if (enabled) {
                 addMouseListener(new MouseAdapter() {
@@ -255,10 +214,6 @@ public class WorkflowReadingCard extends JPanel {
             }
         }
 
-        void addAction(Runnable runnable) {
-            this.action = runnable;
-        }
-
         @Override
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
@@ -266,34 +221,57 @@ public class WorkflowReadingCard extends JPanel {
 
             int w = getWidth();
             int h = getHeight();
+            Color stroke;
 
             if (!enabled) {
                 g2.setColor(WorkflowUiTheme.PILL_DISABLED);
-                g2.fillRoundRect(0, 0, w, h, WorkflowUiTheme.RADIUS_PILL, WorkflowUiTheme.RADIUS_PILL);
-                g2.setColor(WorkflowUiTheme.BORDER);
-                g2.drawRoundRect(0, 0, w - 1, h - 1, WorkflowUiTheme.RADIUS_PILL, WorkflowUiTheme.RADIUS_PILL);
-                g2.setColor(WorkflowUiTheme.TEXT_MUTED);
+                g2.fillRoundRect(0, 0, w, h, WorkflowUiTheme.RADIUS_CHIP, WorkflowUiTheme.RADIUS_CHIP);
+                stroke = WorkflowUiTheme.TEXT_MUTED;
             } else if (hovered) {
                 g2.setColor(WorkflowUiTheme.ACCENT);
-                g2.fillRoundRect(0, 0, w, h, WorkflowUiTheme.RADIUS_PILL, WorkflowUiTheme.RADIUS_PILL);
-                g2.setColor(Color.WHITE);
+                g2.fillRoundRect(0, 0, w, h, WorkflowUiTheme.RADIUS_CHIP, WorkflowUiTheme.RADIUS_CHIP);
+                stroke = WorkflowUiTheme.TEXT_ON_ACCENT;
             } else {
                 g2.setColor(WorkflowUiTheme.PILL_BG);
-                g2.fillRoundRect(0, 0, w, h, WorkflowUiTheme.RADIUS_PILL, WorkflowUiTheme.RADIUS_PILL);
+                g2.fillRoundRect(0, 0, w, h, WorkflowUiTheme.RADIUS_CHIP, WorkflowUiTheme.RADIUS_CHIP);
                 g2.setColor(WorkflowUiTheme.PILL_BORDER);
-                g2.drawRoundRect(0, 0, w - 1, h - 1, WorkflowUiTheme.RADIUS_PILL, WorkflowUiTheme.RADIUS_PILL);
-                g2.setColor(WorkflowUiTheme.ACCENT);
+                g2.drawRoundRect(0, 0, w - 1, h - 1,
+                        WorkflowUiTheme.RADIUS_CHIP, WorkflowUiTheme.RADIUS_CHIP);
+                stroke = WorkflowUiTheme.TEXT_PRIMARY;
             }
 
-            Font font = WorkflowUiTheme.fontPill(this);
-            g2.setFont(font);
-            FontMetrics fm = g2.getFontMetrics();
-            String text = icon + "  " + label;
-            int textWidth = fm.stringWidth(text);
-            int x = (w - textWidth) / 2;
-            int y = (h + fm.getAscent() - fm.getDescent()) / 2;
-            g2.drawString(text, x, y);
+            g2.setColor(stroke);
+            g2.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            if (kind == Kind.PHOTO) {
+                paintPhotoIcon(g2, w, h);
+            } else {
+                paintLabelIcon(g2, w, h);
+            }
             g2.dispose();
+        }
+
+        private void paintPhotoIcon(Graphics2D g2, int w, int h) {
+            int s = 18;
+            int x = (w - s) / 2;
+            int y = (h - s) / 2 + 1;
+            g2.draw(new RoundRectangle2D.Float(x, y + 4, s, s - 7, 3, 3));
+            g2.draw(new RoundRectangle2D.Float(x + 5f, y + 1f, 7f, 4f, 2f, 2f));
+            g2.draw(new Ellipse2D.Float(x + s / 2f - 3.5f, y + 7.5f, 7f, 7f));
+        }
+
+        private void paintLabelIcon(Graphics2D g2, int w, int h) {
+            int s = 18;
+            int x = (w - s) / 2;
+            int y = (h - s) / 2;
+            Path2D.Float tag = new Path2D.Float();
+            tag.moveTo(x + 1f, y + s / 2f);
+            tag.lineTo(x + 6f, y + 3f);
+            tag.lineTo(x + s - 1f, y + 3f);
+            tag.lineTo(x + s - 1f, y + s - 3f);
+            tag.lineTo(x + 6f, y + s - 3f);
+            tag.closePath();
+            g2.draw(tag);
+            g2.draw(new Ellipse2D.Float(x + 7f, y + s / 2f - 1.5f, 3f, 3f));
         }
     }
 }

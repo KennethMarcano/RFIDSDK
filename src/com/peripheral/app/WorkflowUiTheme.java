@@ -100,22 +100,60 @@ public final class WorkflowUiTheme {
         }
     }
 
+    /** Área física completa da tela, incluindo o espaço da barra de tarefas. */
+    public static Rectangle physicalScreenBounds() {
+        try {
+            return GraphicsEnvironment.getLocalGraphicsEnvironment()
+                    .getDefaultScreenDevice().getDefaultConfiguration().getBounds();
+        } catch (RuntimeException e) {
+            return new Rectangle(0, 0, TARGET_SCREEN_WIDTH, TARGET_SCREEN_HEIGHT);
+        }
+    }
+
     /**
-     * Ocupa a tela inteira em painéis pequenos (Raspberry Pi 7"); em monitores grandes
-     * mantém uma janela do tamanho alvo para que o layout seja testado como no dispositivo.
+     * Tela cheia sem bordas. Ligada por padrão em telas pequenas (Raspberry Pi 7") e
+     * desligada em monitores grandes para permitir testar o layout alvo em janela.
+     * Override: {@code -Drfidsdk.ui.fullscreen=true|false}
+     */
+    public static boolean isFullScreenEnabled() {
+        String prop = System.getProperty("rfidsdk.ui.fullscreen");
+        if (prop != null && !prop.trim().isEmpty()) {
+            return !"false".equalsIgnoreCase(prop.trim());
+        }
+        Rectangle bounds = availableScreenBounds();
+        return bounds.width <= 1280 && bounds.height <= 800;
+    }
+
+    /**
+     * Ocupa a tela inteira sem decoração no dispositivo; em monitores grandes mantém uma
+     * janela do tamanho alvo para que o layout seja testado como no Raspberry Pi.
      */
     public static void applyTouchScreenSize(Window window) {
-        Rectangle bounds = availableScreenBounds();
-        boolean smallScreen = bounds.width <= 1280 && bounds.height <= 800;
         window.setMinimumSize(new Dimension(MIN_SCREEN_WIDTH, MIN_SCREEN_HEIGHT));
-        if (smallScreen) {
-            window.setBounds(bounds);
-            if (window instanceof JFrame) {
-                ((JFrame) window).setExtendedState(Frame.MAXIMIZED_BOTH);
-            }
+        if (isFullScreenEnabled()) {
+            applyFullScreen(window);
         } else {
             window.setSize(TARGET_SCREEN_WIDTH, TARGET_SCREEN_HEIGHT);
             window.setLocationRelativeTo(null);
+        }
+    }
+
+    /** Remove a decoração (só é possível antes da janela existir na tela) e cobre o display. */
+    public static void applyFullScreen(Window window) {
+        try {
+            if (!window.isDisplayable()) {
+                if (window instanceof Frame) {
+                    ((Frame) window).setUndecorated(true);
+                } else if (window instanceof Dialog) {
+                    ((Dialog) window).setUndecorated(true);
+                }
+            }
+        } catch (IllegalComponentStateException ignored) {
+            // janela já exibida: mantém a decoração e apenas maximiza
+        }
+        window.setBounds(physicalScreenBounds());
+        if (window instanceof Frame) {
+            ((Frame) window).setExtendedState(Frame.MAXIMIZED_BOTH);
         }
     }
 

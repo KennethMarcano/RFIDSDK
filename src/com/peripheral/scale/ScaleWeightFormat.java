@@ -49,6 +49,14 @@ public final class ScaleWeightFormat {
     }
 
     /**
+     * Gramas sem zeros à esquerda, para impressos onde a largura fixa não importa.
+     * Ex.: 3.125 kg -> "3125 g".
+     */
+    public static String formatGramsPlain(double kg) {
+        return toGrams(kg) + " " + UNIT;
+    }
+
+    /**
      * Converte o texto de peso do evento (em kg) para gramas formatados.
      *
      * @return {@link #PLACEHOLDER} quando o valor não é numérico

@@ -1,6 +1,6 @@
 package com.peripheral.workflow.label;
 
-import java.util.Locale;
+import com.peripheral.scale.ScaleWeightFormat;
 
 public final class LabelLayout {
 
@@ -13,7 +13,7 @@ public final class LabelLayout {
     }
 
     public static String formatWeight(double weightKg) {
-        return String.format(Locale.US, "%.3f kg", weightKg);
+        return ScaleWeightFormat.formatGramsPlain(weightKg);
     }
 
     public static float mmToPoints(float mm) {

@@ -64,6 +64,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                     .withSize(ThemedButton.Size.LARGE);
     private final ThemedButton btnRestartSession =
             WorkflowUiTheme.button("Reiniciar", ThemedButton.Variant.SECONDARY);
+    /** Em tela cheia não há barra de título: esta é a saída visível do fluxo. */
+    private final ThemedButton btnEndWorkflow =
+            WorkflowUiTheme.button("Encerrar", ThemedButton.Variant.DANGER);
 
     private final JPanel simulationPanel = new JPanel(new GridBagLayout());
     private final JSpinner spMockWeight =
@@ -289,6 +292,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             }
         });
         btnRestartSession.addActionListener(e -> restartSession());
+        btnEndWorkflow.addActionListener(e -> confirmEndWorkflow());
 
         btnRereadRfid.addActionListener(e -> runOperatorAction(() -> orchestrator.operatorRereadRfid()));
         btnCapturePhoto.addActionListener(e -> runOperatorAction(() -> orchestrator.operatorCapturePhoto()));
@@ -297,6 +301,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actions.setOpaque(false);
+        actions.add(btnEndWorkflow);
         actions.add(btnRestartSession);
         actions.add(btnStartWeighing);
         actions.add(btnNext);
@@ -419,23 +424,60 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             public void onViewLabel(WorkflowReadingRecord r) {
                 openLabel(r);
             }
+
+            @Override
+            public void onViewDetails(WorkflowReadingRecord r) {
+                openDetails(r);
+            }
         });
         readingCards.add(card);
-        historyList.add(card);
-        historyList.add(Box.createVerticalStrut(6));
+        // Mais recente no topo: a última leitura fica visível sem rolagem.
+        historyList.add(card, 0);
+        historyList.add(Box.createVerticalStrut(4), 1);
         updateEmptyStateVisibility();
         historyList.revalidate();
         historyList.repaint();
 
         SwingUtilities.invokeLater(() -> {
-            Container parent = historyList.getParent();
-            if (parent instanceof JViewport) {
-                JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, parent);
-                if (scroll != null) {
-                    scroll.getVerticalScrollBar().setValue(scroll.getVerticalScrollBar().getMaximum());
-                }
+            JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(
+                    JScrollPane.class, historyList);
+            if (scroll != null) {
+                scroll.getVerticalScrollBar().setValue(0);
             }
         });
+    }
+
+    private void openDetails(WorkflowReadingRecord record) {
+        if (record == null) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("Leitura #").append(record.getIndex()).append('\n');
+        sb.append("Peso: ").append(ScaleWeightFormat.formatGramsWithUnit(record.getWeightKg())).append('\n');
+        List<String> codes = record.getTagCodes();
+        if (codes == null || codes.isEmpty()) {
+            sb.append("\nNenhum produto identificado.");
+        } else {
+            sb.append("\nProdutos (").append(codes.size()).append("):\n");
+            for (String code : codes) {
+                sb.append("  • ").append(code).append('\n');
+            }
+        }
+
+        JTextArea area = new JTextArea(sb.toString());
+        area.setEditable(false);
+        area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        WorkflowUiTheme.styleTextArea(area);
+
+        JScrollPane scroll = new JScrollPane(area);
+        WorkflowUiTheme.styleScrollPane(scroll);
+        Rectangle screen = WorkflowUiTheme.availableScreenBounds();
+        scroll.setPreferredSize(new Dimension(
+                Math.min(screen.width - 120, 420),
+                Math.min(screen.height - 200, 240)));
+
+        JOptionPane.showMessageDialog(this, scroll,
+                "Detalhe da leitura", JOptionPane.PLAIN_MESSAGE);
     }
 
     private void updateEmptyStateVisibility() {
@@ -525,6 +567,22 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Operação", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private void confirmEndWorkflow() {
+        if (orchestrator == null) {
+            setVisible(false);
+            return;
+        }
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Encerrar o fluxo e voltar para a tela de configuração?",
+                "Encerrar fluxo",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+        orchestrator.stop();
     }
 
     private void confirmOperatorVolume() {
