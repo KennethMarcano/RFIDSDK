@@ -21,8 +21,23 @@ public class MainFrame extends JFrame {
 
     public MainFrame() {
         super("Periféricos eship — Fluxo automatizado");
+        // setUndecorated precisa acontecer antes de qualquer peer nativo (buildUi/setVisible).
+        if (WorkflowUiTheme.isFullScreenEnabled()) {
+            setUndecorated(true);
+            setResizable(false);
+        }
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowOpened(WindowEvent e) {
+                WorkflowUiTheme.keepFullScreen(MainFrame.this);
+            }
+
+            @Override
+            public void windowActivated(WindowEvent e) {
+                WorkflowUiTheme.keepFullScreen(MainFrame.this);
+            }
+
             @Override
             public void windowClosing(WindowEvent e) {
                 exitApplication();
@@ -32,6 +47,8 @@ public class MainFrame extends JFrame {
         WorkflowUiTheme.styleFrame(this);
         WorkflowUiTheme.applyTouchScreenSize(this);
         setVisible(true);
+        // Alguns WMs no Raspberry redimensionam logo após o show.
+        SwingUtilities.invokeLater(() -> WorkflowUiTheme.keepFullScreen(this));
     }
 
     private void buildUi() {

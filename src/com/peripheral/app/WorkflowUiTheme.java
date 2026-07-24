@@ -111,8 +111,8 @@ public final class WorkflowUiTheme {
     }
 
     /**
-     * Tela cheia sem bordas. Ligada por padrão em telas pequenas (Raspberry Pi 7") e
-     * desligada em monitores grandes para permitir testar o layout alvo em janela.
+     * Tela cheia sem bordas. Ligada por padrão em telas de quiosque/touch (até Full HD);
+     * em monitores maiores mantém janela 800x480 para testar o layout.
      * Override: {@code -Drfidsdk.ui.fullscreen=true|false}
      */
     public static boolean isFullScreenEnabled() {
@@ -121,7 +121,8 @@ public final class WorkflowUiTheme {
             return !"false".equalsIgnoreCase(prop.trim());
         }
         Rectangle bounds = availableScreenBounds();
-        return bounds.width <= 1280 && bounds.height <= 800;
+        // 7" Pi (800x480), 10" e Full HD de quiosque entram; só monitores grandes ficam em janela.
+        return bounds.width <= 1920 && bounds.height <= 1200;
     }
 
     /**
@@ -138,22 +139,47 @@ public final class WorkflowUiTheme {
         }
     }
 
-    /** Remove a decoração (só é possível antes da janela existir na tela) e cobre o display. */
+    /**
+     * Remove a decoração e cobre o display físico inteiro.
+     * Não usa {@code MAXIMIZED_BOTH}: no Linux/Raspberry o WM reduz a janela à área útil
+     * (fora do painel), e a principal ficava menor que os diálogos.
+     */
     public static void applyFullScreen(Window window) {
         try {
             if (!window.isDisplayable()) {
                 if (window instanceof Frame) {
-                    ((Frame) window).setUndecorated(true);
+                    Frame frame = (Frame) window;
+                    frame.setUndecorated(true);
+                    frame.setResizable(false);
                 } else if (window instanceof Dialog) {
-                    ((Dialog) window).setUndecorated(true);
+                    Dialog dialog = (Dialog) window;
+                    dialog.setUndecorated(true);
+                    dialog.setResizable(false);
                 }
             }
         } catch (IllegalComponentStateException ignored) {
-            // janela já exibida: mantém a decoração e apenas maximiza
+            // janela já exibida: só reajusta os bounds
         }
-        window.setBounds(physicalScreenBounds());
+        Rectangle screen = physicalScreenBounds();
+        window.setBounds(screen);
+        // Garante que um estado "maximizado" residual do WM não encolha a janela.
         if (window instanceof Frame) {
-            ((Frame) window).setExtendedState(Frame.MAXIMIZED_BOTH);
+            ((Frame) window).setExtendedState(Frame.NORMAL);
+        }
+        window.setBounds(screen);
+    }
+
+    /** Reaplica a tela cheia depois que o WM mostrou a janela (alguns WMs redimensionam no open). */
+    public static void keepFullScreen(Window window) {
+        if (!isFullScreenEnabled()) {
+            return;
+        }
+        Rectangle screen = physicalScreenBounds();
+        if (!screen.equals(window.getBounds())) {
+            if (window instanceof Frame) {
+                ((Frame) window).setExtendedState(Frame.NORMAL);
+            }
+            window.setBounds(screen);
         }
     }
 
