@@ -2,6 +2,7 @@ package com.peripheral.app;
 
 import com.peripheral.camera.CameraHardware;
 import com.peripheral.pedido.Pedido;
+import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.workflow.PedidoValidationService;
 import com.peripheral.workflow.WorkflowController;
 import com.peripheral.workflow.WorkflowConfig;
@@ -30,8 +31,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final boolean orderValidationEnabled;
 
     private final JLabel lbVolume = new JLabel("");
-    private final JLabel lbLiveWeightValue = new JLabel("—.—", SwingConstants.CENTER);
-    private final JLabel lbLiveWeightUnit = new JLabel("kg");
+    private final JLabel lbLiveWeightValue =
+            new JLabel(ScaleWeightFormat.PLACEHOLDER, SwingConstants.CENTER);
+    private final JLabel lbLiveWeightUnit = new JLabel(ScaleWeightFormat.UNIT);
     private final JLabel lbLiveWeightStable = new JLabel("Aguardando leitura da balança", SwingConstants.CENTER);
     private final CameraLiveMonitorPanel cameraMonitor = new CameraLiveMonitorPanel();
 
@@ -64,7 +66,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             WorkflowUiTheme.button("Reiniciar", ThemedButton.Variant.SECONDARY);
 
     private final JPanel simulationPanel = new JPanel(new GridBagLayout());
-    private final JSpinner spMockWeight = new JSpinner(new SpinnerNumberModel(3.125, 0.001, 9999.999, 0.001));
+    private final JSpinner spMockWeight =
+            new JSpinner(new SpinnerNumberModel(3.125, 0.001, ScaleWeightFormat.MAX_KG, 0.001));
     private final JTextField tfMockTags = new JTextField(WorkflowMockData.DEFAULT_TAGS_TEXT, 22);
     private final JCheckBox cbFastStabilization = new JCheckBox("Estabilização rápida (~200 ms)", true);
     private final ThemedButton btnLoadSample =
@@ -189,7 +192,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         caption.setFont(caption.getFont().deriveFont(Font.BOLD, 12f));
         caption.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
 
-        lbLiveWeightValue.setFont(lbLiveWeightValue.getFont().deriveFont(Font.BOLD, 52f));
+        // Monoespaçada: os 5 dígitos mantêm sempre a mesma largura.
+        lbLiveWeightValue.setFont(new Font(Font.MONOSPACED, Font.BOLD, 52));
         lbLiveWeightValue.setForeground(Color.WHITE);
 
         lbLiveWeightUnit.setFont(lbLiveWeightUnit.getFont().deriveFont(Font.BOLD, 18f));
@@ -605,22 +609,25 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             if (event == null) {
                 return;
             }
-            String weight = event.getWeight();
-            if (weight == null || weight.isEmpty()) {
-                if (event.getDisplayText() != null && !event.getDisplayText().isEmpty()) {
-                    lbLiveWeightValue.setText(event.getDisplayText());
-                    lbLiveWeightUnit.setText("");
-                }
+            Double kg = ScaleWeightFormat.parseKg(event.getWeight());
+            if (kg == null) {
                 return;
             }
             boolean stable = Boolean.TRUE.equals(event.getStable());
-            lbLiveWeightValue.setText(weight);
-            lbLiveWeightUnit.setText("kg");
+            boolean overload = ScaleWeightFormat.isOverload(kg);
+            lbLiveWeightValue.setText(ScaleWeightFormat.formatGrams(kg));
+            lbLiveWeightUnit.setText(ScaleWeightFormat.UNIT);
             lbLiveWeightValue.setForeground(stable ? WorkflowUiTheme.MONITOR_VALUE : Color.WHITE);
-            lbLiveWeightStable.setText(stable ? "●  PESO ESTÁVEL" : "○  PESO INSTÁVEL — aguarde");
-            lbLiveWeightStable.setForeground(stable
-                    ? WorkflowUiTheme.MONITOR_VALUE
-                    : WorkflowUiTheme.MONITOR_ALERT);
+            if (overload) {
+                lbLiveWeightStable.setText("!  ACIMA DE "
+                        + ScaleWeightFormat.MAX_GRAMS + " " + ScaleWeightFormat.UNIT);
+                lbLiveWeightStable.setForeground(WorkflowUiTheme.MONITOR_ALERT);
+            } else {
+                lbLiveWeightStable.setText(stable ? "●  PESO ESTÁVEL" : "○  PESO INSTÁVEL — aguarde");
+                lbLiveWeightStable.setForeground(stable
+                        ? WorkflowUiTheme.MONITOR_VALUE
+                        : WorkflowUiTheme.MONITOR_ALERT);
+            }
         });
     }
 

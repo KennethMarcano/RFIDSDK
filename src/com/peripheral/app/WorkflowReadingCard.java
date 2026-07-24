@@ -1,5 +1,6 @@
 package com.peripheral.app;
 
+import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.workflow.WorkflowReadingRecord;
 
 import javax.swing.*;
@@ -8,11 +9,9 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
 import java.io.File;
-import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
-import java.util.function.Consumer;
 
 public class WorkflowReadingCard extends JPanel {
 
@@ -26,7 +25,6 @@ public class WorkflowReadingCard extends JPanel {
     private final boolean photoEnabled;
     private final boolean labelEnabled;
     private boolean highlight;
-    private final DecimalFormat weightFormat = new DecimalFormat("#,##0.000");
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("dd/MM/yyyy  HH:mm:ss");
 
     private PillButton btnPhoto;
@@ -69,11 +67,11 @@ public class WorkflowReadingCard extends JPanel {
         weightRow.setOpaque(false);
         weightRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel lbWeight = new JLabel(weightFormat.format(record.getWeightKg()));
+        JLabel lbWeight = new JLabel(ScaleWeightFormat.formatGrams(record.getWeightKg()));
         lbWeight.setFont(WorkflowUiTheme.fontWeight(lbWeight));
         lbWeight.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
 
-        JLabel lbUnit = new JLabel("kg");
+        JLabel lbUnit = new JLabel(ScaleWeightFormat.UNIT);
         lbUnit.setFont(WorkflowUiTheme.fontWeightUnit(lbUnit));
         lbUnit.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
         lbUnit.setBorder(WorkflowUiTheme.empty(6, 0, 0, 0));

@@ -810,8 +810,9 @@ public class AutomatedWorkflowPanel extends JPanel {
             public void onReadingRecorded(com.peripheral.workflow.WorkflowReadingRecord record) {
                 window.onReadingRecorded(record);
                 SwingUtilities.invokeLater(() -> appendLog("Leitura #" + record.getIndex()
-                        + " — peso: " + record.getWeightKg() + " kg, produtos: "
-                        + record.getTagCodes().size()));
+                        + " — peso: "
+                        + com.peripheral.scale.ScaleWeightFormat.formatGramsWithUnit(record.getWeightKg())
+                        + ", produtos: " + record.getTagCodes().size()));
             }
 
             @Override

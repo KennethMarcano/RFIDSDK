@@ -35,15 +35,9 @@ public final class DigitronDgnParser {
             return ParseResult.unparsed(trimmed);
         }
         boolean stable = statusChar == 'D';
-        String display = (stable ? "Estável: " : "Instável: ") + formatWeight(value) + " kg";
+        String display = (stable ? "Estável: " : "Instável: ")
+                + ScaleWeightFormat.formatGramsWithUnit(value);
         return new ParseResult(trimmed, value, stable, display);
-    }
-
-    private static String formatWeight(double value) {
-        if (value == Math.floor(value)) {
-            return String.format("%.0f", value);
-        }
-        return String.format("%.3f", value).replaceAll("0+$", "").replaceAll("\\.$", "");
     }
 
     public static final class ParseResult {

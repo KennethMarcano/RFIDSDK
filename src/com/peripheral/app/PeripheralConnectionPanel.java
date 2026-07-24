@@ -12,6 +12,7 @@ import com.peripheral.core.ReadablePeripheral;
 import com.peripheral.core.RfidConfigurable;
 import com.peripheral.core.SerialConnectionConfig;
 import com.peripheral.core.SerialPortProber;
+import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.session.PeripheralConnectionHandle;
 import com.peripheral.session.PeripheralSessionManager;
 import com.peripheral.session.PeripheralSlot;
@@ -71,7 +72,8 @@ public class PeripheralConnectionPanel extends JPanel {
     private final JComboBox<ParityOption> cbParity = new JComboBox<>(ParityOption.values());
 
     private final JPanel liveWeightPanel = new JPanel(new BorderLayout(8, 4));
-    private final JLabel lbLiveWeight = new JLabel("—.—", SwingConstants.CENTER);
+    private final JLabel lbLiveWeight = new JLabel(
+            ScaleWeightFormat.PLACEHOLDER + " " + ScaleWeightFormat.UNIT, SwingConstants.CENTER);
     private final JLabel lbLiveWeightHint = new JLabel("Conecte a balança para ver o peso");
 
     private final JPanel rfidTestPanel = new JPanel(new BorderLayout(0, 6));
@@ -333,7 +335,8 @@ public class PeripheralConnectionPanel extends JPanel {
         caption.setFont(caption.getFont().deriveFont(Font.BOLD, 12f));
         caption.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
 
-        lbLiveWeight.setFont(lbLiveWeight.getFont().deriveFont(Font.BOLD, 34f));
+        // Monoespaçada: os 5 dígitos mantêm sempre a mesma largura.
+        lbLiveWeight.setFont(new Font(Font.MONOSPACED, Font.BOLD, 34));
         lbLiveWeight.setForeground(Color.WHITE);
 
         lbLiveWeightHint.setFont(WorkflowUiTheme.fontMeta(lbLiveWeightHint));
@@ -405,23 +408,28 @@ public class PeripheralConnectionPanel extends JPanel {
         if (!liveWeightActive || event == null) {
             return;
         }
-        String weight = event.getWeight();
-        if (weight != null && !weight.isEmpty()) {
-            boolean stable = Boolean.TRUE.equals(event.getStable());
-            lbLiveWeight.setText(weight + " kg");
-            lbLiveWeight.setForeground(stable ? WorkflowUiTheme.MONITOR_VALUE : Color.WHITE);
+        Double kg = ScaleWeightFormat.parseKg(event.getWeight());
+        if (kg == null) {
+            return;
+        }
+        boolean stable = Boolean.TRUE.equals(event.getStable());
+        lbLiveWeight.setText(ScaleWeightFormat.formatGramsWithUnit(kg));
+        lbLiveWeight.setForeground(stable ? WorkflowUiTheme.MONITOR_VALUE : Color.WHITE);
+        if (ScaleWeightFormat.isOverload(kg)) {
+            lbLiveWeightHint.setText("!  Acima da capacidade de "
+                    + ScaleWeightFormat.MAX_GRAMS + " " + ScaleWeightFormat.UNIT);
+            WorkflowUiTheme.setStatusColor(lbLiveWeightHint, WorkflowUiTheme.MONITOR_ALERT);
+        } else {
             lbLiveWeightHint.setText(stable
                     ? "●  PESO ESTÁVEL"
                     : "○  Aguardando estabilização...");
             WorkflowUiTheme.setStatusColor(lbLiveWeightHint,
                     stable ? WorkflowUiTheme.MONITOR_VALUE : WorkflowUiTheme.MONITOR_ALERT);
-        } else if (event.getDisplayText() != null && !event.getDisplayText().isEmpty()) {
-            lbLiveWeight.setText(event.getDisplayText());
         }
     }
 
     private void resetLiveWeightDisplay() {
-        lbLiveWeight.setText("—.—");
+        lbLiveWeight.setText(ScaleWeightFormat.PLACEHOLDER + " " + ScaleWeightFormat.UNIT);
         lbLiveWeight.setForeground(Color.WHITE);
         lbLiveWeightHint.setText("Conecte a balança para ver o peso");
         lbLiveWeightHint.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
