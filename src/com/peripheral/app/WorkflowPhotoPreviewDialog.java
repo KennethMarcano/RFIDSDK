@@ -24,8 +24,13 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
                 "<html><b>Arquivo:</b> " + escapeHtml(absolutePath) + "</html>");
         content.add(pathLabel, BorderLayout.NORTH);
 
+        // Em telas pequenas (7") a imagem precisa caber junto com cabeçalho e botões.
+        Rectangle screen = WorkflowUiTheme.availableScreenBounds();
+        int maxImageSize = Math.max(200, Math.min(MAX_IMAGE_SIZE,
+                Math.min(screen.width - 120, screen.height - 180)));
+
         JLabel imageLabel = new JLabel("", SwingConstants.CENTER);
-        imageLabel.setPreferredSize(new Dimension(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE));
+        imageLabel.setPreferredSize(new Dimension(maxImageSize, maxImageSize));
         imageLabel.setOpaque(true);
         imageLabel.setBackground(WorkflowUiTheme.BG_CARD);
         imageLabel.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
@@ -39,7 +44,7 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
                         || (icon.getIconWidth() <= 32 && icon.getIconHeight() <= 32)) {
                     warning = "Atenção: imagem muito pequena — pode não ser uma captura real da câmera.";
                 }
-                Image scaled = scaleImage(icon.getImage(), MAX_IMAGE_SIZE, MAX_IMAGE_SIZE);
+                Image scaled = scaleImage(icon.getImage(), maxImageSize, maxImageSize);
                 imageLabel.setIcon(new ImageIcon(scaled));
             } else {
                 imageLabel.setText("Não foi possível carregar a imagem.");
@@ -80,8 +85,7 @@ public class WorkflowPhotoPreviewDialog extends JDialog {
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         pack();
-        setMinimumSize(new Dimension(Math.max(480, getWidth()), Math.max(360, getHeight())));
-        setLocationRelativeTo(owner);
+        WorkflowUiTheme.clampToScreen(this, owner);
     }
 
     public static void showPreview(Window owner, String photoPath) {

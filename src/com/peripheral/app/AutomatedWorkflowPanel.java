@@ -24,17 +24,16 @@ import com.peripheral.workflow.WorkflowStep;
 
 import javax.swing.*;
 import java.awt.*;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.function.Consumer;
 
 public class AutomatedWorkflowPanel extends JPanel {
 
+    private static final int PERIPHERAL_ROW_HEIGHT = 58;
+
     private final PeripheralSessionManager sessionManager;
     private final Consumer<String> logConsumer;
-    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss");
 
     private final JLabel lbScaleSummary = new JLabel();
     private final JLabel lbRfidSummary = new JLabel();
@@ -54,7 +53,7 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final JCheckBox cbOrderValidation = new JCheckBox("Validar pedido (peso + RFID + IA fallback)", false);
     private final JCheckBox cbPedidoMock = new JCheckBox("Usar pedido mock (demo)", true);
     private final JCheckBox cbDemoDivergence = new JCheckBox("Cenário demo (forçar divergência)", false);
-    private final JTextField tfPedidoNumero = new JTextField("1001", 10);
+    private final JTextField tfPedidoNumero = new JTextField("1001", 8);
     private final JLabel lbPedidoResumo = new JLabel("Nenhum pedido carregado");
     private final JLabel lbCameraStatus = new JLabel("Câmera: verificando...");
     private final JSpinner spTolerancePercent = new JSpinner(
@@ -62,16 +61,17 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final JSpinner spToleranceKg = new JSpinner(
             new SpinnerNumberModel(WorkflowConfig.DEFAULT_WEIGHT_TOLERANCE_KG, 0.001, 10.0, 0.01));
     private final ThemedButton btnLoadPedido =
-            WorkflowUiTheme.button("Carregar pedido", ThemedButton.Variant.SECONDARY);
+            WorkflowUiTheme.button("Carregar", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnRecalibrateCamera =
             WorkflowUiTheme.button("Recalibrar câmera", ThemedButton.Variant.SECONDARY);
 
     private WorkflowController orchestrator;
     private Pedido loadedPedido;
     private final ThemedButton btnStartWorkflow =
-            WorkflowUiTheme.button("Iniciar fluxo", ThemedButton.Variant.PRIMARY);
+            WorkflowUiTheme.button("Iniciar fluxo", ThemedButton.Variant.PRIMARY)
+                    .withSize(ThemedButton.Size.LARGE);
     private final ThemedButton btnStopWorkflow =
-            WorkflowUiTheme.button("Parar fluxo", ThemedButton.Variant.DANGER);
+            WorkflowUiTheme.button("Parar", ThemedButton.Variant.DANGER);
     private final ThemedButton btnRestartWorkflow =
             WorkflowUiTheme.button("Reiniciar sessão", ThemedButton.Variant.SECONDARY);
 
@@ -85,7 +85,7 @@ public class AutomatedWorkflowPanel extends JPanel {
         this.sessionManager = sessionManager;
         this.logConsumer = logConsumer;
         WorkflowUiTheme.stylePanel(this);
-        setBorder(WorkflowUiTheme.empty(12, 12, 12, 12));
+        setBorder(WorkflowUiTheme.empty(0, 8, 8, 8));
         buildUi();
         refreshPeripheralSummaries();
         refreshCameraStatus();
@@ -107,26 +107,14 @@ public class AutomatedWorkflowPanel extends JPanel {
     }
 
     private void buildUi() {
-        JPanel top = new JPanel();
-        top.setOpaque(false);
-        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
-        top.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JTabbedPane tabs = new JTabbedPane();
+        WorkflowUiTheme.styleTabbedPane(tabs);
+        tabs.addTab("Periféricos", WorkflowUiTheme.wrapVerticalScroll(buildPeripheralsTab()));
+        tabs.addTab("Pedido", WorkflowUiTheme.wrapVerticalScroll(buildOrderTab()));
+        tabs.addTab("Processos", WorkflowUiTheme.wrapVerticalScroll(buildProcessTab()));
 
-        JPanel peripherals = buildPeripheralsSection();
-        JPanel order = buildOrderSection();
-        JPanel process = buildProcessSection();
-        JPanel hint = buildOperationHintSection();
-        WorkflowUiTheme.prepareBoxSection(process);
-        WorkflowUiTheme.prepareBoxSection(hint);
-
-        JPanel configRow = WorkflowUiTheme.createResponsiveColumns(peripherals, order);
-        top.add(configRow);
-        top.add(Box.createVerticalStrut(4));
-        top.add(process);
-        top.add(Box.createVerticalStrut(4));
-        top.add(hint);
-
-        add(WorkflowUiTheme.wrapVerticalScroll(top), BorderLayout.CENTER);
+        add(tabs, BorderLayout.CENTER);
+        add(buildActionBar(), BorderLayout.SOUTH);
 
         btnConfigScale.addActionListener(e -> openConfigDialog(PeripheralSlot.SCALE));
         btnConfigRfid.addActionListener(e -> openConfigDialog(PeripheralSlot.RFID_READER));
@@ -141,71 +129,176 @@ public class AutomatedWorkflowPanel extends JPanel {
         btnRecalibrateCamera.addActionListener(e -> recalibrateCamera());
     }
 
-    private JPanel buildOrderSection() {
-        styleCheckBox(cbOrderValidation);
-        styleCheckBox(cbPedidoMock);
-        styleCheckBox(cbDemoDivergence);
+    private JPanel buildPeripheralsTab() {
+        JPanel column = new JPanel();
+        column.setOpaque(false);
+        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+        column.setBorder(WorkflowUiTheme.empty(8, 4, 4, 4));
+        column.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        column.add(buildPeripheralRow("Balança", true, lbScaleSummary, btnConfigScale));
+        column.add(buildPeripheralRow("Leitor RFID", false, lbRfidSummary, btnConfigRfid));
+        lbCameraSummary.setText("Verificando...");
+        WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.TEXT_MUTED);
+        column.add(buildPeripheralRow("Câmera", false, lbCameraSummary, btnTestCamera));
+
+        styleCameraStatusPill(false);
+        JPanel statusStrip = WorkflowUiTheme.createStatusStrip();
+        statusStrip.add(lbCameraStatus);
+        statusStrip.add(btnRecalibrateCamera);
+        statusStrip.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
+        column.add(Box.createVerticalStrut(8));
+        column.add(statusStrip);
+
+        JLabel hint = WorkflowUiTheme.createHintLabel(
+                "Em Configurar: peso ao vivo na balança e tags com repetições no RFID.");
+        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        hint.setBorder(WorkflowUiTheme.empty(8, 2, 0, 2));
+        column.add(hint);
+
+        return column;
+    }
+
+    private JPanel buildPeripheralRow(String title, boolean required, JLabel summary, ThemedButton action) {
+        JPanel row = new JPanel(new BorderLayout(10, 0));
+        row.setOpaque(false);
+        row.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, WorkflowUiTheme.BORDER),
+                WorkflowUiTheme.empty(6, 2, 6, 2)));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, PERIPHERAL_ROW_HEIGHT));
+
+        JLabel name = new JLabel(title + (required ? " *" : ""));
+        name.setFont(name.getFont().deriveFont(Font.BOLD, 13f));
+        name.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
+        name.setPreferredSize(new Dimension(104, name.getPreferredSize().height));
+
+        summary.setFont(WorkflowUiTheme.fontMeta(summary));
+
+        row.add(name, BorderLayout.WEST);
+        row.add(summary, BorderLayout.CENTER);
+        row.add(action, BorderLayout.EAST);
+        return row;
+    }
+
+    private JPanel buildOrderTab() {
+        WorkflowUiTheme.styleTouchCheckBox(cbOrderValidation);
+        WorkflowUiTheme.styleTouchCheckBox(cbPedidoMock);
+        WorkflowUiTheme.styleTouchCheckBox(cbDemoDivergence);
         WorkflowUiTheme.styleCompactTextField(tfPedidoNumero, 8);
         WorkflowUiTheme.styleCompactSpinner(spTolerancePercent);
         WorkflowUiTheme.styleCompactSpinner(spToleranceKg);
 
+        cbOrderValidation.setFont(cbOrderValidation.getFont().deriveFont(Font.BOLD, 13f));
+
         JPanel column = new JPanel();
         column.setOpaque(false);
         column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+        column.setBorder(WorkflowUiTheme.empty(8, 4, 4, 4));
         column.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        cbOrderValidation.setFont(cbOrderValidation.getFont().deriveFont(Font.BOLD, 12f));
-        JPanel toggleRow = WorkflowUiTheme.formRow(cbOrderValidation);
-        column.add(toggleRow);
-        column.add(Box.createVerticalStrut(12));
+        column.add(WorkflowUiTheme.formRow(cbOrderValidation));
 
-        JPanel searchContent = WorkflowUiTheme.formRow(
+        JPanel numberRow = WorkflowUiTheme.formRow(
                 WorkflowUiTheme.formLabel("Nº pedido"),
                 tfPedidoNumero,
                 btnLoadPedido);
-        JPanel searchGroup = WorkflowUiTheme.createInsetGroup("Identificação do pedido", searchContent);
-        searchGroup.setAlignmentX(Component.LEFT_ALIGNMENT);
-        column.add(searchGroup);
-        column.add(Box.createVerticalStrut(10));
+        JPanel numberGroup = WorkflowUiTheme.createInsetGroup("Identificação do pedido", numberRow);
+        numberGroup.setAlignmentX(Component.LEFT_ALIGNMENT);
+        numberGroup.setMaximumSize(new Dimension(Integer.MAX_VALUE, 110));
+        column.add(numberGroup);
+        column.add(Box.createVerticalStrut(8));
 
-        JPanel toleranceContent = new JPanel();
-        toleranceContent.setOpaque(false);
-        toleranceContent.setLayout(new BoxLayout(toleranceContent, BoxLayout.Y_AXIS));
-        toleranceContent.add(WorkflowUiTheme.formRow(
-                WorkflowUiTheme.formLabel("± %"), spTolerancePercent));
-        toleranceContent.add(Box.createVerticalStrut(6));
-        toleranceContent.add(WorkflowUiTheme.formRow(
-                WorkflowUiTheme.formLabel("± kg"), spToleranceKg));
+        JPanel toleranceContent = WorkflowUiTheme.formRow(
+                WorkflowUiTheme.formLabel("± %"), spTolerancePercent,
+                WorkflowUiTheme.formLabel("± kg"), spToleranceKg);
+        JPanel toleranceGroup = WorkflowUiTheme.createInsetGroup("Tolerância de peso", toleranceContent);
+        toleranceGroup.setAlignmentX(Component.LEFT_ALIGNMENT);
+        toleranceGroup.setMaximumSize(new Dimension(Integer.MAX_VALUE, 110));
+        column.add(toleranceGroup);
+        column.add(Box.createVerticalStrut(8));
 
         JPanel demoContent = new JPanel();
         demoContent.setOpaque(false);
         demoContent.setLayout(new BoxLayout(demoContent, BoxLayout.Y_AXIS));
+        cbPedidoMock.setAlignmentX(Component.LEFT_ALIGNMENT);
+        cbDemoDivergence.setAlignmentX(Component.LEFT_ALIGNMENT);
         demoContent.add(cbPedidoMock);
-        demoContent.add(Box.createVerticalStrut(4));
         demoContent.add(cbDemoDivergence);
-
-        JPanel settingsRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        settingsRow.setOpaque(false);
-        settingsRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        settingsRow.add(WorkflowUiTheme.createInsetGroup("Tolerância de peso", toleranceContent));
-        settingsRow.add(WorkflowUiTheme.createInsetGroup("Opções demo", demoContent));
-        column.add(settingsRow);
-        column.add(Box.createVerticalStrut(10));
+        JPanel demoGroup = WorkflowUiTheme.createInsetGroup("Opções demo", demoContent);
+        demoGroup.setAlignmentX(Component.LEFT_ALIGNMENT);
+        demoGroup.setMaximumSize(new Dimension(Integer.MAX_VALUE, 130));
+        column.add(demoGroup);
+        column.add(Box.createVerticalStrut(8));
 
         lbPedidoResumo.setFont(WorkflowUiTheme.fontMeta(lbPedidoResumo));
         lbPedidoResumo.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
-        styleCameraStatusPill(false);
-
         JPanel statusStrip = WorkflowUiTheme.createStatusStrip();
-        JLabel statusCaption = WorkflowUiTheme.formLabel("Status");
-        WorkflowUiTheme.styleMutedCaption(statusCaption);
-        statusStrip.add(statusCaption);
         statusStrip.add(lbPedidoResumo);
-        statusStrip.add(lbCameraStatus);
-        statusStrip.add(btnRecalibrateCamera);
+        statusStrip.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
         column.add(statusStrip);
 
-        return WorkflowUiTheme.createSection("Pedido e câmera", column);
+        return column;
+    }
+
+    private JPanel buildProcessTab() {
+        cbWeighing.setSelected(true);
+        cbWeighing.setEnabled(false);
+        WorkflowUiTheme.styleTouchCheckBox(cbWeighing);
+        WorkflowUiTheme.styleTouchCheckBox(cbRfid);
+        WorkflowUiTheme.styleTouchCheckBox(cbPhoto);
+        WorkflowUiTheme.styleTouchCheckBox(cbLabel);
+        WorkflowUiTheme.styleTouchCheckBox(cbSimulation);
+
+        JPanel checks = new JPanel(new GridLayout(0, 2, 8, 2));
+        checks.setOpaque(false);
+        checks.setAlignmentX(Component.LEFT_ALIGNMENT);
+        checks.add(cbWeighing);
+        checks.add(cbRfid);
+        checks.add(cbPhoto);
+        checks.add(cbLabel);
+        checks.add(cbSimulation);
+        checks.setMaximumSize(new Dimension(Integer.MAX_VALUE, 130));
+
+        JLabel help = WorkflowUiTheme.createHintLabel(
+                "<html>Após estabilizar 1,5 s → RFID (1 s) → validação do pedido (se ativa). "
+                        + "Divergência: foto + IA fallback + revisão do operador. "
+                        + "Caminho OK: etiqueta (e foto se marcada).</html>");
+        help.setAlignmentX(Component.LEFT_ALIGNMENT);
+        help.setBorder(WorkflowUiTheme.empty(10, 2, 0, 2));
+
+        JPanel column = new JPanel();
+        column.setOpaque(false);
+        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+        column.setBorder(WorkflowUiTheme.empty(8, 4, 4, 4));
+        column.setAlignmentX(Component.LEFT_ALIGNMENT);
+        column.add(checks);
+        column.add(help);
+        return column;
+    }
+
+    private JPanel buildActionBar() {
+        btnStopWorkflow.setEnabled(false);
+        btnRestartWorkflow.setEnabled(false);
+
+        lbWorkflowStatus.setFont(WorkflowUiTheme.fontStatus(lbWorkflowStatus));
+        lbWorkflowStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        actions.setOpaque(false);
+        actions.add(btnRestartWorkflow);
+        actions.add(btnStopWorkflow);
+        actions.add(btnStartWorkflow);
+
+        JPanel bar = new JPanel(new BorderLayout(10, 0));
+        bar.setOpaque(true);
+        bar.setBackground(WorkflowUiTheme.BG_CARD);
+        bar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, WorkflowUiTheme.BORDER),
+                WorkflowUiTheme.empty(8, 10, 8, 10)));
+        bar.add(lbWorkflowStatus, BorderLayout.CENTER);
+        bar.add(actions, BorderLayout.EAST);
+        return bar;
     }
 
     private void styleCameraStatusPill(boolean online) {
@@ -349,117 +442,6 @@ public class AutomatedWorkflowPanel extends JPanel {
         CameraTestDialog dialog = new CameraTestDialog(parent, this::appendLog);
         dialog.showDialog();
         refreshCameraStatus();
-    }
-
-    private JPanel buildPeripheralRow(String title, boolean required, JLabel summary, ThemedButton action) {
-        JPanel row = new JPanel(new BorderLayout(12, 0));
-        row.setOpaque(false);
-        row.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, WorkflowUiTheme.BORDER),
-                WorkflowUiTheme.empty(10, 0, 10, 0)));
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 52));
-
-        JLabel name = WorkflowUiTheme.formLabel(title + (required ? " *" : ""));
-        name.setPreferredSize(new Dimension(96, name.getPreferredSize().height));
-        row.add(name, BorderLayout.WEST);
-
-        summary.setFont(WorkflowUiTheme.fontStatus(summary));
-        row.add(summary, BorderLayout.CENTER);
-        row.add(action, BorderLayout.EAST);
-        return row;
-    }
-
-    private JPanel buildPeripheralsSection() {
-        JPanel rows = new JPanel();
-        rows.setOpaque(false);
-        rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
-        rows.add(buildPeripheralRow("Balança", true, lbScaleSummary, btnConfigScale));
-        rows.add(buildPeripheralRow("Leitor RFID", false, lbRfidSummary, btnConfigRfid));
-        lbCameraSummary.setText("Verificando...");
-        WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.TEXT_MUTED);
-        rows.add(buildPeripheralRow("Câmera", false, lbCameraSummary, btnTestCamera));
-        return WorkflowUiTheme.createSection("Periféricos", rows);
-    }
-
-    private JPanel buildProcessSection() {
-        JPanel checks = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 6));
-        checks.setOpaque(false);
-        checks.setAlignmentX(Component.LEFT_ALIGNMENT);
-        cbWeighing.setSelected(true);
-        cbWeighing.setEnabled(false);
-        cbWeighing.setOpaque(false);
-        cbWeighing.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
-        styleCheckBox(cbRfid);
-        styleCheckBox(cbPhoto);
-        styleCheckBox(cbLabel);
-        styleCheckBox(cbSimulation);
-        checks.add(cbWeighing);
-        checks.add(cbRfid);
-        checks.add(cbPhoto);
-        checks.add(cbLabel);
-        checks.add(cbSimulation);
-
-        JLabel help = WorkflowUiTheme.createHintLabel(
-                "<html>Após estabilizar 1,5 s → RFID (1 s) → validação do pedido (se ativa). "
-                        + "Divergência: foto + IA fallback + revisão do operador. "
-                        + "Caminho OK: etiqueta (e foto se marcada). "
-                        + "Use <b>Reiniciar sessão</b> para limpar o histórico sem parar o fluxo.</html>");
-        help.setBorder(WorkflowUiTheme.empty(4, 0, 0, 0));
-        help.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        btnStopWorkflow.setEnabled(false);
-        btnRestartWorkflow.setEnabled(false);
-
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        actions.setOpaque(false);
-        actions.add(btnStartWorkflow);
-        actions.add(btnStopWorkflow);
-        actions.add(btnRestartWorkflow);
-
-        lbWorkflowStatus.setFont(WorkflowUiTheme.fontStatus(lbWorkflowStatus));
-        lbWorkflowStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
-
-        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        statusRow.setOpaque(false);
-        JLabel lbStatusCaption = WorkflowUiTheme.formLabel("Status");
-        WorkflowUiTheme.styleMutedCaption(lbStatusCaption);
-        statusRow.add(lbStatusCaption);
-        statusRow.add(lbWorkflowStatus);
-
-        JPanel actionBar = new JPanel(new BorderLayout(0, 8));
-        actionBar.setOpaque(true);
-        actionBar.setBackground(WorkflowUiTheme.CHIP_BG);
-        actionBar.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(WorkflowUiTheme.CHIP_BORDER),
-                WorkflowUiTheme.empty(12, 12, 12, 12)));
-        actionBar.setAlignmentX(Component.LEFT_ALIGNMENT);
-        actionBar.add(actions, BorderLayout.NORTH);
-        actionBar.add(statusRow, BorderLayout.SOUTH);
-
-        JPanel content = new JPanel();
-        content.setOpaque(false);
-        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
-        content.setAlignmentX(Component.LEFT_ALIGNMENT);
-        content.add(checks);
-        content.add(Box.createVerticalStrut(10));
-        content.add(help);
-        content.add(Box.createVerticalStrut(12));
-        content.add(actionBar);
-
-        return WorkflowUiTheme.createSection("Processos do fluxo", content);
-    }
-
-    private JPanel buildOperationHintSection() {
-        JLabel hint = WorkflowUiTheme.createHintLabel(
-                "<html>A operação abre em uma janela separada ao iniciar o fluxo. "
-                        + "Use <b>Iniciar pesagem</b> e <b>Próximo</b> nessa janela para controlar cada ciclo.</html>");
-        return WorkflowUiTheme.createSection("Operação", hint);
-    }
-
-    private void styleCheckBox(JCheckBox checkBox) {
-        checkBox.setOpaque(false);
-        checkBox.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
-        checkBox.setFont(WorkflowUiTheme.fontMeta(checkBox));
     }
 
     private void openConfigDialog(PeripheralSlot slot) {
@@ -916,9 +898,8 @@ public class AutomatedWorkflowPanel extends JPanel {
     }
 
     private void appendLog(String msg) {
-        String line = "[" + timeFormat.format(new Date()) + "] " + msg;
         if (logConsumer != null) {
-            logConsumer.accept(line);
+            logConsumer.accept(msg);
         }
     }
 

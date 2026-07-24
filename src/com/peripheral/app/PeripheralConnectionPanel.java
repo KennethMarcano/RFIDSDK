@@ -30,6 +30,8 @@ import java.util.function.Consumer;
 
 public class PeripheralConnectionPanel extends JPanel {
 
+    private static final int MONITOR_COLUMN_WIDTH = 330;
+
     public interface ConnectionListener {
         void onConnectionChanged(PeripheralSlot slot, boolean connected);
 
@@ -45,7 +47,7 @@ public class PeripheralConnectionPanel extends JPanel {
     private final JComboBox<DeviceModelEntry> cbModel = new JComboBox<>();
     private final JComboBox<SerialPortInfo> cbPort = new JComboBox<>();
     private final ThemedButton btnRefreshPorts =
-            WorkflowUiTheme.button("Atualizar portas", ThemedButton.Variant.SECONDARY);
+            WorkflowUiTheme.button("Atualizar", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnTestPort =
             WorkflowUiTheme.button("Testar porta", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnConnect =
@@ -69,12 +71,20 @@ public class PeripheralConnectionPanel extends JPanel {
     private final JComboBox<ParityOption> cbParity = new JComboBox<>(ParityOption.values());
 
     private final JPanel liveWeightPanel = new JPanel(new BorderLayout(8, 4));
-    private final JLabel lbLiveWeight = new JLabel("Peso: —", SwingConstants.CENTER);
-    private final JLabel lbLiveWeightHint = new JLabel("Conecte a balança para ver o peso em tempo real");
+    private final JLabel lbLiveWeight = new JLabel("—.—", SwingConstants.CENTER);
+    private final JLabel lbLiveWeightHint = new JLabel("Conecte a balança para ver o peso");
+
+    private final JPanel rfidTestPanel = new JPanel(new BorderLayout(0, 6));
+    private final RfidTagMonitorPanel tagMonitor = new RfidTagMonitorPanel("TESTE DE LEITURA RFID");
+    private final ThemedButton btnToggleRfidTest =
+            WorkflowUiTheme.button("Iniciar teste", ThemedButton.Variant.PRIMARY);
+    private final ThemedButton btnClearTags =
+            WorkflowUiTheme.button("Limpar", ThemedButton.Variant.SECONDARY);
 
     private DeviceModelEntry selectedModel;
     private Window ownerWindow;
     private boolean liveWeightActive;
+    private boolean liveRfidActive;
 
     public PeripheralConnectionPanel(PeripheralSlot slot, PeripheralSessionManager sessionManager,
                                      ConnectionListener connectionListener,
@@ -115,10 +125,19 @@ public class PeripheralConnectionPanel extends JPanel {
     }
 
     private void buildUi() {
+        WorkflowUiTheme.styleFormCombo(cbVendor, 160, 320);
+        WorkflowUiTheme.styleFormCombo(cbModel, 180, 360);
+        WorkflowUiTheme.styleFormCombo(cbPort, 150, 210);
+        WorkflowUiTheme.styleFormCombo(cbParity, 110, 150);
+        WorkflowUiTheme.styleCompactSpinner(spPower);
+        WorkflowUiTheme.styleCompactSpinner(spBaud);
+        WorkflowUiTheme.styleCompactSpinner(spDataBits);
+        WorkflowUiTheme.styleCompactSpinner(spStopBits);
+
         JPanel selection = new JPanel(new GridBagLayout());
         selection.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(6, 0, 6, 8);
+        gbc.insets = new Insets(4, 0, 4, 8);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
@@ -148,42 +167,59 @@ public class PeripheralConnectionPanel extends JPanel {
         });
         selection.add(cbModel, gbc);
 
-        JPanel portRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        portRow.setOpaque(false);
-        portRow.add(fieldLabel("Porta:"));
         setupPortCombo();
+        JPanel portRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        portRow.setOpaque(false);
+        portRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        portRow.add(fieldLabel("Porta:"));
         portRow.add(cbPort);
         portRow.add(btnRefreshPorts);
-        portRow.add(btnTestPort);
-        portRow.add(btnConnect);
-        portRow.add(btnDisconnect);
+
+        JPanel connectRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        connectRow.setOpaque(false);
+        connectRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        connectRow.add(btnTestPort);
+        connectRow.add(btnConnect);
+        connectRow.add(btnDisconnect);
 
         buildRfidOptions();
         buildScaleOptions();
         buildLiveWeightPanel();
+        buildRfidTestPanel();
         boolean isRfid = slot.getPeripheralType() == PeripheralType.RFID_READER;
         boolean isScale = slot.getPeripheralType() == PeripheralType.SCALE;
         rfidOptionsPanel.setVisible(isRfid);
         scaleOptionsPanel.setVisible(isScale);
-        liveWeightPanel.setVisible(isScale);
 
         lbStatus.setFont(WorkflowUiTheme.fontStatus(lbStatus));
         lbStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+        lbStatus.setAlignmentX(Component.LEFT_ALIGNMENT);
         lbDeviceInfo.setFont(WorkflowUiTheme.fontMeta(lbDeviceInfo));
         lbDeviceInfo.setForeground(WorkflowUiTheme.TEXT_MUTED);
+        lbDeviceInfo.setAlignmentX(Component.LEFT_ALIGNMENT);
+        selection.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JPanel center = new JPanel();
-        center.setOpaque(false);
-        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
-        center.add(selection);
-        center.add(portRow);
-        center.add(lbStatus);
-        center.add(lbDeviceInfo);
-        center.add(rfidOptionsPanel);
-        center.add(scaleOptionsPanel);
-        center.add(liveWeightPanel);
+        JPanel settings = new JPanel();
+        settings.setOpaque(false);
+        settings.setLayout(new BoxLayout(settings, BoxLayout.Y_AXIS));
+        settings.add(selection);
+        settings.add(portRow);
+        settings.add(connectRow);
+        settings.add(lbStatus);
+        settings.add(lbDeviceInfo);
+        settings.add(rfidOptionsPanel);
+        settings.add(scaleOptionsPanel);
 
-        add(center, BorderLayout.CENTER);
+        // O monitor fica sempre visível ao lado das configurações, sem depender de rolagem.
+        JPanel monitorHost = new JPanel(new BorderLayout());
+        monitorHost.setOpaque(false);
+        monitorHost.setBorder(WorkflowUiTheme.empty(0, 10, 0, 0));
+        monitorHost.setPreferredSize(new Dimension(MONITOR_COLUMN_WIDTH, 10));
+        monitorHost.setMinimumSize(new Dimension(MONITOR_COLUMN_WIDTH, 10));
+        monitorHost.add(isRfid ? rfidTestPanel : liveWeightPanel, BorderLayout.CENTER);
+
+        add(WorkflowUiTheme.wrapVerticalScroll(settings), BorderLayout.CENTER);
+        add(monitorHost, BorderLayout.EAST);
 
         cbVendor.addActionListener(e -> onVendorChanged());
         cbModel.addActionListener(e -> onModelChanged());
@@ -192,9 +228,17 @@ public class PeripheralConnectionPanel extends JPanel {
         btnConnect.addActionListener(e -> connectDevice());
         btnDisconnect.addActionListener(e -> disconnectDevice());
         btnApplyPower.addActionListener(e -> applyPower());
+        btnToggleRfidTest.addActionListener(e -> toggleRfidTest());
+        btnClearTags.addActionListener(e -> {
+            tagMonitor.reset();
+            tagMonitor.setHint(liveRfidActive
+                    ? "Aproxime as tags do leitor..."
+                    : "Toque em Iniciar teste para ler as tags.");
+        });
 
         btnDisconnect.setEnabled(false);
         setSelectionEnabled(true);
+        updateRfidTestControls();
     }
 
     private JLabel fieldLabel(String text) {
@@ -206,15 +250,22 @@ public class PeripheralConnectionPanel extends JPanel {
 
     private void buildRfidOptions() {
         rfidOptionsPanel.setOpaque(false);
-        rfidOptionsPanel.setBorder(WorkflowUiTheme.empty(8, 0, 0, 0));
+        rfidOptionsPanel.setLayout(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        rfidOptionsPanel.setBorder(WorkflowUiTheme.empty(6, 0, 0, 0));
+        rfidOptionsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
         rfidOptionsPanel.add(fieldLabel("Potência (%):"));
         rfidOptionsPanel.add(spPower);
         rfidOptionsPanel.add(btnApplyPower);
+
         antennaPanel.setOpaque(false);
+        antennaPanel.setLayout(new GridLayout(0, 4, 2, 0));
         antennaPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Antenas"));
         for (int i = 0; i < antennaChecks.length; i++) {
             antennaChecks[i] = new JCheckBox(String.valueOf(i));
+            antennaChecks[i].setOpaque(false);
+            antennaChecks[i].setFont(WorkflowUiTheme.fontChip(antennaChecks[i]));
+            antennaChecks[i].setIconTextGap(2);
             if (i == 0) {
                 antennaChecks[i].setSelected(true);
             }
@@ -223,8 +274,25 @@ public class PeripheralConnectionPanel extends JPanel {
         rfidOptionsPanel.add(antennaPanel);
     }
 
+    private void buildRfidTestPanel() {
+        rfidTestPanel.setOpaque(false);
+        rfidTestPanel.setBorder(WorkflowUiTheme.empty(8, 0, 0, 0));
+        rfidTestPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        tagMonitor.setHint("Conecte o leitor e toque em Iniciar teste.");
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        actions.setOpaque(false);
+        actions.add(btnToggleRfidTest);
+        actions.add(btnClearTags);
+
+        rfidTestPanel.add(tagMonitor, BorderLayout.CENTER);
+        rfidTestPanel.add(actions, BorderLayout.SOUTH);
+    }
+
     private void buildScaleOptions() {
         scaleOptionsPanel.setOpaque(false);
+        scaleOptionsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
         scaleOptionsPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Opções serial"));
         GridBagConstraints gbc = new GridBagConstraints();
@@ -253,24 +321,25 @@ public class PeripheralConnectionPanel extends JPanel {
     }
 
     private void buildLiveWeightPanel() {
-        liveWeightPanel.setOpaque(false);
+        liveWeightPanel.setOpaque(true);
+        liveWeightPanel.setBackground(WorkflowUiTheme.MONITOR_BG);
         liveWeightPanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Peso em tempo real"),
-                WorkflowUiTheme.empty(8, 12, 8, 12)));
+                BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1),
+                WorkflowUiTheme.empty(10, 12, 10, 12)));
         liveWeightPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        lbLiveWeight.setFont(lbLiveWeight.getFont().deriveFont(Font.BOLD, 32f));
-        lbLiveWeight.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
-        lbLiveWeight.setOpaque(true);
-        lbLiveWeight.setBackground(WorkflowUiTheme.CHIP_BG);
-        lbLiveWeight.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(WorkflowUiTheme.CHIP_BORDER),
-                WorkflowUiTheme.empty(16, 12, 16, 12)));
+        JLabel caption = new JLabel("PESO EM TEMPO REAL");
+        caption.setFont(caption.getFont().deriveFont(Font.BOLD, 12f));
+        caption.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
+
+        lbLiveWeight.setFont(lbLiveWeight.getFont().deriveFont(Font.BOLD, 34f));
+        lbLiveWeight.setForeground(Color.WHITE);
 
         lbLiveWeightHint.setFont(WorkflowUiTheme.fontMeta(lbLiveWeightHint));
-        lbLiveWeightHint.setForeground(WorkflowUiTheme.TEXT_MUTED);
+        lbLiveWeightHint.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
+        lbLiveWeightHint.setHorizontalAlignment(SwingConstants.CENTER);
 
+        liveWeightPanel.add(caption, BorderLayout.NORTH);
         liveWeightPanel.add(lbLiveWeight, BorderLayout.CENTER);
         liveWeightPanel.add(lbLiveWeightHint, BorderLayout.SOUTH);
     }
@@ -278,6 +347,7 @@ public class PeripheralConnectionPanel extends JPanel {
     public void syncFromSession() {
         if (!isConnected()) {
             resetLiveWeightDisplay();
+            updateRfidTestControls();
             return;
         }
         PeripheralConnectionHandle handle = sessionManager.getHandle(slot);
@@ -292,6 +362,7 @@ public class PeripheralConnectionPanel extends JPanel {
         btnDisconnect.setEnabled(true);
         setSelectionEnabled(false);
         startLiveWeightReading();
+        startLiveRfidReading();
     }
 
     public void startLiveWeightReading() {
@@ -336,23 +407,109 @@ public class PeripheralConnectionPanel extends JPanel {
         String weight = event.getWeight();
         if (weight != null && !weight.isEmpty()) {
             boolean stable = Boolean.TRUE.equals(event.getStable());
-            lbLiveWeight.setText("Peso: " + weight + " kg" + (stable ? "  ● estável" : "  ○ instável"));
-            lbLiveWeight.setForeground(stable ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.WARNING);
+            lbLiveWeight.setText(weight + " kg");
+            lbLiveWeight.setForeground(stable ? WorkflowUiTheme.MONITOR_VALUE : Color.WHITE);
             lbLiveWeightHint.setText(stable
-                    ? "Peso estável — pronto para o fluxo"
-                    : "Aguardando estabilização...");
+                    ? "●  PESO ESTÁVEL"
+                    : "○  Aguardando estabilização...");
             WorkflowUiTheme.setStatusColor(lbLiveWeightHint,
-                    stable ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.WARNING);
+                    stable ? WorkflowUiTheme.MONITOR_VALUE : WorkflowUiTheme.MONITOR_ALERT);
         } else if (event.getDisplayText() != null && !event.getDisplayText().isEmpty()) {
             lbLiveWeight.setText(event.getDisplayText());
         }
     }
 
     private void resetLiveWeightDisplay() {
-        lbLiveWeight.setText("Peso: —");
-        lbLiveWeight.setForeground(WorkflowUiTheme.TEXT_PRIMARY);
-        lbLiveWeightHint.setText("Conecte a balança para ver o peso em tempo real");
-        lbLiveWeightHint.setForeground(WorkflowUiTheme.TEXT_MUTED);
+        lbLiveWeight.setText("—.—");
+        lbLiveWeight.setForeground(Color.WHITE);
+        lbLiveWeightHint.setText("Conecte a balança para ver o peso");
+        lbLiveWeightHint.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
+    }
+
+    /** Interrompe qualquer leitura de teste (balança ou RFID) iniciada por este painel. */
+    public void stopLiveReading() {
+        stopLiveWeightReading();
+        stopLiveRfidReading();
+    }
+
+    private void toggleRfidTest() {
+        if (liveRfidActive) {
+            stopLiveRfidReading();
+        } else {
+            startLiveRfidReading();
+        }
+    }
+
+    public void startLiveRfidReading() {
+        if (slot.getPeripheralType() != PeripheralType.RFID_READER) {
+            return;
+        }
+        ReadablePeripheral device = sessionManager.getDevice(slot);
+        if (device == null || !device.isConnected()) {
+            tagMonitor.setHint("Conecte o leitor e toque em Iniciar teste.");
+            updateRfidTestControls();
+            return;
+        }
+        try {
+            if (device.isReading()) {
+                device.stopContinuousReading();
+            }
+            liveRfidActive = true;
+            tagMonitor.setHint("Aproxime as tags do leitor...");
+            device.startContinuousReading(event -> SwingUtilities.invokeLater(() -> registerTagEvent(event)));
+            log("Teste RFID iniciado (" + slot.getLabel() + ")");
+        } catch (PeripheralException e) {
+            liveRfidActive = false;
+            tagMonitor.setHint("Não foi possível iniciar a leitura: " + e.getMessage());
+            log("ERRO teste RFID: " + e.getMessage());
+        }
+        updateRfidTestControls();
+    }
+
+    public void stopLiveRfidReading() {
+        if (slot.getPeripheralType() != PeripheralType.RFID_READER) {
+            return;
+        }
+        boolean wasActive = liveRfidActive;
+        liveRfidActive = false;
+        ReadablePeripheral device = sessionManager.getDevice(slot);
+        if (device != null && device.isReading()) {
+            device.stopContinuousReading();
+        }
+        if (wasActive) {
+            tagMonitor.setHint("Teste pausado — " + tagMonitor.getUniqueTagCount()
+                    + " tag(s) única(s) em " + tagMonitor.getTotalReads() + " leitura(s).");
+            log("Teste RFID parado: " + tagMonitor.getUniqueTagCount() + " tag(s) única(s), "
+                    + tagMonitor.getTotalReads() + " leitura(s)");
+        }
+        updateRfidTestControls();
+    }
+
+    private void registerTagEvent(PeripheralDataEvent event) {
+        if (!liveRfidActive || event == null) {
+            return;
+        }
+        String code = event.getCode();
+        if (code == null || code.isEmpty()) {
+            code = event.getEpc();
+        }
+        if (code == null || code.isEmpty()) {
+            code = event.getDisplayText();
+        }
+        tagMonitor.registerTag(code);
+    }
+
+    private void updateRfidTestControls() {
+        if (slot.getPeripheralType() != PeripheralType.RFID_READER) {
+            return;
+        }
+        boolean connected = isConnected();
+        btnToggleRfidTest.setEnabled(connected);
+        btnClearTags.setEnabled(connected || tagMonitor.getTotalReads() > 0);
+        btnToggleRfidTest.setText(liveRfidActive ? "Parar teste" : "Iniciar teste");
+        btnToggleRfidTest.setVariant(liveRfidActive
+                ? ThemedButton.Variant.DANGER
+                : ThemedButton.Variant.PRIMARY);
     }
 
     private void refreshVendors() {
@@ -640,13 +797,14 @@ public class PeripheralConnectionPanel extends JPanel {
                 setSelectionEnabled(false);
                 log("Conectado " + slot.getLabel() + " @ " + port);
                 startLiveWeightReading();
+                startLiveRfidReading();
                 notifyConnectionChanged(true);
             }
         }.execute();
     }
 
     public void disconnectDevice() {
-        stopLiveWeightReading();
+        stopLiveReading();
         sessionManager.disconnect(slot);
         lbStatus.setText("Desconectado");
         WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.TEXT_SECONDARY);
@@ -654,6 +812,9 @@ public class PeripheralConnectionPanel extends JPanel {
         btnDisconnect.setEnabled(false);
         setSelectionEnabled(true);
         resetLiveWeightDisplay();
+        tagMonitor.reset();
+        tagMonitor.setHint("Conecte o leitor e toque em Iniciar teste.");
+        updateRfidTestControls();
         notifyConnectionChanged(false);
     }
 

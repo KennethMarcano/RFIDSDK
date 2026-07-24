@@ -13,7 +13,13 @@ public class ThemedButton extends JButton {
         PRIMARY, SECONDARY, SUCCESS, DANGER
     }
 
+    /** Tamanhos pensados para toque com o dedo em tela de 7". */
+    public enum Size {
+        REGULAR, SMALL, LARGE
+    }
+
     private Variant variant;
+    private Size size = Size.REGULAR;
     private boolean hovered;
 
     public ThemedButton(String text) {
@@ -31,6 +37,32 @@ public class ThemedButton extends JButton {
         repaint();
     }
 
+    public ThemedButton withSize(Size size) {
+        this.size = size;
+        applySizeFont();
+        revalidate();
+        repaint();
+        return this;
+    }
+
+    private void applySizeFont() {
+        switch (size) {
+            case LARGE:
+                setFont(getFont().deriveFont(Font.BOLD, 15f));
+                setBorder(WorkflowUiTheme.empty(12, 24, 12, 24));
+                break;
+            case SMALL:
+                setFont(getFont().deriveFont(Font.BOLD, 12f));
+                setBorder(WorkflowUiTheme.empty(7, 12, 7, 12));
+                break;
+            case REGULAR:
+            default:
+                setFont(getFont().deriveFont(Font.BOLD, 13f));
+                setBorder(WorkflowUiTheme.empty(10, 18, 10, 18));
+                break;
+        }
+    }
+
     private void init() {
         // GTK/Metal no Linux ignoram setBackground; BasicButtonUI garante cliques e pintura corretos.
         setUI(new BasicButtonUI());
@@ -39,8 +71,7 @@ public class ThemedButton extends JButton {
         setContentAreaFilled(false);
         setOpaque(false);
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        setFont(getFont().deriveFont(Font.BOLD, 12f));
-        setBorder(WorkflowUiTheme.empty(8, 16, 8, 16));
+        applySizeFont();
 
         addMouseListener(new MouseAdapter() {
             @Override
@@ -60,15 +91,44 @@ public class ThemedButton extends JButton {
         addPropertyChangeListener("enabled", evt -> repaint());
     }
 
+    private int minHeight() {
+        switch (size) {
+            case LARGE:
+                return 52;
+            case SMALL:
+                return WorkflowUiTheme.TOUCH_HEIGHT_SM;
+            case REGULAR:
+            default:
+                return WorkflowUiTheme.TOUCH_HEIGHT;
+        }
+    }
+
+    private int minWidth() {
+        switch (size) {
+            case LARGE:
+                return 168;
+            case SMALL:
+                return 88;
+            case REGULAR:
+            default:
+                return WorkflowUiTheme.TOUCH_MIN_WIDTH;
+        }
+    }
+
     @Override
     public Dimension getPreferredSize() {
         Dimension base = super.getPreferredSize();
-        return new Dimension(Math.max(base.width, 100), Math.max(base.height, 36));
+        return new Dimension(Math.max(base.width, minWidth()), Math.max(base.height, minHeight()));
     }
 
     @Override
     public Dimension getMinimumSize() {
-        return new Dimension(80, 32);
+        return new Dimension(minWidth(), minHeight());
+    }
+
+    @Override
+    public Dimension getMaximumSize() {
+        return getPreferredSize();
     }
 
     @Override

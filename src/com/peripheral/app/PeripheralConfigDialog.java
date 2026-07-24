@@ -50,25 +50,20 @@ public class PeripheralConfigDialog extends JDialog {
         connectionPanel.setOwnerWindow(this);
         connectionPanel.setBorder(null);
 
-        JPanel content = new JPanel(new BorderLayout(0, 12));
+        JPanel content = new JPanel(new BorderLayout(0, 8));
         content.setOpaque(false);
-        content.setBorder(WorkflowUiTheme.empty(16, 16, 16, 16));
+        content.setBorder(WorkflowUiTheme.empty(10, 10, 10, 10));
 
         String hintHtml = slot == PeripheralSlot.SCALE
                 ? "<html>Selecione fabricante, modelo e porta. Use <b>Testar porta</b> e <b>Conectar</b>. "
-                + "Após conectar, o <b>peso atualiza em tempo real</b>. Ao terminar, clique em <b>Concluído</b>.</html>"
-                : "<html>Selecione fabricante, modelo e porta. "
-                + "Use <b>Testar porta</b> e <b>Conectar</b>. Ao terminar, clique em <b>Concluído</b>.</html>";
+                + "Após conectar, o <b>peso atualiza em tempo real</b>.</html>"
+                : "<html>Selecione fabricante, modelo e porta e toque em <b>Conectar</b>. "
+                + "O teste mostra cada <b>tag detectada</b> e <b>quantas vezes</b> ela foi lida.</html>";
         JLabel hint = WorkflowUiTheme.createHintLabel(hintHtml);
         content.add(hint, BorderLayout.NORTH);
 
         JPanel section = WorkflowUiTheme.createSection(slot.getLabel(), connectionPanel);
-        JScrollPane scroll = new JScrollPane(section);
-        scroll.setBorder(BorderFactory.createEmptyBorder());
-        scroll.setOpaque(false);
-        scroll.getViewport().setOpaque(false);
-        scroll.getVerticalScrollBar().setUnitIncrement(16);
-        content.add(scroll, BorderLayout.CENTER);
+        content.add(section, BorderLayout.CENTER);
 
         ThemedButton btnDone = WorkflowUiTheme.button("Concluído", ThemedButton.Variant.PRIMARY);
         btnDone.addActionListener(e -> closeDialog());
@@ -83,13 +78,11 @@ public class PeripheralConfigDialog extends JDialog {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
-                connectionPanel.stopLiveWeightReading();
+                connectionPanel.stopLiveReading();
                 notifyClosed();
             }
         });
-        pack();
-        setMinimumSize(new Dimension(Math.max(560, getWidth()), Math.max(520, getHeight())));
-        setLocationRelativeTo(owner);
+        WorkflowUiTheme.applyTouchScreenSize(this);
     }
 
     public void showDialog() {
@@ -99,7 +92,7 @@ public class PeripheralConfigDialog extends JDialog {
     }
 
     private void closeDialog() {
-        connectionPanel.stopLiveWeightReading();
+        connectionPanel.stopLiveReading();
         dispose();
         notifyClosed();
     }
@@ -109,7 +102,7 @@ public class PeripheralConfigDialog extends JDialog {
             return;
         }
         notified = true;
-        connectionPanel.stopLiveWeightReading();
+        connectionPanel.stopLiveReading();
         if (listener != null) {
             listener.onConfigurationClosed(slot, connectionPanel.isConnected());
         }

@@ -60,7 +60,7 @@ public class CameraTestDialog extends JDialog {
         JScrollPane scroll = new JScrollPane(taDetails);
         WorkflowUiTheme.styleScrollPane(scroll);
         scroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-        scroll.setPreferredSize(new Dimension(520, 180));
+        scroll.setPreferredSize(new Dimension(500, 130));
         body.add(scroll);
 
         JPanel section = WorkflowUiTheme.createSection("Câmera", body);
@@ -93,8 +93,7 @@ public class CameraTestDialog extends JDialog {
 
         pollTimer = new javax.swing.Timer(1000, e -> updatePreviewButtons());
         pack();
-        setMinimumSize(new Dimension(560, 420));
-        setLocationRelativeTo(owner);
+        WorkflowUiTheme.clampToScreen(this, owner);
     }
 
     public void showDialog() {

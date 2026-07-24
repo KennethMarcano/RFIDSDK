@@ -32,9 +32,28 @@ public final class WorkflowUiTheme {
     public static final Color PILL_BORDER = new Color(0xCB, 0xD5, 0xE1);
     public static final Color PILL_DISABLED = new Color(0xE2, 0xE8, 0xF0);
 
+    public static final Color MONITOR_BG = new Color(0x0F, 0x17, 0x2A);
+    public static final Color MONITOR_BORDER = new Color(0x1E, 0x29, 0x3B);
+    public static final Color MONITOR_ROW_BG = new Color(0x1B, 0x25, 0x38);
+    public static final Color MONITOR_CAPTION = new Color(0x94, 0xA3, 0xB8);
+    public static final Color MONITOR_VALUE = new Color(0x34, 0xD3, 0x99);
+    public static final Color MONITOR_ALERT = new Color(0xFB, 0xBF, 0x24);
+    public static final Color MONITOR_TEXT = new Color(0xE2, 0xE8, 0xF0);
+
     public static final int RADIUS_CARD = 12;
     public static final int RADIUS_PILL = 16;
     public static final int RADIUS_CHIP = 8;
+
+    /** Resolução alvo: display oficial de 7" do Raspberry Pi. */
+    public static final int TARGET_SCREEN_WIDTH = 800;
+    public static final int TARGET_SCREEN_HEIGHT = 480;
+    public static final int MIN_SCREEN_WIDTH = 640;
+    public static final int MIN_SCREEN_HEIGHT = 400;
+
+    /** Altura mínima de alvo tocável com o dedo. */
+    public static final int TOUCH_HEIGHT = 42;
+    public static final int TOUCH_HEIGHT_SM = 36;
+    public static final int TOUCH_MIN_WIDTH = 104;
 
     private WorkflowUiTheme() {
     }
@@ -45,6 +64,8 @@ public final class WorkflowUiTheme {
         UIManager.put("TabbedPane.background", BG_PAGE);
         UIManager.put("TabbedPane.contentAreaColor", BG_PAGE);
         UIManager.put("TabbedPane.selected", BG_CARD);
+        UIManager.put("TabbedPane.tabInsets", new Insets(9, 18, 9, 18));
+        UIManager.put("TabbedPane.tabAreaInsets", new Insets(0, 2, 0, 2));
         UIManager.put("ScrollPane.background", BG_PAGE);
         UIManager.put("Viewport.background", BG_CARD);
         UIManager.put("Table.background", BG_CARD);
@@ -57,6 +78,44 @@ public final class WorkflowUiTheme {
         UIManager.put("ComboBox.background", BG_CARD);
         UIManager.put("ComboBox.foreground", TEXT_PRIMARY);
         UIManager.put("Label.foreground", TEXT_PRIMARY);
+        UIManager.put("ScrollBar.width", 16);
+    }
+
+    /** Área útil da tela, com fallback seguro para o alvo de 7". */
+    public static Rectangle availableScreenBounds() {
+        try {
+            GraphicsConfiguration gc = GraphicsEnvironment.getLocalGraphicsEnvironment()
+                    .getDefaultScreenDevice().getDefaultConfiguration();
+            Rectangle bounds = gc.getBounds();
+            Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(gc);
+            int width = bounds.width - insets.left - insets.right;
+            int height = bounds.height - insets.top - insets.bottom;
+            if (width <= 0 || height <= 0) {
+                return new Rectangle(0, 0, TARGET_SCREEN_WIDTH, TARGET_SCREEN_HEIGHT);
+            }
+            return new Rectangle(bounds.x + insets.left, bounds.y + insets.top, width, height);
+        } catch (RuntimeException e) {
+            return new Rectangle(0, 0, TARGET_SCREEN_WIDTH, TARGET_SCREEN_HEIGHT);
+        }
+    }
+
+    /**
+     * Ocupa a tela inteira em painéis pequenos (Raspberry Pi 7"); em monitores grandes
+     * mantém uma janela do tamanho alvo para que o layout seja testado como no dispositivo.
+     */
+    public static void applyTouchScreenSize(Window window) {
+        Rectangle bounds = availableScreenBounds();
+        boolean smallScreen = bounds.width <= 1280 && bounds.height <= 800;
+        window.setMinimumSize(new Dimension(MIN_SCREEN_WIDTH, MIN_SCREEN_HEIGHT));
+        if (smallScreen) {
+            window.setBounds(bounds);
+            if (window instanceof JFrame) {
+                ((JFrame) window).setExtendedState(Frame.MAXIMIZED_BOTH);
+            }
+        } else {
+            window.setSize(TARGET_SCREEN_WIDTH, TARGET_SCREEN_HEIGHT);
+            window.setLocationRelativeTo(null);
+        }
     }
 
     public static ThemedButton button(String text, ThemedButton.Variant variant) {
@@ -79,13 +138,14 @@ public final class WorkflowUiTheme {
     public static void styleTabbedPane(JTabbedPane tabs) {
         tabs.setBackground(BG_PAGE);
         tabs.setForeground(TEXT_PRIMARY);
-        tabs.setFont(tabs.getFont().deriveFont(Font.BOLD, 12f));
+        tabs.setFont(tabs.getFont().deriveFont(Font.BOLD, 13f));
+        tabs.setFocusable(false);
     }
 
     public static void styleTable(JTable table) {
         table.setBackground(BG_CARD);
         table.setForeground(TEXT_PRIMARY);
-        table.setRowHeight(28);
+        table.setRowHeight(34);
         table.setShowHorizontalLines(true);
         table.setGridColor(BORDER);
         table.setSelectionBackground(BG_CARD_HIGHLIGHT);
@@ -126,6 +186,16 @@ public final class WorkflowUiTheme {
         return scroll;
     }
 
+    /** Reduz a janela ao tamanho da tela disponível, mantendo-a centralizada no dono. */
+    public static void clampToScreen(Window window, Window owner) {
+        Rectangle bounds = availableScreenBounds();
+        Dimension size = window.getSize();
+        window.setSize(
+                Math.min(size.width, bounds.width - 16),
+                Math.min(size.height, bounds.height - 16));
+        window.setLocationRelativeTo(owner);
+    }
+
     public static JLabel formLabel(String text) {
         JLabel label = new JLabel(text);
         label.setFont(fontMeta(label));
@@ -134,7 +204,7 @@ public final class WorkflowUiTheme {
     }
 
     public static JPanel formRow(Component... items) {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 4));
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 3));
         row.setOpaque(false);
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
         for (Component item : items) {
@@ -145,53 +215,63 @@ public final class WorkflowUiTheme {
 
     public static void styleCompactTextField(JTextField field, int columns) {
         field.setColumns(columns);
-        field.setFont(fontMeta(field));
+        field.setFont(field.getFont().deriveFont(Font.PLAIN, 14f));
         field.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER),
-                empty(6, 10, 6, 10)));
+                empty(8, 10, 8, 10)));
         Dimension pref = field.getPreferredSize();
-        int height = Math.max(pref.height, 32);
-        int width = Math.min(Math.max(pref.width, 72), 168);
+        int height = Math.max(pref.height, TOUCH_HEIGHT_SM);
+        int width = Math.min(Math.max(pref.width, 88), 180);
         field.setPreferredSize(new Dimension(width, height));
-        field.setMinimumSize(new Dimension(72, height));
-        field.setMaximumSize(new Dimension(168, height));
+        field.setMinimumSize(new Dimension(88, height));
+        field.setMaximumSize(new Dimension(180, height));
     }
 
     public static void styleCompactSpinner(JSpinner spinner) {
-        spinner.setFont(fontMeta(spinner));
+        spinner.setFont(spinner.getFont().deriveFont(Font.PLAIN, 14f));
         JComponent editor = spinner.getEditor();
         if (editor instanceof JSpinner.DefaultEditor) {
             JTextField textField = ((JSpinner.DefaultEditor) editor).getTextField();
-            textField.setFont(fontMeta(textField));
+            textField.setFont(textField.getFont().deriveFont(Font.PLAIN, 14f));
             textField.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(BORDER),
-                    empty(4, 8, 4, 8)));
+                    empty(6, 8, 6, 8)));
             textField.setColumns(5);
         }
         Dimension pref = spinner.getPreferredSize();
-        int height = Math.max(pref.height, 32);
-        spinner.setPreferredSize(new Dimension(96, height));
-        spinner.setMinimumSize(new Dimension(88, height));
-        spinner.setMaximumSize(new Dimension(112, height));
+        int height = Math.max(pref.height, TOUCH_HEIGHT_SM);
+        spinner.setPreferredSize(new Dimension(104, height));
+        spinner.setMinimumSize(new Dimension(96, height));
+        spinner.setMaximumSize(new Dimension(124, height));
     }
 
     public static void styleFormCombo(JComboBox<?> combo, int minWidth, int maxWidth) {
-        combo.setFont(fontMeta(combo));
+        combo.setFont(combo.getFont().deriveFont(Font.PLAIN, 13f));
         Dimension pref = combo.getPreferredSize();
-        int height = Math.max(pref.height, 32);
+        int height = Math.max(pref.height, TOUCH_HEIGHT_SM);
         int width = Math.min(Math.max(pref.width, minWidth), maxWidth);
         combo.setPreferredSize(new Dimension(width, height));
         combo.setMinimumSize(new Dimension(minWidth, height));
         combo.setMaximumSize(new Dimension(maxWidth, height));
     }
 
+    /** Checkbox com alvo de toque maior (o rótulo também é clicável). */
+    public static void styleTouchCheckBox(JCheckBox checkBox) {
+        checkBox.setOpaque(false);
+        checkBox.setForeground(TEXT_PRIMARY);
+        checkBox.setFont(checkBox.getFont().deriveFont(Font.PLAIN, 13f));
+        checkBox.setIconTextGap(10);
+        checkBox.setFocusPainted(false);
+        checkBox.setBorder(empty(6, 2, 6, 8));
+    }
+
     public static JPanel createInsetGroup(String title, Component content) {
-        JPanel group = new JPanel(new BorderLayout(0, 8));
+        JPanel group = new JPanel(new BorderLayout(0, 6));
         group.setOpaque(true);
         group.setBackground(CHIP_BG);
         group.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(CHIP_BORDER),
-                empty(10, 12, 10, 12)));
+                empty(8, 10, 8, 10)));
 
         JLabel titleLabel = new JLabel(title);
         titleLabel.setFont(fontChip(titleLabel).deriveFont(Font.BOLD));
@@ -202,12 +282,12 @@ public final class WorkflowUiTheme {
     }
 
     public static JPanel createStatusStrip() {
-        JPanel strip = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 4));
+        JPanel strip = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 3));
         strip.setOpaque(true);
         strip.setBackground(BG_CARD_HIGHLIGHT);
         strip.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_FOCUS),
-                empty(8, 12, 8, 12)));
+                empty(6, 10, 6, 10)));
         strip.setAlignmentX(Component.LEFT_ALIGNMENT);
         return strip;
     }
@@ -416,14 +496,14 @@ public final class WorkflowUiTheme {
             }
         };
         section.setOpaque(false);
-        section.setBorder(empty(0, 0, 12, 0));
+        section.setBorder(empty(0, 0, 8, 0));
 
         JLabel titleLabel = createSectionTitle(title);
-        titleLabel.setBorder(empty(14, 16, 8, 16));
+        titleLabel.setBorder(empty(9, 12, 5, 12));
 
         JPanel body = new JPanel(new BorderLayout());
         body.setOpaque(false);
-        body.setBorder(empty(0, 16, 14, 16));
+        body.setBorder(empty(0, 12, 10, 12));
         body.add(content, BorderLayout.CENTER);
 
         section.add(titleLabel, BorderLayout.NORTH);
@@ -432,9 +512,14 @@ public final class WorkflowUiTheme {
     }
 
     public static JPanel createHeader(String title, String subtitle) {
-        JPanel header = new JPanel(new BorderLayout(12, 0));
+        return createHeader(title, subtitle, null);
+    }
+
+    /** Cabeçalho compacto: título, subtítulo, logo e (opcional) ações à direita. */
+    public static JPanel createHeader(String title, String subtitle, Component actions) {
+        JPanel header = new JPanel(new BorderLayout(10, 0));
         header.setOpaque(false);
-        header.setBorder(empty(4, 12, 12, 12));
+        header.setBorder(empty(6, 10, 6, 10));
 
         JPanel titles = new JPanel();
         titles.setOpaque(false);
@@ -446,19 +531,22 @@ public final class WorkflowUiTheme {
         lbTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel lbSubtitle = new JLabel(subtitle);
-        lbSubtitle.setFont(fontMeta(lbSubtitle));
+        lbSubtitle.setFont(fontChip(lbSubtitle));
         lbSubtitle.setForeground(TEXT_SECONDARY);
         lbSubtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
-        lbSubtitle.setBorder(empty(2, 0, 0, 0));
 
         titles.add(lbTitle);
         titles.add(lbSubtitle);
 
-        JPanel brandRow = new JPanel(new BorderLayout(12, 0));
-        brandRow.setOpaque(false);
-        brandRow.add(titles, BorderLayout.CENTER);
-        brandRow.add(BrandingAssets.createEshipLogoLabel(52), BorderLayout.EAST);
-        header.add(brandRow, BorderLayout.CENTER);
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        right.setOpaque(false);
+        if (actions != null) {
+            right.add(actions);
+        }
+        right.add(BrandingAssets.createEshipLogoLabel(34));
+
+        header.add(titles, BorderLayout.CENTER);
+        header.add(right, BorderLayout.EAST);
         return header;
     }
 
@@ -469,15 +557,20 @@ public final class WorkflowUiTheme {
     }
 
     public static Font fontTitle(Component c) {
-        return c.getFont().deriveFont(Font.BOLD, 16f);
+        return c.getFont().deriveFont(Font.BOLD, 15f);
     }
 
     public static Font fontStatus(Component c) {
-        return c.getFont().deriveFont(Font.PLAIN, 13.5f);
+        return c.getFont().deriveFont(Font.PLAIN, 13f);
     }
 
     public static Font fontWeight(Component c) {
-        return new Font(Font.MONOSPACED, Font.BOLD, 22);
+        return new Font(Font.MONOSPACED, Font.BOLD, 20);
+    }
+
+    /** Fonte monoespaçada usada nos códigos das tags RFID. */
+    public static Font fontTagCode(Component c) {
+        return new Font(Font.MONOSPACED, Font.BOLD, 13);
     }
 
     public static Font fontWeightUnit(Component c) {
