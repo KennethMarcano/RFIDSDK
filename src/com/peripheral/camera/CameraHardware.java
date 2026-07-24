@@ -26,6 +26,7 @@ public final class CameraHardware {
     private static volatile Boolean cachedCameraPresent;
     private static volatile long cacheTimestamp;
     private static volatile String cachedDescribe;
+    private static volatile String lastPreviewGeometry;
 
     private CameraHardware() {
     }
@@ -108,9 +109,22 @@ public final class CameraHardware {
      * Abre a janela nativa de preview com vídeo contínuo (sem timeout).
      */
     public static synchronized void startPreview() throws CameraServiceException {
-        if (isPreviewRunning()) {
+        startPreview(0, 0, 960, 720);
+    }
+
+    /**
+     * Abre o preview nativo posicionado em coordenadas de tela (pixels),
+     * para alinhar com um painel Swing no Raspberry Pi.
+     */
+    public static synchronized void startPreview(int x, int y, int width, int height)
+            throws CameraServiceException {
+        int safeW = Math.max(80, width);
+        int safeH = Math.max(60, height);
+        String geometry = Math.max(0, x) + "," + Math.max(0, y) + "," + safeW + "," + safeH;
+        if (isPreviewRunning() && geometry.equals(lastPreviewGeometry)) {
             return;
         }
+        stopPreview();
         invalidateCache();
         String cmd = resolveHelloCommandUncached();
         if (cmd == null) {
@@ -125,12 +139,13 @@ public final class CameraHardware {
             List<String> command = new ArrayList<>(Arrays.asList(
                     cmd,
                     "--timeout", "0",
-                    "--preview", "0,0,960,720"
+                    "--preview", geometry
             ));
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             Process process = pb.start();
             previewProcess.set(process);
+            lastPreviewGeometry = geometry;
             Thread drain = new Thread(() -> {
                 try (BufferedReader reader = new BufferedReader(
                         new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
@@ -150,18 +165,22 @@ public final class CameraHardware {
             }
             if (!process.isAlive()) {
                 previewProcess.compareAndSet(process, null);
+                lastPreviewGeometry = null;
                 throw new CameraServiceException(
                         "Preview encerrou imediatamente. Verifique a câmera e tente "
                                 + cmd + " --timeout 0 no terminal.");
             }
         } catch (CameraServiceException e) {
+            lastPreviewGeometry = null;
             throw e;
         } catch (Exception e) {
+            lastPreviewGeometry = null;
             throw new CameraServiceException("Falha ao abrir preview: " + e.getMessage(), e);
         }
     }
 
     public static synchronized void stopPreview() {
+        lastPreviewGeometry = null;
         Process process = previewProcess.getAndSet(null);
         if (process == null) {
             return;

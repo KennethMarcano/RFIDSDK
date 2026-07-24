@@ -1,9 +1,6 @@
 package com.peripheral.app;
 
 import com.peripheral.camera.CameraHardware;
-import com.peripheral.camera.CameraMicroserviceClient;
-import com.peripheral.camera.CameraMicroserviceLifecycle;
-import com.peripheral.camera.CameraServiceException;
 import com.peripheral.pedido.Pedido;
 import com.peripheral.workflow.PedidoValidationService;
 import com.peripheral.workflow.WorkflowController;
@@ -36,13 +33,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final JLabel lbLiveWeightValue = new JLabel("—.—", SwingConstants.CENTER);
     private final JLabel lbLiveWeightUnit = new JLabel("kg");
     private final JLabel lbLiveWeightStable = new JLabel("Aguardando leitura da balança", SwingConstants.CENTER);
-    private final RfidTagMonitorPanel tagMonitor = new RfidTagMonitorPanel("MONITOR RFID");
-
-    private final JLabel lbCameraStatus = new JLabel("Câmera: verificando...");
-    private final ThemedButton btnCameraPreview =
-            WorkflowUiTheme.button("Abrir vídeo", ThemedButton.Variant.SECONDARY);
-    private final ThemedButton btnCameraRecalibrate =
-            WorkflowUiTheme.button("Recalibrar", ThemedButton.Variant.SECONDARY);
+    private final CameraLiveMonitorPanel cameraMonitor = new CameraLiveMonitorPanel();
 
     private final JPanel operatorReviewPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
     private final ThemedButton btnRereadRfid =
@@ -93,12 +84,16 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         this.orderValidationEnabled = orderValidationEnabled;
 
         buildUi();
-        refreshCameraStatusAsync();
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
+            public void windowOpened(WindowEvent e) {
+                cameraMonitor.startLivePreview();
+            }
+
+            @Override
             public void windowClosing(WindowEvent e) {
-                CameraHardware.stopPreview();
+                cameraMonitor.stopLivePreview();
                 setVisible(false);
             }
         });
@@ -219,13 +214,12 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         JPanel monitors = new JPanel(new GridLayout(1, 2, 8, 0));
         monitors.setOpaque(false);
         monitors.add(buildScaleMonitorPanel());
-        monitors.add(tagMonitor);
+        monitors.add(cameraMonitor);
         monitors.setPreferredSize(new Dimension(0, MONITOR_ROW_HEIGHT));
 
         JTabbedPane tabs = new JTabbedPane();
         WorkflowUiTheme.styleTabbedPane(tabs);
         tabs.addTab("Histórico", buildHistoryPanel());
-        tabs.addTab("Câmera", buildCameraPanel());
         if (simulationMode) {
             tabs.addTab("Simulação", new JScrollPane(buildSimulationPanel()));
         }
@@ -473,7 +467,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         btnNext.setEnabled(false);
         btnRestartSession.setEnabled(true);
         setOperatorReviewVisible(false);
-        resetTagMonitor();
+        cameraMonitor.ensureLivePreview();
         if (simulationMode) {
             btnSimulate.setEnabled(false);
             setStatus("Toque em Iniciar pesagem e depois simule os dados.",
@@ -484,15 +478,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         }
     }
 
-    private void resetTagMonitor() {
-        tagMonitor.reset();
-        tagMonitor.setHint("Aguardando leitura das tags...");
-    }
-
     private void setWaitingForNextState() {
         btnStartWeighing.setEnabled(false);
         btnNext.setEnabled(true);
         btnRestartSession.setEnabled(true);
+        cameraMonitor.ensureLivePreview();
         setStatus("Ciclo concluído — toque em Próximo para nova leitura.",
                 WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
     }
@@ -508,141 +498,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         operatorReviewPanel.add(btnReanalyze);
         operatorReviewPanel.add(btnConfirmOperator);
         setOperatorReviewVisible(false);
-    }
-
-    private JPanel buildCameraPanel() {
-        JPanel panel = new JPanel(new BorderLayout(8, 8));
-        panel.setOpaque(true);
-        panel.setBackground(WorkflowUiTheme.BG_PAGE);
-        panel.setBorder(WorkflowUiTheme.empty(12, 12, 12, 12));
-
-        WorkflowUiTheme.styleStatusPill(lbCameraStatus,
-                new Color(0xFE, 0xF3, 0xC7), WorkflowUiTheme.WARNING);
-
-        JPanel topRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        topRow.setOpaque(false);
-        topRow.add(lbCameraStatus);
-        btnCameraPreview.addActionListener(e -> openCameraPreview());
-        btnCameraRecalibrate.addActionListener(e -> recalibrateCameraFromOperation());
-        topRow.add(btnCameraRecalibrate);
-        topRow.add(btnCameraPreview);
-
-        JLabel hint = WorkflowUiTheme.createHintLabel(
-                photoEnabled
-                        ? "<html>Preview em vídeo e recalibração da Sony IMX500. "
-                        + "A foto do fluxo usa rpicam-still.</html>"
-                        : "<html>Preview disponível. Ative <b>Capturar foto</b> no fluxo para gravar imagens.</html>");
-
-        panel.add(topRow, BorderLayout.NORTH);
-        panel.add(hint, BorderLayout.CENTER);
-        return panel;
-    }
-
-    private void refreshCameraStatusAsync() {
-        new SwingWorker<Boolean, Void>() {
-            @Override
-            protected Boolean doInBackground() {
-                CameraMicroserviceClient client = CameraMicroserviceLifecycle.getInstance().getClient();
-                boolean serviceOk = client.checkHealth();
-                boolean hardwareOk = CameraHardware.isCameraPresent();
-                return serviceOk || hardwareOk;
-            }
-
-            @Override
-            protected void done() {
-                boolean ok = false;
-                try {
-                    ok = Boolean.TRUE.equals(get());
-                } catch (Exception ignored) {
-                }
-                applyCameraStatus(ok, ok ? "Câmera online" : "Câmera indisponível");
-            }
-        }.execute();
-    }
-
-    private void applyCameraStatus(boolean available, String text) {
-        lbCameraStatus.setText(text != null ? text : (available ? "Câmera online" : "Câmera indisponível"));
-        if (available) {
-            WorkflowUiTheme.styleStatusPill(lbCameraStatus,
-                    new Color(0xD1, 0xFA, 0xE5), WorkflowUiTheme.SUCCESS);
-        } else {
-            WorkflowUiTheme.styleStatusPill(lbCameraStatus,
-                    new Color(0xFE, 0xF3, 0xC7), WorkflowUiTheme.WARNING);
-        }
-        btnCameraPreview.setEnabled(true);
-        btnCameraRecalibrate.setEnabled(true);
-    }
-
-    private void openCameraPreview() {
-        btnCameraPreview.setEnabled(false);
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() {
-                try {
-                    CameraHardware.startPreview();
-                    return null;
-                } catch (CameraServiceException e) {
-                    return e.getMessage();
-                }
-            }
-
-            @Override
-            protected void done() {
-                btnCameraPreview.setEnabled(true);
-                try {
-                    String error = get();
-                    if (error != null) {
-                        JOptionPane.showMessageDialog(WorkflowOperationWindow.this, error,
-                                "Preview câmera", JOptionPane.ERROR_MESSAGE);
-                        applyCameraStatus(false, "Câmera: falha no preview");
-                    } else {
-                        applyCameraStatus(true, "Câmera: preview aberto");
-                        setStatus("Preview da câmera aberto (rpicam-hello --timeout 0).",
-                                WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
-                    }
-                } catch (Exception e) {
-                    JOptionPane.showMessageDialog(WorkflowOperationWindow.this, e.getMessage(),
-                            "Preview câmera", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        }.execute();
-    }
-
-    private void recalibrateCameraFromOperation() {
-        btnCameraRecalibrate.setEnabled(false);
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                CameraMicroserviceLifecycle lifecycle = CameraMicroserviceLifecycle.getInstance();
-                CameraMicroserviceClient client = lifecycle.getClient();
-                if (!client.checkHealth()) {
-                    lifecycle.start();
-                    client.checkHealth();
-                }
-                if (client.isAvailable()) {
-                    return client.recalibrate();
-                }
-                return CameraHardware.recalibrate();
-            }
-
-            @Override
-            protected void done() {
-                btnCameraRecalibrate.setEnabled(true);
-                try {
-                    String msg = get();
-                    applyCameraStatus(true, "Câmera online");
-                    JOptionPane.showMessageDialog(WorkflowOperationWindow.this, msg,
-                            "Recalibrar câmera", JOptionPane.INFORMATION_MESSAGE);
-                    setStatus("Câmera recalibrada.", WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
-                } catch (Exception e) {
-                    Throwable cause = e.getCause() != null ? e.getCause() : e;
-                    applyCameraStatus(false, "Câmera indisponível");
-                    JOptionPane.showMessageDialog(WorkflowOperationWindow.this,
-                            "Erro na recalibração: " + cause.getMessage(),
-                            "Recalibrar câmera", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        }.execute();
     }
 
     private void setOperatorReviewVisible(boolean visible) {
@@ -717,6 +572,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             if (simulationMode) {
                 btnSimulate.setEnabled(true);
             }
+            cameraMonitor.ensureLivePreview();
             setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
             if (context != null && context.getAiMessage() != null && !context.getAiMessage().isEmpty()) {
                 lbStatus.setText(message + " | IA: " + context.getAiMessage());
@@ -726,11 +582,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     public void onCameraServiceStatus(boolean available, String detail) {
         SwingUtilities.invokeLater(() -> {
-            String text = available
-                    ? (detail != null && !detail.isEmpty() ? "Câmera: " + detail : "Câmera online")
-                    : "Câmera indisponível";
-            applyCameraStatus(available, text);
-            if (!available) {
+            if (available) {
+                cameraMonitor.ensureLivePreview();
+            } else {
                 setStatus("Câmera indisponível — fluxo continua; foto usará rpicam se possível.",
                         WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
             }
@@ -772,16 +626,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     @Override
     public void onTagRead(com.peripheral.core.PeripheralDataEvent event) {
-        SwingUtilities.invokeLater(() -> {
-            if (event == null) {
-                return;
-            }
-            String code = event.getCode();
-            if (code == null || code.isEmpty()) {
-                code = event.getEpc();
-            }
-            tagMonitor.registerTag(code);
-        });
+        // Tags continuam sendo processadas pelo fluxo; a UI de operação mostra a câmera ao vivo.
     }
 
     @Override
@@ -794,8 +639,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             if (simulationMode && (step == WorkflowStep.WEIGHING || step == WorkflowStep.RFID_READ)) {
                 btnSimulate.setEnabled(true);
             }
-            if (step == WorkflowStep.RFID_READ && orchestrator != null && orchestrator.isOperatorReview()) {
-                resetTagMonitor();
+            // Após captura a câmera é liberada — retoma o vídeo no quadro.
+            if (step != WorkflowStep.CAPTURE_PHOTO) {
+                cameraMonitor.ensureLivePreview();
             }
         });
     }
@@ -821,14 +667,17 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     @Override
     public void onReadingRecorded(WorkflowReadingRecord record) {
-        SwingUtilities.invokeLater(() -> addReadingToHistory(record));
+        SwingUtilities.invokeLater(() -> {
+            addReadingToHistory(record);
+            cameraMonitor.ensureLivePreview();
+        });
     }
 
     @Override
     public void onSessionCleared() {
         SwingUtilities.invokeLater(() -> {
             clearHistory();
-            resetTagMonitor();
+            cameraMonitor.ensureLivePreview();
         });
     }
 
@@ -844,6 +693,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             btnStartWeighing.setEnabled(true);
             btnNext.setEnabled(false);
             btnRestartSession.setEnabled(true);
+            cameraMonitor.ensureLivePreview();
         });
     }
 
@@ -851,12 +701,19 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onStopped() {
         SwingUtilities.invokeLater(() -> {
             clearHistory();
-            resetTagMonitor();
+            cameraMonitor.stopLivePreview();
             btnStartWeighing.setEnabled(false);
             btnNext.setEnabled(false);
             btnRestartSession.setEnabled(false);
             setStatus("Fluxo parado.", WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
             dispose();
         });
+    }
+
+    @Override
+    public void dispose() {
+        cameraMonitor.stopLivePreview();
+        CameraHardware.stopPreview();
+        super.dispose();
     }
 }
