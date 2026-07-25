@@ -55,6 +55,14 @@ if java --help 2>&1 | grep -q 'enable-native-access'; then
   JAVA_OPTS=(--enable-native-access=ALL-UNNAMED "${JAVA_OPTS[@]}")
 fi
 
+# Reset seletivo de USB-serial (RFID/balança) antes do Java — evita cabo "morto"
+# quando o periférico ligou antes do Raspberry no mesmo filtro de energia.
+if [[ "$(uname -s)" == "Linux" ]]; then
+  echo "Reescaneando conversores USB-serial (RFID/balança)..."
+  bash "${ROOT}/scripts/usb-serial-reset.sh" || true
+  export RFIDSDK_USB_WARMUP_DONE=1
+fi
+
 echo "Iniciando Periféricos eship ..."
 echo "  O microserviço Python da câmera (camera-service/) é iniciado automaticamente pelo Java."
 if [[ "$(uname -m)" == "aarch64" ]]; then

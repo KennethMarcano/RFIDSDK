@@ -1,6 +1,7 @@
 package com.peripheral.app;
 
 import com.peripheral.camera.CameraMicroserviceLifecycle;
+import com.peripheral.util.LinuxUsbSerialReset;
 import com.rfid.util.MercuryTransportBootstrap;
 
 import java.io.File;
@@ -12,6 +13,7 @@ public class PeripheralApplication {
     public static void main(String[] args) {
         MercuryTransportBootstrap.installIfLinux();
         configureMercuryNativeLibrary();
+        warmupUsbSerialAdapters();
         startCameraServiceAsync();
         try {
             javax.swing.UIManager.setLookAndFeel(javax.swing.UIManager.getSystemLookAndFeelClassName());
@@ -19,6 +21,27 @@ public class PeripheralApplication {
         }
         WorkflowUiTheme.install();
         javax.swing.SwingUtilities.invokeLater(MainFrame::new);
+    }
+
+    /**
+     * No Raspberry, se o RFID/balança ligaram antes do Pi, a porta USB pode não
+     * aparecer até um re-plug. Tenta reset seletivo (só USB-serial) uma vez no boot.
+     */
+    private static void warmupUsbSerialAdapters() {
+        if (!LinuxUsbSerialReset.isSupported()) {
+            return;
+        }
+        // iniciar.sh já fez o reset com permissão; evita duplo atraso no boot.
+        if ("1".equals(System.getenv("RFIDSDK_USB_WARMUP_DONE"))) {
+            System.out.println("[USB] Warmup já feito pelo iniciar.sh — pulando.");
+            return;
+        }
+        try {
+            LinuxUsbSerialReset.Result result = LinuxUsbSerialReset.resetPreferredSerialAdapters();
+            System.out.println("[USB] " + result);
+        } catch (Exception e) {
+            System.out.println("[USB] Warmup ignorado: " + e.getMessage());
+        }
     }
 
     private static void startCameraServiceAsync() {
