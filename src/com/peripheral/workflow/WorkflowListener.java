@@ -6,21 +6,6 @@ public interface WorkflowListener {
 
     void onWeightUpdate(PeripheralDataEvent event);
 
-    /**
-     * Leitura da balança com tara lógica aplicada.
-     * grossKg = peso bruto; netKg = líquido (bruto − tara); tareKg = offset ativo.
-     */
-    default void onScaleReading(double grossKg, double netKg, double tareKg,
-                                boolean tareActive, boolean stable) {
-        onWeightUpdate(PeripheralDataEvent.builder(null)
-                .weight(String.format(java.util.Locale.US, "%.3f", netKg))
-                .stable(stable)
-                .build());
-    }
-
-    default void onTareChanged(double tareKg, boolean active) {
-    }
-
     void onTagRead(PeripheralDataEvent event);
 
     /** Inventário RFID do pedido atualizado (códigos únicos detectados). */

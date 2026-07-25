@@ -36,19 +36,13 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private Pedido currentPedido;
     private int currentVolumeIndex = 1;
 
-    private Double lastRawScaleKg;
-    private boolean lastRawStable;
     private String lastRawPayload;
-    private double activeTareKg;
-    private boolean activeTareOn;
 
     private final JLabel lbVolume = new JLabel("");
     private final JLabel lbLiveWeightValue =
             new JLabel(ScaleWeightFormat.PLACEHOLDER, SwingConstants.CENTER);
     private final JLabel lbLiveWeightUnit = new JLabel(ScaleWeightFormat.UNIT);
     private final JLabel lbLiveWeightStable = new JLabel("Aguardando leitura da balança", SwingConstants.CENTER);
-    private final JLabel lbGrossTareInfo = new JLabel("Balança — · Tara —", SwingConstants.CENTER);
-    private final JLabel lbTareBadge = new JLabel("SEM TARA", SwingConstants.CENTER);
     private final CameraLiveMonitorPanel cameraMonitor = new CameraLiveMonitorPanel();
     private final RfidTagMonitorPanel liveTagMonitor =
             new RfidTagMonitorPanel("RFID — PRODUTOS DO PEDIDO", false);
@@ -63,11 +57,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             WorkflowUiTheme.button("Re-analisar IA", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnConfirmOperator =
             WorkflowUiTheme.button("Finalizar pedido", ThemedButton.Variant.SUCCESS);
-
-    private final ThemedButton btnTare =
-            WorkflowUiTheme.button("Tarar", ThemedButton.Variant.SECONDARY);
-    private final ThemedButton btnClearTare =
-            WorkflowUiTheme.button("Limpar tara", ThemedButton.Variant.SECONDARY);
 
     private final JLabel lbStatus = new JLabel("Aguardando início do fluxo...");
     private final JPanel statusIndicator = new JPanel();
@@ -214,20 +203,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                 BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1),
                 WorkflowUiTheme.empty(8, 12, 8, 12)));
 
-        JLabel caption = new JLabel("PESO LÍQUIDO");
+        JLabel caption = new JLabel("PESO EM TEMPO REAL");
         caption.setFont(caption.getFont().deriveFont(Font.BOLD, 12f));
         caption.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
-
-        lbTareBadge.setFont(lbTareBadge.getFont().deriveFont(Font.BOLD, 10f));
-        lbTareBadge.setOpaque(true);
-        lbTareBadge.setBackground(WorkflowUiTheme.MONITOR_ROW_BG);
-        lbTareBadge.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
-        lbTareBadge.setBorder(WorkflowUiTheme.empty(2, 8, 2, 8));
-
-        JPanel top = new JPanel(new BorderLayout(8, 0));
-        top.setOpaque(false);
-        top.add(caption, BorderLayout.WEST);
-        top.add(lbTareBadge, BorderLayout.EAST);
 
         lbLiveWeightValue.setFont(new Font(Font.MONOSPACED, Font.BOLD, 48));
         lbLiveWeightValue.setForeground(Color.WHITE);
@@ -239,26 +217,14 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         lbLiveWeightStable.setFont(lbLiveWeightStable.getFont().deriveFont(Font.PLAIN, 11f));
         lbLiveWeightStable.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
 
-        lbGrossTareInfo.setFont(WorkflowUiTheme.fontMeta(lbGrossTareInfo));
-        lbGrossTareInfo.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
-
         JPanel valueRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
         valueRow.setOpaque(false);
         valueRow.add(lbLiveWeightValue);
         valueRow.add(lbLiveWeightUnit);
 
-        JPanel south = new JPanel();
-        south.setOpaque(false);
-        south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
-        lbLiveWeightStable.setAlignmentX(Component.CENTER_ALIGNMENT);
-        lbGrossTareInfo.setAlignmentX(Component.CENTER_ALIGNMENT);
-        south.add(lbLiveWeightStable);
-        south.add(Box.createVerticalStrut(2));
-        south.add(lbGrossTareInfo);
-
-        panel.add(top, BorderLayout.NORTH);
+        panel.add(caption, BorderLayout.NORTH);
         panel.add(valueRow, BorderLayout.CENTER);
-        panel.add(south, BorderLayout.SOUTH);
+        panel.add(lbLiveWeightStable, BorderLayout.SOUTH);
         return panel;
     }
 
@@ -336,12 +302,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                 orchestrator.confirmWeighingStart();
             }
         });
-        btnTare.addActionListener(e -> applyTareAction());
-        btnClearTare.addActionListener(e -> {
-            if (orchestrator != null) {
-                orchestrator.clearTare();
-            }
-        });
         btnNext.setEnabled(false);
         btnNext.addActionListener(e -> {
             if (orchestrator != null) {
@@ -365,8 +325,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         left.setOpaque(false);
-        left.add(btnTare);
-        left.add(btnClearTare);
         left.add(lbTagProgress);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
@@ -389,22 +347,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         }
         footer.add(southActions, BorderLayout.SOUTH);
         return footer;
-    }
-
-    private void applyTareAction() {
-        if (orchestrator == null) {
-            return;
-        }
-        try {
-            if (simulationMode) {
-                double gross = ((Number) spMockWeight.getValue()).doubleValue();
-                orchestrator.applyTare(gross);
-            } else {
-                orchestrator.applyTare();
-            }
-        } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Tara", JOptionPane.WARNING_MESSAGE);
-        }
     }
 
     private JPanel buildSimulationPanel() {
@@ -442,9 +384,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         simulationPanel.add(cbFastStabilization, gbc);
 
         JLabel hint = WorkflowUiTheme.createHintLabel(
-                "<html>Informe o <b>peso líquido</b> (kg) e os códigos das tags. "
-                        + "Para tara: digite o peso da caixa, clique em <b>Tarar</b>, "
-                        + "depois informe o líquido dos produtos.<br/>"
+                "<html>Informe o <b>peso</b> (kg) e os códigos das tags.<br/>"
                         + "Ex.: <code>003509, 003511, 003907, 004077</code> · 0,466 kg</html>");
         gbc.gridy = 3;
         gbc.weightx = 1;
@@ -605,16 +545,14 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         btnStartWeighing.setEnabled(true);
         btnNext.setEnabled(false);
         btnRestartSession.setEnabled(true);
-        btnTare.setEnabled(true);
-        btnClearTare.setEnabled(true);
         setOperatorReviewVisible(false);
         cameraMonitor.ensureLivePreview();
         if (simulationMode) {
             btnSimulate.setEnabled(false);
-            setStatus("Opcional: tarar a caixa → Iniciar pesagem → Simular.",
+            setStatus("Toque em Iniciar pesagem e depois em Simular.",
                     WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
         } else {
-            setStatus("Opcional: coloque a caixa e tarar → Iniciar pesagem.",
+            setStatus("Toque em Iniciar pesagem para começar.",
                     WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
         }
     }
@@ -805,8 +743,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             setOperatorReviewVisible(true);
             btnStartWeighing.setEnabled(false);
             btnNext.setEnabled(false);
-            btnTare.setEnabled(false);
-            btnClearTare.setEnabled(false);
             if (simulationMode) {
                 btnSimulate.setEnabled(true);
             }
@@ -838,8 +774,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     /**
-     * Fonte de verdade do display: o mesmo valor cru do evento da balança usado
-     * na tela de configuração. Evita divergência entre as duas telas.
+     * Mesmo critério da tela de configuração: mostra o peso do evento da balança
+     * sem tara lógica nem recálculo intermediário.
      */
     @Override
     public void onWeightUpdate(com.peripheral.core.PeripheralDataEvent event) {
@@ -851,52 +787,15 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             if (kg == null) {
                 return;
             }
-            lastRawScaleKg = kg;
-            lastRawStable = Boolean.TRUE.equals(event.getStable());
             lastRawPayload = event.getRawPayload();
-            renderWeightFromRaw();
+            boolean stable = Boolean.TRUE.equals(event.getStable());
+            updateWeightDisplay(kg, stable);
         });
     }
 
-    @Override
-    public void onScaleReading(double grossKg, double netKg, double tareKg,
-                               boolean tareActive, boolean stable) {
-        SwingUtilities.invokeLater(() -> {
-            activeTareKg = tareKg;
-            activeTareOn = tareActive;
-            if (lastRawScaleKg == null) {
-                lastRawScaleKg = grossKg;
-            }
-            lastRawStable = stable;
-            renderWeightFromRaw();
-        });
-    }
-
-    /** Aplica a tara lógica sobre o valor cru, sem recalcular o peso em outro lugar. */
-    private void renderWeightFromRaw() {
-        double raw = lastRawScaleKg != null ? lastRawScaleKg : 0;
-        double net = activeTareOn ? (raw - activeTareKg) : raw;
-        updateWeightDisplay(raw, net, activeTareKg, activeTareOn, lastRawStable);
-    }
-
-    @Override
-    public void onTareChanged(double tareKg, boolean active) {
-        SwingUtilities.invokeLater(() -> {
-            if (active) {
-                lbTareBadge.setText("TARA ATIVA");
-                lbTareBadge.setForeground(WorkflowUiTheme.MONITOR_VALUE);
-            } else {
-                lbTareBadge.setText("SEM TARA");
-                lbTareBadge.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
-            }
-            btnClearTare.setEnabled(active || simulationMode);
-        });
-    }
-
-    private void updateWeightDisplay(double grossKg, double netKg, double tareKg,
-                                     boolean tareActive, boolean stable) {
-        boolean overload = ScaleWeightFormat.isOverload(grossKg);
-        lbLiveWeightValue.setText(ScaleWeightFormat.formatGrams(netKg));
+    private void updateWeightDisplay(double kg, boolean stable) {
+        boolean overload = ScaleWeightFormat.isOverload(kg);
+        lbLiveWeightValue.setText(ScaleWeightFormat.formatGrams(kg));
         lbLiveWeightUnit.setText(ScaleWeightFormat.UNIT);
         lbLiveWeightValue.setForeground(stable ? WorkflowUiTheme.MONITOR_VALUE : Color.WHITE);
         if (overload) {
@@ -909,16 +808,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                     ? WorkflowUiTheme.MONITOR_VALUE
                     : WorkflowUiTheme.MONITOR_ALERT);
         }
-        lbGrossTareInfo.setText(String.format("Balança %s · Tara %s",
-                ScaleWeightFormat.formatGramsWithUnit(grossKg),
-                tareActive
-                        ? ScaleWeightFormat.formatGramsWithUnit(tareKg)
-                        : "—"));
         if (lastRawPayload != null && !lastRawPayload.isEmpty()) {
-            lbGrossTareInfo.setToolTipText("Linha da balança: " + lastRawPayload);
             lbLiveWeightValue.setToolTipText("Linha da balança: " + lastRawPayload);
         }
-        btnTare.setEnabled(stable || simulationMode);
     }
 
     @Override
@@ -957,9 +849,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         SwingUtilities.invokeLater(() -> {
             btnStartWeighing.setEnabled(false);
             btnNext.setEnabled(false);
-            if (step == WorkflowStep.WEIGHING || step == WorkflowStep.RFID_READ) {
-                btnTare.setEnabled(false);
-            }
             setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
 
             if (simulationMode && (step == WorkflowStep.WEIGHING || step == WorkflowStep.RFID_READ)) {
@@ -981,7 +870,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         SwingUtilities.invokeLater(() -> {
             btnStartWeighing.setEnabled(false);
             btnNext.setEnabled(false);
-            btnTare.setEnabled(false);
             btnSimulate.setEnabled(false);
             setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
         });
@@ -1007,11 +895,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             refreshExpectedProducts();
             liveTagMonitor.setHint("Produtos do pedido — o código identificado aparece como DETECTADO.");
             lbTagProgress.setText("Códigos: 0");
-            lbTareBadge.setText("SEM TARA");
-            lbTareBadge.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
-            lbGrossTareInfo.setText("Balança — · Tara —");
-            activeTareKg = 0;
-            activeTareOn = false;
+            lbLiveWeightValue.setText(ScaleWeightFormat.PLACEHOLDER);
+            lbLiveWeightUnit.setText(ScaleWeightFormat.UNIT);
+            lbLiveWeightStable.setText("Aguardando leitura da balança");
+            lbLiveWeightStable.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
+            lastRawPayload = null;
             cameraMonitor.ensureLivePreview();
         });
     }
@@ -1027,8 +915,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             setStatus("Erro: " + message, WorkflowUiTheme.DANGER, WorkflowUiTheme.DANGER);
             btnStartWeighing.setEnabled(true);
             btnNext.setEnabled(false);
-            btnTare.setEnabled(true);
-            btnClearTare.setEnabled(true);
             btnRestartSession.setEnabled(true);
             cameraMonitor.ensureLivePreview();
         });

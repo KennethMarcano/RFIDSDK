@@ -13,9 +13,6 @@ public class WorkflowContext {
     private final Object tagLock = new Object();
 
     private double weightKg;
-    private double grossWeightKg;
-    private double tareKg;
-    private boolean tareActive;
     private boolean weightStable;
     private long cycleStartedMs;
     private String photoPath;
@@ -36,10 +33,10 @@ public class WorkflowContext {
 
     /**
      * Inicia um ciclo de validação preservando as tags já acumuladas
-     * (RFID contínuo) e registrando o peso líquido estabilizado.
+     * (RFID contínuo) e registrando o peso estabilizado da balança.
      */
-    public void beginCycle(double netWeightKg, boolean weightStable) {
-        this.weightKg = netWeightKg;
+    public void beginCycle(double weightKg, boolean weightStable) {
+        this.weightKg = weightKg;
         this.weightStable = weightStable;
         this.cycleStartedMs = System.currentTimeMillis();
         this.photoPath = null;
@@ -55,22 +52,6 @@ public class WorkflowContext {
 
     public double getWeightKg() {
         return weightKg;
-    }
-
-    public double getGrossWeightKg() {
-        return grossWeightKg;
-    }
-
-    public double getNetWeightKg() {
-        return weightKg;
-    }
-
-    public double getTareKg() {
-        return tareKg;
-    }
-
-    public boolean isTareActive() {
-        return tareActive;
     }
 
     public boolean isWeightStable() {
@@ -142,32 +123,9 @@ public class WorkflowContext {
         }
     }
 
-    public void updateWeight(double netWeightKg, boolean weightStable) {
-        this.weightKg = netWeightKg;
+    public void updateWeight(double weightKg, boolean weightStable) {
+        this.weightKg = weightKg;
         this.weightStable = weightStable;
-    }
-
-    public void updateScaleReading(double grossKg, boolean stable) {
-        this.grossWeightKg = grossKg;
-        this.weightKg = tareActive ? (grossKg - tareKg) : grossKg;
-        this.weightStable = stable;
-    }
-
-    public boolean applyTare(double grossKg) {
-        if (grossKg < 0) {
-            return false;
-        }
-        this.tareKg = grossKg;
-        this.tareActive = true;
-        this.grossWeightKg = grossKg;
-        this.weightKg = 0;
-        return true;
-    }
-
-    public void clearTare() {
-        this.tareKg = 0;
-        this.tareActive = false;
-        this.weightKg = this.grossWeightKg;
     }
 
     public String getNumeroPedido() {

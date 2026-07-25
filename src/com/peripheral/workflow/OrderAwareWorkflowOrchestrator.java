@@ -55,8 +55,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
 
     private int currentVolumeIndex;
     private double lastStableWeight;
-    private volatile double lastGrossWeightKg;
-    private volatile boolean lastGrossStable;
     private final AtomicBoolean rfidCollecting = new AtomicBoolean(false);
 
     public OrderAwareWorkflowOrchestrator(PeripheralSessionManager sessionManager,
@@ -110,7 +108,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             startContinuousRfidIfEnabled();
         }
         notifyAwaitingWeighingStart();
-        notifyTareChanged();
     }
 
     @Override
@@ -126,12 +123,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         stopRfidReading();
         rfidCollecting.set(false);
         context.clearTags();
-        context.clearTare();
         sessionStore.clearSession();
         if (listener != null) {
             listener.onSessionCleared();
             listener.onStopped();
-            listener.onTareChanged(0, false);
         }
     }
 
@@ -151,7 +146,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         awaitingUserStart.set(true);
         rfidCollecting.set(false);
         context.clearTags();
-        context.clearTare();
         resetStabilizationTracking();
         sessionStore.clearSession();
         try {
@@ -163,7 +157,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             listener.onSessionCleared();
             listener.onVolumeChanged(currentVolumeIndex + 1, pedido.getVolumeCount());
             listener.onAwaitingWeighingStart();
-            listener.onTareChanged(0, false);
             listener.onTagInventoryUpdated(Collections.emptyList(), expectedProductCount());
         }
     }
@@ -196,59 +189,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                 : "RFID monitorando — coloque os produtos; validação após 1,5 s estáveis";
         notifyStep(WorkflowStep.WEIGHING, message);
         notifyStep(WorkflowStep.RFID_READ, "Aguardando tags do pedido...");
-    }
-
-    @Override
-    public void applyTare() throws PeripheralException {
-        applyTare(lastGrossWeightKg, lastGrossStable);
-    }
-
-    @Override
-    public void applyTare(double grossWeightKg) throws PeripheralException {
-        applyTare(grossWeightKg, true);
-    }
-
-    private void applyTare(double grossWeightKg, boolean treatAsStable) throws PeripheralException {
-        if (!running.get()) {
-            throw new PeripheralException("O fluxo não está em execução.");
-        }
-        if (cycleInProgress.get()) {
-            throw new PeripheralException("Aguarde o ciclo atual terminar para tarar.");
-        }
-        if (!treatAsStable && !(config != null && config.isSimulationMode()) && !lastGrossStable) {
-            throw new PeripheralException("Aguarde o peso estabilizar antes de tarar.");
-        }
-        if (grossWeightKg < 0) {
-            throw new PeripheralException("Leitura de peso inválida para tara.");
-        }
-        if (!context.applyTare(grossWeightKg)) {
-            throw new PeripheralException("Não foi possível aplicar a tara.");
-        }
-        lastGrossWeightKg = grossWeightKg;
-        lastGrossStable = true;
-        notifyTareChanged();
-        publishScaleReading(grossWeightKg, true);
-        notifyStep(WorkflowStep.WEIGHING, String.format(java.util.Locale.US,
-                "Tara aplicada: %.0f g — coloque os produtos e toque em Iniciar pesagem",
-                grossWeightKg * 1000.0));
-    }
-
-    @Override
-    public void clearTare() {
-        context.clearTare();
-        notifyTareChanged();
-        publishScaleReading(lastGrossWeightKg, lastGrossStable);
-        notifyStep(WorkflowStep.WEIGHING, "Tara removida.");
-    }
-
-    @Override
-    public boolean isTareActive() {
-        return context.isTareActive();
-    }
-
-    @Override
-    public double getTareKg() {
-        return context.getTareKg();
     }
 
     @Override
@@ -358,11 +298,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             notifyStep(WorkflowStep.WEIGHING, "Re-simulando peso e códigos...");
             context.clearTags();
             rfidCollecting.set(true);
-            double gross = scenario.getWeightKg() + context.getTareKg();
-            lastGrossWeightKg = gross;
-            lastGrossStable = true;
-            context.updateScaleReading(gross, true);
-            publishScaleReading(gross, true);
+            double weightKg = scenario.getWeightKg();
+            context.updateWeight(weightKg, true);
 
             if (config.isEnabled(WorkflowStep.RFID_READ)) {
                 injectSimulatedTags(scenario);
@@ -372,7 +309,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             PedidoValidationService.ValidationResult validation = validationService.validate(
                     volume,
                     context.snapshotTagCodes(),
-                    context.getNetWeightKg(),
+                    weightKg,
                     config.getWeightTolerancePercent(),
                     config.getWeightToleranceKg());
 
@@ -420,10 +357,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             if (!running.get()) {
                 return;
             }
-            // Simulação: peso informado é o líquido desejado; soma a tara para obter bruto.
-            double gross = scenario.getWeightKg() + context.getTareKg();
-            lastGrossWeightKg = gross;
-            lastGrossStable = true;
             if (config.isEnabled(WorkflowStep.RFID_READ)) {
                 injectSimulatedTags(scenario);
             }
@@ -455,16 +388,13 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             if (!running.get() || event == null) {
                 return;
             }
-            double gross = parseWeight(event);
+            double weightKg = parseWeight(event);
             boolean stable = Boolean.TRUE.equals(event.getStable());
-            lastGrossWeightKg = gross;
-            lastGrossStable = stable;
-            context.updateScaleReading(gross, stable);
-            // Evento cru primeiro: a UI mostra o mesmo número da tela de configuração.
+            context.updateWeight(weightKg, stable);
+            // Mesmo evento da tela de configuração — sem tara lógica.
             if (listener != null) {
                 listener.onWeightUpdate(event);
             }
-            publishScaleReading(gross, stable);
 
             if (operatorReview.get()) {
                 return;
@@ -472,7 +402,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             if (cycleInProgress.get() || waitingForNext.get() || !armed.get()) {
                 return;
             }
-            evaluateStabilization(context.getNetWeightKg(), stable);
+            evaluateStabilization(weightKg, stable);
         }
 
         @Override
@@ -590,7 +520,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             Set<String> tagsSnapshot = context.snapshotTagCodes();
             notifyStep(WorkflowStep.VALIDATE_ORDER,
                     "Peso estável — validando " + tagsSnapshot.size()
-                            + " tag(s) e peso líquido...");
+                            + " tag(s) e peso...");
             PedidoValidationService.ValidationResult validation = validationService.validate(
                     volume,
                     tagsSnapshot,
@@ -716,7 +646,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         PedidoValidationService.ValidationResult validation = validationService.validate(
                 volume,
                 context.snapshotTagCodes(),
-                context.getNetWeightKg(),
+                context.getWeightKg(),
                 config.getWeightTolerancePercent(),
                 config.getWeightToleranceKg());
         context.setValidationResult(validation);
@@ -740,8 +670,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private void advanceVolumeOrComplete() {
         currentVolumeIndex++;
         if (currentVolumeIndex >= pedido.getVolumeCount()) {
-            context.clearTare();
-            notifyTareChanged();
             if (listener != null) {
                 listener.onOrderCompleted(pedido);
             }
@@ -755,8 +683,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         waitingForNext.set(false);
         rfidCollecting.set(false);
         context.clearTags();
-        context.clearTare();
-        notifyTareChanged();
         notifyTagInventory();
         resetStabilizationTracking();
         if (listener != null) {
@@ -799,24 +725,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                     notifyTagInventory();
                 }
             }
-        }
-    }
-
-    private void publishScaleReading(double grossKg, boolean stable) {
-        if (listener == null) {
-            return;
-        }
-        listener.onScaleReading(
-                grossKg,
-                context.getNetWeightKg(),
-                context.getTareKg(),
-                context.isTareActive(),
-                stable);
-    }
-
-    private void notifyTareChanged() {
-        if (listener != null) {
-            listener.onTareChanged(context.getTareKg(), context.isTareActive());
         }
     }
 
