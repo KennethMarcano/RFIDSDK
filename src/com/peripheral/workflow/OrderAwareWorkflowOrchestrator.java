@@ -11,6 +11,7 @@ import com.peripheral.pedido.Pedido;
 import com.peripheral.pedido.PedidoItem;
 import com.peripheral.pedido.PedidoVolume;
 import com.peripheral.scale.DigitronDgnParser;
+import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.session.PeripheralSessionManager;
 import com.peripheral.session.PeripheralSlot;
 
@@ -870,11 +871,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     }
 
     private double parseWeight(PeripheralDataEvent event) {
-        if (event.getWeight() != null && !event.getWeight().isEmpty()) {
-            try {
-                return Double.parseDouble(event.getWeight().trim());
-            } catch (NumberFormatException ignored) {
-            }
+        Double fromField = ScaleWeightFormat.parseKg(event.getWeight());
+        if (fromField != null) {
+            return fromField;
         }
         DigitronDgnParser.ParseResult parsed = DigitronDgnParser.parse(event.getRawPayload());
         if (parsed.isParsed()) {

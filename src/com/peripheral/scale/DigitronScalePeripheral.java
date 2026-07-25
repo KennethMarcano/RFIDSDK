@@ -146,7 +146,7 @@ public class DigitronScalePeripheral implements ReadablePeripheral, ScaleConfigu
         PeripheralDataEvent.Builder builder = PeripheralDataEvent.builder(model)
                 .rawPayload(parsed.getRaw());
         if (parsed.isParsed()) {
-            builder.weight(String.valueOf(parsed.getWeightKg()))
+            builder.weight(String.format(java.util.Locale.US, "%.3f", parsed.getWeightKg()))
                     .unit("kg")
                     .stable(parsed.isStable())
                     .displayText(parsed.getDisplayText());
