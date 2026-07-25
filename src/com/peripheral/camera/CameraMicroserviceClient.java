@@ -10,7 +10,6 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 public class CameraMicroserviceClient {
 
@@ -37,6 +36,25 @@ public class CameraMicroserviceClient {
         } catch (Exception e) {
             available = false;
             return false;
+        }
+    }
+
+    /**
+     * Serviço HTTP ok e modelo IMX500 carregado em memória (pronto para fallback IA).
+     */
+    public boolean checkReady() {
+        try {
+            String body = get("/ready", CameraMicroserviceConfig.HEALTH_TIMEOUT_MS);
+            boolean ready = body != null
+                    && (body.contains("\"ready\":true") || body.contains("\"ready\": true")
+                    || body.contains("\"model_loaded\":true")
+                    || body.contains("\"model_loaded\": true"));
+            if (ready) {
+                available = true;
+            }
+            return ready;
+        } catch (Exception e) {
+            return checkHealth();
         }
     }
 

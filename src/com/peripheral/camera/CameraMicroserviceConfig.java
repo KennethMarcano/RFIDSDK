@@ -9,8 +9,9 @@ public final class CameraMicroserviceConfig {
     public static final int DEFAULT_PORT = 8765;
     public static final int HEALTH_TIMEOUT_MS = 3000;
     public static final int CAPTURE_TIMEOUT_MS = 30000;
-    public static final int ANALYZE_TIMEOUT_MS = 60000;
-    public static final int STARTUP_WAIT_MS = 15000;
+    public static final int ANALYZE_TIMEOUT_MS = 90000;
+    /** Modelo ONNX + empacotamento RPK no boot pode demorar no primeiro start. */
+    public static final int STARTUP_WAIT_MS = 90000;
 
     private final String host;
     private final int port;

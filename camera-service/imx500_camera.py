@@ -1,13 +1,17 @@
-"""Wrapper Sony IMX500 — usa rpicam quando disponível; stub só se CAMERA_STUB_MODE=1."""
+"""Wrapper Sony IMX500 — captura via rpicam + status do modelo carregado."""
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional
 
-from config import STUB_MODE
+import config
+import model_manager
+
+logger = logging.getLogger("camera-service.imx500")
 
 _ready = False
 _last_error = None  # type: Optional[str]
@@ -53,7 +57,7 @@ def _list_cameras():
 def probe():
     """Atualiza estado da câmera (hardware real ou stub)."""
     global _ready, _last_error, _camera_info, _probed
-    if STUB_MODE:
+    if config.STUB_MODE:
         _ready = True
         _last_error = None
         _camera_info = "stub_mode"
@@ -69,28 +73,41 @@ def probe():
 def status():
     if not _probed:
         probe()
+    model = model_manager.status()
     return {
         "ready": _ready,
-        "model_loaded": _ready,
-        "stub_mode": STUB_MODE,
-        "last_error": _last_error,
+        "model_loaded": bool(model.get("model_loaded")),
+        "rpk_ready": bool(model.get("rpk_ready")),
+        "model_backend": model.get("backend"),
+        "model_dir": model.get("model_dir"),
+        "onnx_path": model.get("onnx_path"),
+        "rpk_path": model.get("rpk_path"),
+        "labels": model.get("labels") or [],
+        "stub_mode": config.STUB_MODE,
+        "last_error": _last_error or model.get("last_error"),
         "camera_info": _camera_info,
         "imx500": "imx500" in (_camera_info or "").lower(),
+        "model_load_ms": model.get("load_ms"),
     }
 
 
 def recalibrate():
     global _ready, _last_error
-    if STUB_MODE:
+    if config.STUB_MODE:
         _ready = True
         _last_error = None
-        return True, "Recalibração simulada concluída."
+        # Reafirma modelo em memória
+        model_manager.ensure_loaded()
+        return True, "Recalibração simulada — modelo mantido em memória."
     try:
         probe()
         if not _ready:
             return False, _last_error or "Câmera não detectada"
+        state = model_manager.ensure_loaded()
         _last_error = None
-        return True, "Câmera verificada / pronta (IMX500)."
+        extra = "modelo OK" if state.loaded else f"modelo: {state.last_error}"
+        rpk = "RPK pronto" if state.rpk_ready else "RPK pendente"
+        return True, f"Câmera verificada / pronta (IMX500). {extra}; {rpk}."
     except Exception as exc:
         _last_error = str(exc)
         _ready = False
@@ -102,7 +119,7 @@ def capture(output_path):
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    if STUB_MODE:
+    if config.STUB_MODE:
         try:
             _write_stub_png(path)
             _last_error = None
@@ -117,8 +134,6 @@ def capture(output_path):
         _last_error = "rpicam-still não encontrado"
         return False, "", _last_error
 
-    # --nopreview / --immediate: captura sem janela e sem timeout curto de preview
-    # --timeout 2000: margem para o sensor IMX500 inicializar
     suffix = path.suffix.lower()
     target = path if suffix in (".png", ".jpg", ".jpeg") else path.with_suffix(".jpg")
     cmd = [

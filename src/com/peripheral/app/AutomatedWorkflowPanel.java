@@ -398,30 +398,45 @@ public class AutomatedWorkflowPanel extends JPanel {
             protected int[] doInBackground() {
                 CameraMicroserviceClient client = CameraMicroserviceLifecycle.getInstance().getClient();
                 boolean serviceOk = client.checkHealth();
+                boolean modelOk = client.checkReady();
                 boolean rpicam = com.peripheral.camera.CameraHardware.isRpicamAvailable();
                 boolean hardwareOk = rpicam && com.peripheral.camera.CameraHardware.isCameraPresent();
-                return new int[]{serviceOk ? 1 : 0, hardwareOk ? 1 : 0, rpicam ? 1 : 0};
+                return new int[]{
+                        serviceOk ? 1 : 0,
+                        hardwareOk ? 1 : 0,
+                        modelOk ? 1 : 0
+                };
             }
 
             @Override
             protected void done() {
                 boolean serviceOk = false;
                 boolean hardwareOk = false;
+                boolean modelOk = false;
                 try {
                     int[] flags = get();
                     serviceOk = flags[0] == 1;
                     hardwareOk = flags[1] == 1;
+                    modelOk = flags[2] == 1;
                 } catch (Exception ignored) {
                 }
                 boolean ok = serviceOk || hardwareOk;
-                if (hardwareOk) {
+                if (hardwareOk && modelOk) {
+                    lbCameraStatus.setText("Câmera + IA");
+                    lbCameraSummary.setText("Sony IMX500 — modelo carregado");
+                    WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.SUCCESS);
+                } else if (hardwareOk) {
                     lbCameraStatus.setText("Câmera online");
                     lbCameraSummary.setText("Sony IMX500 — disponível");
                     WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.SUCCESS);
+                } else if (serviceOk && modelOk) {
+                    lbCameraStatus.setText("Câmera + IA");
+                    lbCameraSummary.setText("Serviço online — modelo IA pronto");
+                    WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.SUCCESS);
                 } else if (serviceOk) {
                     lbCameraStatus.setText("Câmera online");
-                    lbCameraSummary.setText("Serviço de câmera online");
-                    WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.SUCCESS);
+                    lbCameraSummary.setText("Serviço online (modelo IA pendente)");
+                    WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.WARNING);
                 } else {
                     lbCameraStatus.setText("Câmera indisponível");
                     lbCameraSummary.setText("Não detectada — use Testar");

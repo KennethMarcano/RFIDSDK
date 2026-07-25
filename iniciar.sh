@@ -63,8 +63,17 @@ if [[ "$(uname -s)" == "Linux" ]]; then
   export RFIDSDK_USB_WARMUP_DONE=1
 fi
 
+# Dependências do fallback IA (ONNX) — instalação leve/idempotente
+if command -v python3 >/dev/null 2>&1 && [[ -f "${ROOT}/camera-service/requirements.txt" ]]; then
+  if ! python3 -c "import onnxruntime, PIL, numpy, fastapi, uvicorn" >/dev/null 2>&1; then
+    echo "Instalando dependências do camera-service (onnxruntime/Pillow/...) ..."
+    python3 -m pip install --user -q -r "${ROOT}/camera-service/requirements.txt" || true
+  fi
+fi
+export CAMERA_MODEL_DIR="${ROOT}/camera-service/modelCamera"
+
 echo "Iniciando Periféricos eship ..."
-echo "  O microserviço Python da câmera (camera-service/) é iniciado automaticamente pelo Java."
+echo "  O microserviço Python da câmera carrega o modelo IMX500 em modelCamera/ no boot."
 if [[ "$(uname -m)" == "aarch64" ]]; then
   echo "  ARM64: Mercury RFID usa jSerialComm (JNI ThingMagic não suportado nesta arquitetura)."
 fi

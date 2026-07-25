@@ -1,0 +1,4 @@
+# Rede IMX500 empacotada (gerada por imx500-package a partir de packerOut.zip).
+# Não versionar o .rpk se for grande/binário regenerável — manter packerOut.zip.
+*
+!.gitignore

@@ -56,27 +56,47 @@ public final class CameraMicroserviceLifecycle {
             pb.environment().put("CAMERA_STUB_MODE", config.isStubMode() ? "1" : "0");
             pb.environment().put("CAMERA_SERVICE_HOST", config.getHost());
             pb.environment().put("CAMERA_SERVICE_PORT", String.valueOf(config.getPort()));
+            // Modelo IMX500 (ONNX + packerOut -> RPK) fica em camera-service/modelCamera
+            java.nio.file.Path modelDir = config.getServiceDirectory().resolve("modelCamera");
+            pb.environment().put("CAMERA_MODEL_DIR", modelDir.toAbsolutePath().toString());
+            // UTF-8 estável no Pi
+            pb.environment().put("PYTHONUTF8", "1");
+            pb.environment().put("PYTHONUNBUFFERED", "1");
 
             Process process = pb.start();
             processRef.set(process);
 
             long deadline = System.currentTimeMillis() + CameraMicroserviceConfig.STARTUP_WAIT_MS;
+            boolean httpUp = false;
             while (System.currentTimeMillis() < deadline) {
-                if (client.checkHealth()) {
+                // Preferimos /ready (modelo em memória). Aceita /health se o modelo
+                // ainda estiver carregando, mas só retorna sucesso com modelo pronto
+                // ou com HTTP ok após boa parte do timeout (degradação controlada).
+                if (client.checkReady()) {
                     lastStartupError = null;
                     return true;
                 }
+                if (!httpUp && client.checkHealth()) {
+                    httpUp = true;
+                }
                 if (!process.isAlive()) {
-                    lastStartupError = "Processo Python encerrou durante inicialização.";
+                    lastStartupError = "Processo Python encerrou durante inicialização "
+                            + "(verifique pip install -r camera-service/requirements.txt).";
                     client.setAvailable(false);
                     return false;
                 }
                 try {
-                    TimeUnit.MILLISECONDS.sleep(400);
+                    TimeUnit.MILLISECONDS.sleep(500);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
                 }
+            }
+            if (httpUp) {
+                // Serviço no ar, mas modelo pode ter falhado — ainda utilizável p/ captura.
+                lastStartupError = "Serviço de câmera online, porém modelo IA não confirmou ready a tempo.";
+                client.setAvailable(true);
+                return true;
             }
             lastStartupError = "Timeout aguardando serviço de câmera (" + config.getBaseUrl() + ").";
             client.setAvailable(false);

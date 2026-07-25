@@ -47,7 +47,17 @@ public class PeripheralApplication {
     private static void startCameraServiceAsync() {
         Thread starter = new Thread(() -> {
             CameraMicroserviceLifecycle lifecycle = CameraMicroserviceLifecycle.getInstance();
-            lifecycle.start();
+            boolean ok = lifecycle.start();
+            if (ok) {
+                boolean modelReady = lifecycle.getClient().checkReady();
+                System.out.println(modelReady
+                        ? "[Câmera] Serviço + modelo IMX500 prontos (fallback IA)."
+                        : "[Câmera] Serviço online — modelo IA ainda não confirmado.");
+            } else {
+                String err = lifecycle.getLastStartupError();
+                System.out.println("[Câmera] Falha ao iniciar serviço"
+                        + (err != null && !err.isEmpty() ? ": " + err : "."));
+            }
         }, "camera-service-starter");
         starter.setDaemon(true);
         starter.start();
