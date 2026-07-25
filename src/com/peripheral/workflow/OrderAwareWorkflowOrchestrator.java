@@ -460,6 +460,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             lastGrossWeightKg = gross;
             lastGrossStable = stable;
             context.updateScaleReading(gross, stable);
+            // Evento cru primeiro: a UI mostra o mesmo número da tela de configuração.
+            if (listener != null) {
+                listener.onWeightUpdate(event);
+            }
             publishScaleReading(gross, stable);
 
             if (operatorReview.get()) {
