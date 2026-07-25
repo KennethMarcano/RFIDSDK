@@ -22,6 +22,11 @@ public interface RfidReader {
 
     String getReaderInfo();
 
+    /** Diagnóstico RF (potência, região, antenas). Pode ser vazio se não suportado. */
+    default String getRfDiagnostics() {
+        return "";
+    }
+
     RfidSdkType getSdkType();
 
     void setAntennaIds(int[] antennaIds) throws RfidException;

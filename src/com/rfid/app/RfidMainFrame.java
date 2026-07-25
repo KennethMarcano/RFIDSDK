@@ -28,8 +28,9 @@ public class RfidMainFrame extends JFrame {
     private final JLabel lbStatus = new JLabel("Selecione SDK e porta, depois conecte.");
     private final JLabel lbReaderInfo = new JLabel("-");
 
-    private final JSpinner spPower = new JSpinner(new SpinnerNumberModel(50, 1, 100, 1));
+    private final JSpinner spPower = new JSpinner(new SpinnerNumberModel(100, 1, 100, 1));
     private final JButton btnApplyPower = new JButton("Aplicar potência");
+    private final JLabel lbPowerDbm = new JLabel("— dBm");
 
     private final JRadioButton rbAuto = new JRadioButton("Leitura automática", true);
     private final JRadioButton rbManual = new JRadioButton("Leitura manual (botão)");
@@ -106,6 +107,7 @@ public class RfidMainFrame extends JFrame {
         JPanel pPower = new JPanel(new FlowLayout(FlowLayout.LEFT));
         pPower.add(new JLabel("Potência (1-100%):"));
         pPower.add(spPower);
+        pPower.add(lbPowerDbm);
         pPower.add(btnApplyPower);
 
         ButtonGroup modeGroup = new ButtonGroup();
@@ -267,9 +269,14 @@ public class RfidMainFrame extends JFrame {
                 lbStatus.setForeground(new Color(0, 128, 0));
                 lbReaderInfo.setText(reader.getReaderInfo());
                 spPower.setValue(reader.getPowerPercent());
+                updatePowerDbmLabel();
                 setSetupEnabled(false);
                 setControlPanelEnabled(true);
                 appendLog("Conectado: " + port + " / " + sdk);
+                String diag = reader.getRfDiagnostics();
+                if (diag != null && !diag.isEmpty()) {
+                    appendLog(diag);
+                }
             }
         }.execute();
     }
@@ -283,6 +290,7 @@ public class RfidMainFrame extends JFrame {
         lbStatus.setText("Desconectado");
         lbStatus.setForeground(Color.BLACK);
         lbReaderInfo.setText("-");
+        lbPowerDbm.setText("— dBm");
         setSetupEnabled(true);
         setControlPanelEnabled(false);
         appendLog("Desconectado");
@@ -295,10 +303,31 @@ public class RfidMainFrame extends JFrame {
         int percent = (Integer) spPower.getValue();
         try {
             reader.setPowerPercent(percent);
-            appendLog("Potência aplicada: " + percent + "%");
+            updatePowerDbmLabel();
+            lbReaderInfo.setText(reader.getReaderInfo());
+            String diag = reader.getRfDiagnostics();
+            if (diag != null && !diag.isEmpty()) {
+                appendLog(diag);
+            } else {
+                appendLog("Potência aplicada: " + percent + "%");
+            }
         } catch (RfidException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "Potência", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private void updatePowerDbmLabel() {
+        if (reader == null) {
+            lbPowerDbm.setText("— dBm");
+            return;
+        }
+        if (reader instanceof com.rfid.impl.MercuryRfidReader) {
+            com.rfid.impl.MercuryRfidReader mercury = (com.rfid.impl.MercuryRfidReader) reader;
+            lbPowerDbm.setText(String.format(java.util.Locale.US, "%.1f / %.1f dBm",
+                    mercury.getAppliedPowerDbm(), mercury.getMaxPowerDbm()));
+            return;
+        }
+        lbPowerDbm.setText(reader.getPowerPercent() + "%");
     }
 
     private void startContinuous() {

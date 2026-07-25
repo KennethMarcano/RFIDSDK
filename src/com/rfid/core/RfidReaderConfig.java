@@ -3,7 +3,7 @@ package com.rfid.core;
 public class RfidReaderConfig {
 
     private int baudRate = 115200;
-    private int defaultPowerPercent = 50;
+    private int defaultPowerPercent = 100;
     private int readOnceTimeoutMs = 1000;
     private int[] antennaIds = {0};
 

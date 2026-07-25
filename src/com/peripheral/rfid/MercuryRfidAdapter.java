@@ -36,7 +36,7 @@ public class MercuryRfidAdapter implements ReadablePeripheral, RfidConfigurable 
         if (cfg.getPortName() == null || cfg.getPortName().trim().isEmpty()) {
             throw new PeripheralException("Selecione uma porta serial");
         }
-        RfidReaderConfig rfidConfig = new RfidReaderConfig().setDefaultPowerPercent(50);
+        RfidReaderConfig rfidConfig = new RfidReaderConfig().setDefaultPowerPercent(100);
         reader = new MercuryRfidReader(rfidConfig);
         try {
             reader.connect(cfg.getPortName().trim());
@@ -111,6 +111,21 @@ public class MercuryRfidAdapter implements ReadablePeripheral, RfidConfigurable 
     @Override
     public int getPowerPercent() {
         return reader != null ? reader.getPowerPercent() : 0;
+    }
+
+    @Override
+    public double getAppliedPowerDbm() {
+        return reader != null ? reader.getAppliedPowerDbm() : Double.NaN;
+    }
+
+    @Override
+    public double getMaxPowerDbm() {
+        return reader != null ? reader.getMaxPowerDbm() : Double.NaN;
+    }
+
+    @Override
+    public String getRfDiagnostics() {
+        return reader != null ? reader.getRfDiagnostics() : "";
     }
 
     @Override

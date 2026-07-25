@@ -119,6 +119,25 @@ public class PayneRfidAdapter implements ReadablePeripheral, RfidConfigurable {
     }
 
     @Override
+    public double getAppliedPowerDbm() {
+        return Double.NaN;
+    }
+
+    @Override
+    public double getMaxPowerDbm() {
+        return Double.NaN;
+    }
+
+    @Override
+    public String getRfDiagnostics() {
+        if (reader == null) {
+            return "";
+        }
+        return "Payne RF: potência=" + reader.getPowerPercent() + "% | antenas="
+                + java.util.Arrays.toString(reader.getAntennaIds());
+    }
+
+    @Override
     public void setAntennaIds(int[] antennaIds) throws PeripheralException {
         ensureConnected();
         try {

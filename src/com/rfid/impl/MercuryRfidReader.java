@@ -9,6 +9,7 @@ import com.rfid.core.RfidTagListener;
 import com.rfid.util.MercuryTransportBootstrap;
 import com.rfid.util.MercuryUriBuilder;
 import com.rfid.util.TagCodeExtractor;
+import com.thingmagic.Gen2;
 import com.thingmagic.ReadExceptionListener;
 import com.thingmagic.ReadListener;
 import com.thingmagic.Reader;
@@ -18,11 +19,27 @@ import com.thingmagic.TMConstants;
 import com.thingmagic.TagProtocol;
 import com.thingmagic.TagReadData;
 
+import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MercuryRfidReader extends AbstractRfidReader {
+
+    /** Preferência de região para LatAm / maior faixa RF (OPEN/NA antes de regiões restritas). */
+    private static final Reader.Region[] REGION_PREFERENCE = {
+            Reader.Region.OPEN,
+            Reader.Region.OPEN_EXTENDED,
+            Reader.Region.NA,
+            Reader.Region.NA2,
+            Reader.Region.NA3,
+            Reader.Region.NA4,
+            Reader.Region.AR,
+            Reader.Region.AU,
+            Reader.Region.EU3,
+            Reader.Region.EU4,
+            Reader.Region.EU2,
+            Reader.Region.EU
+    };
 
     private Reader reader;
     private String portName;
@@ -34,6 +51,9 @@ public class MercuryRfidReader extends AbstractRfidReader {
     private volatile int nativePowerCentidBm;
     private int[] antennaIds = {1};
     private String readerInfo = "";
+    private String regionName = "";
+    private String modelName = "";
+    private String lastRfDiagnostics = "";
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MercuryRfidReader");
         t.setDaemon(true);
@@ -79,14 +99,20 @@ public class MercuryRfidReader extends AbstractRfidReader {
             reader = Reader.create(uri);
             reader.connect();
             configureRegion();
+            configureAntennaDetection();
+            configureGen2();
             loadPowerRange();
             configureReadPlan();
-            readerInfo = safeString((String) reader.paramGet("/reader/version/model"));
-            if (readerInfo.isEmpty()) {
-                readerInfo = "Mercury";
+            modelName = safeString((String) reader.paramGet("/reader/version/model"));
+            if (modelName.isEmpty()) {
+                modelName = "Mercury";
             }
             connected = true;
             setPowerPercent(config.getDefaultPowerPercent());
+            refreshDiagnostics();
+            readerInfo = modelName + " | " + formatDbm(nativePowerCentidBm)
+                    + " / max " + formatDbm(powerMaxCentidBm)
+                    + " | " + regionName;
         } catch (ReaderException e) {
             destroyReaderQuietly();
             throw new RfidException("Falha ao conectar Mercury na porta " + portName + ": " + e.getMessage(), e);
@@ -102,6 +128,7 @@ public class MercuryRfidReader extends AbstractRfidReader {
         destroyReaderQuietly();
         connected = false;
         portName = null;
+        lastRfDiagnostics = "";
     }
 
     @Override
@@ -117,6 +144,17 @@ public class MercuryRfidReader extends AbstractRfidReader {
         nativePowerCentidBm = clamp(nativePowerValue, powerMinCentidBm, powerMaxCentidBm);
         try {
             reader.paramSet(TMConstants.TMR_PARAM_RADIO_READPOWER, nativePowerCentidBm);
+            try {
+                reader.paramSet(TMConstants.TMR_PARAM_RADIO_WRITEPOWER, nativePowerCentidBm);
+            } catch (ReaderException ignored) {
+                // Alguns módulos/firmwares rejeitam writePower; inventário usa readPower.
+            }
+            applyPortPowers(nativePowerCentidBm);
+            Object actual = reader.paramGet(TMConstants.TMR_PARAM_RADIO_READPOWER);
+            if (actual instanceof Integer) {
+                nativePowerCentidBm = (Integer) actual;
+            }
+            refreshDiagnostics();
         } catch (ReaderException e) {
             throw new RfidException("Erro ao definir potência Mercury: " + e.getMessage(), e);
         }
@@ -222,6 +260,30 @@ public class MercuryRfidReader extends AbstractRfidReader {
         return readerInfo;
     }
 
+    /**
+     * Diagnóstico RF para logs/UI: modelo, região, min/max/aplicado em dBm e antenas.
+     */
+    @Override
+    public String getRfDiagnostics() {
+        return lastRfDiagnostics != null ? lastRfDiagnostics : "";
+    }
+
+    public double getAppliedPowerDbm() {
+        return nativePowerCentidBm / 100.0;
+    }
+
+    public double getMaxPowerDbm() {
+        return powerMaxCentidBm / 100.0;
+    }
+
+    public double getMinPowerDbm() {
+        return powerMinCentidBm / 100.0;
+    }
+
+    public int getNativePowerCentidBm() {
+        return nativePowerCentidBm;
+    }
+
     @Override
     public void setAntennaIds(int[] antennaIds) throws RfidException {
         if (antennaIds == null || antennaIds.length == 0) {
@@ -232,6 +294,10 @@ public class MercuryRfidReader extends AbstractRfidReader {
         if (reader != null) {
             try {
                 configureReadPlan();
+                if (nativePowerCentidBm > 0) {
+                    applyPortPowers(nativePowerCentidBm);
+                }
+                refreshDiagnostics();
             } catch (ReaderException e) {
                 throw new RfidException("Erro ao configurar antenas Mercury: " + e.getMessage(), e);
             }
@@ -244,11 +310,47 @@ public class MercuryRfidReader extends AbstractRfidReader {
     }
 
     private void configureRegion() throws ReaderException {
-        if (Reader.Region.UNSPEC == (Reader.Region) reader.paramGet("/reader/region/id")) {
-            Reader.Region[] supported = (Reader.Region[]) reader.paramGet(TMConstants.TMR_PARAM_REGION_SUPPORTEDREGIONS);
-            if (supported != null && supported.length > 0) {
-                reader.paramSet("/reader/region/id", supported[0]);
+        Reader.Region current = (Reader.Region) reader.paramGet("/reader/region/id");
+        Reader.Region[] supported =
+                (Reader.Region[]) reader.paramGet(TMConstants.TMR_PARAM_REGION_SUPPORTEDREGIONS);
+        if (supported == null || supported.length == 0) {
+            regionName = current != null ? current.toString() : "UNKNOWN";
+            return;
+        }
+        if (current == null || current == Reader.Region.UNSPEC) {
+            Reader.Region chosen = pickPreferredRegion(supported);
+            reader.paramSet("/reader/region/id", chosen);
+            current = chosen;
+        }
+        regionName = current != null ? current.toString() : "UNKNOWN";
+    }
+
+    private static Reader.Region pickPreferredRegion(Reader.Region[] supported) {
+        for (Reader.Region preferred : REGION_PREFERENCE) {
+            for (Reader.Region s : supported) {
+                if (s == preferred) {
+                    return preferred;
+                }
             }
+        }
+        return supported[0];
+    }
+
+    /**
+     * Antenas sem caminho DC falham na detecção automática; com lista explícita,
+     * desligar checkPort evita o módulo “achar” que não há antena e cortar TX.
+     */
+    private void configureAntennaDetection() {
+        try {
+            reader.paramSet(TMConstants.TMR_PARAM_ANTENNA_CHECKPORT, Boolean.FALSE);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void configureGen2() {
+        try {
+            reader.paramSet(TMConstants.TMR_PARAM_GEN2_SESSION, Gen2.Session.S0);
+        } catch (Throwable ignored) {
         }
     }
 
@@ -269,6 +371,64 @@ public class MercuryRfidReader extends AbstractRfidReader {
     private void configureReadPlan() throws ReaderException {
         SimpleReadPlan plan = new SimpleReadPlan(antennaIds, TagProtocol.GEN2, null, null, 1000);
         reader.paramSet(TMConstants.TMR_PARAM_READ_PLAN, plan);
+    }
+
+    private void applyPortPowers(int centidBm) {
+        if (reader == null || antennaIds == null || antennaIds.length == 0) {
+            return;
+        }
+        int[][] list = new int[antennaIds.length][2];
+        for (int i = 0; i < antennaIds.length; i++) {
+            list[i][0] = antennaIds[i];
+            list[i][1] = centidBm;
+        }
+        try {
+            reader.paramSet(TMConstants.TMR_PARAM_RADIO_PORTREADPOWERLIST, list);
+        } catch (Throwable ignored) {
+        }
+        try {
+            reader.paramSet(TMConstants.TMR_PARAM_RADIO_PORTWRITEPOWERLIST, list);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void refreshDiagnostics() {
+        String checkPort = "?";
+        String readPower = formatDbm(nativePowerCentidBm);
+        String writePower = "?";
+        try {
+            if (reader != null) {
+                Object cp = reader.paramGet(TMConstants.TMR_PARAM_ANTENNA_CHECKPORT);
+                if (cp != null) {
+                    checkPort = String.valueOf(cp);
+                }
+                Object rp = reader.paramGet(TMConstants.TMR_PARAM_RADIO_READPOWER);
+                if (rp instanceof Integer) {
+                    readPower = formatDbm((Integer) rp);
+                }
+                Object wp = reader.paramGet(TMConstants.TMR_PARAM_RADIO_WRITEPOWER);
+                if (wp instanceof Integer) {
+                    writePower = formatDbm((Integer) wp);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        lastRfDiagnostics = "Mercury RF: modelo=" + modelName
+                + " | região=" + regionName
+                + " | min=" + formatDbm(powerMinCentidBm)
+                + " | max=" + formatDbm(powerMaxCentidBm)
+                + " | readPower=" + readPower
+                + " | writePower=" + writePower
+                + " | checkPort=" + checkPort
+                + " | antenas=" + Arrays.toString(antennaIds)
+                + " | %" + currentPowerPercent;
+        readerInfo = modelName + " | " + readPower
+                + " / max " + formatDbm(powerMaxCentidBm)
+                + " | " + regionName;
+    }
+
+    private static String formatDbm(int centidBm) {
+        return String.format(java.util.Locale.US, "%.1f dBm", centidBm / 100.0);
     }
 
     private static int[] toMercuryAntennaIds(int[] ids) {

@@ -15,7 +15,7 @@ public class MercuryRfidProber implements SerialPortProber {
             return PortProbeResult.openFailed("Porta serial não informada", "");
         }
         String port = config.getPortName().trim();
-        MercuryRfidReader reader = new MercuryRfidReader(new RfidReaderConfig().setDefaultPowerPercent(50));
+        MercuryRfidReader reader = new MercuryRfidReader(new RfidReaderConfig().setDefaultPowerPercent(100));
         try {
             reader.connect(port);
             String info = reader.getReaderInfo();

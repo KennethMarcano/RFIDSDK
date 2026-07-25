@@ -62,6 +62,7 @@ public class PeripheralConnectionPanel extends JPanel {
     private final JSpinner spPower = new JSpinner(new SpinnerNumberModel(100, 1, 100, 1));
     private final ThemedButton btnApplyPower =
             WorkflowUiTheme.button("Aplicar potência", ThemedButton.Variant.SECONDARY);
+    private final JLabel lbPowerDbm = new JLabel("— dBm");
     private final JPanel antennaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
     private final JCheckBox[] antennaChecks = new JCheckBox[16];
 
@@ -257,7 +258,11 @@ public class PeripheralConnectionPanel extends JPanel {
         rfidOptionsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
         rfidOptionsPanel.add(fieldLabel("Potência (%):"));
         rfidOptionsPanel.add(spPower);
+        rfidOptionsPanel.add(lbPowerDbm);
         rfidOptionsPanel.add(btnApplyPower);
+
+        lbPowerDbm.setFont(WorkflowUiTheme.fontMeta(lbPowerDbm));
+        lbPowerDbm.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
 
         antennaPanel.setOpaque(false);
         antennaPanel.setLayout(new GridLayout(0, 4, 2, 0));
@@ -804,7 +809,15 @@ public class PeripheralConnectionPanel extends JPanel {
                 btnDisconnect.setEnabled(true);
                 btnTestPort.setEnabled(false);
                 setSelectionEnabled(false);
+                updatePowerDbmLabel();
                 log("Conectado " + slot.getLabel() + " @ " + port);
+                ReadablePeripheral connectedDevice = sessionManager.getDevice(slot);
+                if (connectedDevice instanceof RfidConfigurable) {
+                    String diag = ((RfidConfigurable) connectedDevice).getRfDiagnostics();
+                    if (diag != null && !diag.isEmpty()) {
+                        log(diag);
+                    }
+                }
                 startLiveWeightReading();
                 startLiveRfidReading();
                 notifyConnectionChanged(true);
@@ -820,6 +833,7 @@ public class PeripheralConnectionPanel extends JPanel {
         lbDeviceInfo.setText("-");
         btnDisconnect.setEnabled(false);
         setSelectionEnabled(true);
+        lbPowerDbm.setText("— dBm");
         resetLiveWeightDisplay();
         tagMonitor.reset();
         tagMonitor.setHint("Conecte o leitor e toque em Iniciar teste.");
@@ -835,11 +849,39 @@ public class PeripheralConnectionPanel extends JPanel {
             return;
         }
         try {
-            ((RfidConfigurable) sessionManager.getDevice(slot))
-                    .setPowerPercent((Integer) spPower.getValue());
-            log("Potência " + slot.getLabel() + ": " + spPower.getValue() + "%");
+            RfidConfigurable rfid = (RfidConfigurable) sessionManager.getDevice(slot);
+            rfid.setPowerPercent((Integer) spPower.getValue());
+            rfid.setAntennaIds(collectSelectedAntennas());
+            updatePowerDbmLabel();
+            String diag = rfid.getRfDiagnostics();
+            if (diag != null && !diag.isEmpty()) {
+                log(diag);
+            } else {
+                log("Potência " + slot.getLabel() + ": " + spPower.getValue() + "%");
+            }
+            lbDeviceInfo.setText(sessionManager.getDevice(slot).getDeviceInfo());
         } catch (PeripheralException e) {
             JOptionPane.showMessageDialog(getDialogParent(), e.getMessage(), "Potência", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void updatePowerDbmLabel() {
+        if (!sessionManager.isConnected(slot)
+                || !(sessionManager.getDevice(slot) instanceof RfidConfigurable)) {
+            lbPowerDbm.setText("— dBm");
+            return;
+        }
+        RfidConfigurable rfid = (RfidConfigurable) sessionManager.getDevice(slot);
+        double applied = rfid.getAppliedPowerDbm();
+        double max = rfid.getMaxPowerDbm();
+        if (Double.isNaN(applied)) {
+            lbPowerDbm.setText(spPower.getValue() + "%");
+            return;
+        }
+        if (Double.isNaN(max)) {
+            lbPowerDbm.setText(String.format(java.util.Locale.US, "%.1f dBm", applied));
+        } else {
+            lbPowerDbm.setText(String.format(java.util.Locale.US, "%.1f / %.1f dBm", applied, max));
         }
     }
 
@@ -868,11 +910,16 @@ public class PeripheralConnectionPanel extends JPanel {
         btnRefreshPorts.setEnabled(enabled);
         btnTestPort.setEnabled(enabled);
         btnConnect.setEnabled(enabled);
-        spPower.setEnabled(enabled);
-        btnApplyPower.setEnabled(enabled);
+        // Potência/antenas editáveis também com o leitor conectado
+        boolean powerEditable = enabled || sessionManager.isConnected(slot);
+        spPower.setEnabled(powerEditable && slot.getPeripheralType() == PeripheralType.RFID_READER);
+        btnApplyPower.setEnabled(sessionManager.isConnected(slot)
+                && slot.getPeripheralType() == PeripheralType.RFID_READER);
+        boolean antennasEditable = enabled || (sessionManager.isConnected(slot)
+                && slot.getPeripheralType() == PeripheralType.RFID_READER);
         for (JCheckBox cb : antennaChecks) {
             if (cb != null) {
-                cb.setEnabled(enabled);
+                cb.setEnabled(antennasEditable);
             }
         }
         spBaud.setEnabled(enabled);
