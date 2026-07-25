@@ -61,28 +61,28 @@ public final class LinuxUsbSerialReset {
         if (!isSupported()) {
             return Result.skipped("USB reset só é suportado no Linux (/sys/bus/usb).");
         }
-        Result sysfs = resetViaSysfs();
-        if (sysfs.getResetCount() > 0) {
-            return sysfs;
-        }
+        // O script faz reset REAL (usbfs ioctl + unbind/bind), equivalente a
+        // desconectar/reconectar. É o que resolve o "não reconhece após reboot".
         Result script = resetViaShellScript();
         if (script.isAttempted() && script.getResetCount() > 0) {
             return script;
         }
-        if (sysfs.hasErrors() || !sysfs.getSummary().isEmpty()) {
-            List<String> merged = new ArrayList<>(sysfs.getErrors());
-            if (script.hasErrors()) {
-                merged.addAll(script.getErrors());
-            } else if (script.getSummary() != null && !script.getSummary().isEmpty()
-                    && script.isAttempted()) {
-                merged.add(script.getSummary());
-            }
-            String summary = sysfs.getResetCount() == 0 && !merged.isEmpty()
-                    ? "Reset USB sem permissão. Use ./iniciar.sh (recomendado) ou configure sudo/udev."
-                    : sysfs.getSummary();
-            return new Result(true, 0, sysfs.getResetDevices(), merged, summary);
+        // Fallback: authorized 0/1 direto no sysfs (mais fraco).
+        Result sysfs = resetViaSysfs();
+        if (sysfs.getResetCount() > 0) {
+            return sysfs;
         }
-        return script.isAttempted() ? script : sysfs;
+        List<String> merged = new ArrayList<>();
+        if (script.hasErrors()) {
+            merged.addAll(script.getErrors());
+        }
+        if (sysfs.hasErrors()) {
+            merged.addAll(sysfs.getErrors());
+        }
+        String summary = !merged.isEmpty()
+                ? "Reset USB sem permissão. Use ./iniciar.sh ou o serviço systemd (root)."
+                : (script.isAttempted() ? script.getSummary() : sysfs.getSummary());
+        return new Result(true, 0, new ArrayList<>(), merged, summary);
     }
 
     private static Result resetViaSysfs() {

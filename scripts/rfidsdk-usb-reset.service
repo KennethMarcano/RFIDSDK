@@ -1,0 +1,18 @@
+[Unit]
+Description=Reset seletivo de conversores USB-serial (RFID/balanca) da RFIDSDK
+# Roda depois que o USB/kernel subiu, mas antes da interface grafica/app.
+After=systemd-udev-settle.service local-fs.target
+Wants=systemd-udev-settle.service
+Before=graphical.target multi-user.target
+
+[Service]
+Type=oneshot
+# AJUSTE o caminho conforme onde o projeto esta no Raspberry:
+ExecStart=/bin/bash /home/pi/RFIDSDK/scripts/usb-serial-reset.sh
+RemainAfterExit=no
+# Roda como root -> tem permissao para escrever em /sys e /dev/bus/usb.
+User=root
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
