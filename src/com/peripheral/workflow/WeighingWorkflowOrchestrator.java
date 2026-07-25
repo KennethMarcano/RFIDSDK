@@ -71,6 +71,7 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
 
         if (!config.isSimulationMode()) {
             ReadablePeripheral scale = sessionManager.getDevice(PeripheralSlot.SCALE);
+            PeripheralSafeIo.stopReading(scale);
             scale.startContinuousReading(scaleListener);
         }
         notifyAwaitingWeighingStart();

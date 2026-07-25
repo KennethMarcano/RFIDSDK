@@ -104,6 +104,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
 
         if (!config.isSimulationMode()) {
             ReadablePeripheral scale = sessionManager.getDevice(PeripheralSlot.SCALE);
+            // Garante que o listener do fluxo substitui o da tela de configuração.
+            PeripheralSafeIo.stopReading(scale);
             scale.startContinuousReading(scaleListener);
             startContinuousRfidIfEnabled();
         }

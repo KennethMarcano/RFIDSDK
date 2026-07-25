@@ -6,15 +6,17 @@ import java.util.regex.Pattern;
 /**
  * Parser do protocolo Digitron DGN (T.1), string de 8 bytes + CR.
  * <p>
- * Exemplos do manual:
+ * Manual (Tabela 5):
  * <ul>
- *   <li>{@code D000.980} — peso estável</li>
+ *   <li>{@code D000.980} — bruto estável (carga)</li>
  *   <li>{@code E000.050} — líquido estável com tara de hardware</li>
- *   <li>{@code L000.001} — peso negativo (abaixo de zero)</li>
- *   <li>{@code M000.200} — valor da tara (sem o objeto de tara na plataforma)</li>
+ *   <li>{@code F000.000} / {@code G000.000} — zero (sem / com tara)</li>
+ *   <li>{@code M000.200} — referência de tara SEM o recipiente na plataforma
+ *       (o número é a tara, NÃO há produto; tratar como 0 g de carga)</li>
+ *   <li>{@code L000.001} — negativo estável</li>
  * </ul>
- * Erro clássico: tratar {@code L}/{@code H}/{@code I} como peso positivo e
- * {@code M} como carga — isso faz o fluxo mostrar gramas a mais com a balança vazia.
+ * Erro clássico: tratar {@code M}/{@code O} como carga positiva — a UI mostra
+ * ~100–200 g com a balança vazia (valor da tara de hardware).
  */
 public final class DigitronDgnParser {
 
@@ -27,9 +29,9 @@ public final class DigitronDgnParser {
         if (rawLine == null) {
             return ParseResult.unparsed("");
         }
-        String trimmed = rawLine.trim();
-        if (trimmed.endsWith("#")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1).trim();
+        String trimmed = sanitize(rawLine);
+        if (trimmed.isEmpty()) {
+            return ParseResult.unparsed("");
         }
         if (!DigitronScaleProber.isDigitronLine(trimmed)) {
             return ParseResult.unparsed(trimmed);
@@ -47,52 +49,104 @@ public final class DigitronDgnParser {
         } catch (NumberFormatException e) {
             return ParseResult.unparsed(trimmed);
         }
-
-        double weightKg = toSignedWeightKg(statusChar, magnitude);
-        boolean stable = isStableStatus(statusChar);
-        boolean tareReferenceOnly = statusChar == 'M';
-
-        String display = (stable ? "Estável: " : "Instável: ")
-                + ScaleWeightFormat.formatGramsWithUnit(weightKg);
-        if (tareReferenceOnly) {
-            display = "Tara (sem recipiente): " + ScaleWeightFormat.formatGramsWithUnit(magnitude);
+        if (magnitude < 0) {
+            magnitude = 0;
         }
-        return new ParseResult(trimmed, weightKg, stable, display, true, tareReferenceOnly);
+
+        double weightKg = toProductWeightKg(statusChar, magnitude);
+        boolean stable = isStableStatus(statusChar);
+        boolean noLoad = isNoLoadStatus(statusChar);
+
+        String display;
+        if (noLoad && (statusChar == 'M' || statusChar == 'O')) {
+            display = "Tara HW (sem recipiente): "
+                    + ScaleWeightFormat.formatGramsWithUnit(magnitude)
+                    + " → carga 0 g";
+        } else if (noLoad) {
+            display = "Zero: " + ScaleWeightFormat.formatGramsWithUnit(0);
+        } else {
+            display = (stable ? "Estável: " : "Instável: ")
+                    + ScaleWeightFormat.formatGramsWithUnit(weightKg);
+        }
+        return new ParseResult(trimmed, weightKg, stable, display, true, noLoad && (statusChar == 'M' || statusChar == 'O'));
     }
 
     /**
-     * Converte o valor ASCII do protocolo no peso real em kg.
-     * Status negativos e referência de tara não devem virar carga positiva.
+     * Remove lixo de framing (STX/ETX, NULs, espaços) mantendo o frame DGN.
      */
-    static double toSignedWeightKg(char statusChar, double magnitude) {
-        if (magnitude < 0) {
-            magnitude = 0;
+    static String sanitize(String rawLine) {
+        StringBuilder sb = new StringBuilder(rawLine.length());
+        for (int i = 0; i < rawLine.length(); i++) {
+            char c = rawLine.charAt(i);
+            if (c >= 32 && c < 127) {
+                sb.append(c);
+            }
+        }
+        String trimmed = sb.toString().trim();
+        if (trimmed.endsWith("#")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1).trim();
+        }
+        return trimmed;
+    }
+
+    /**
+     * Peso de produto/carga em kg para o checkout.
+     * Status de zero / referência de tara NÃO são carga.
+     */
+    static double toProductWeightKg(char statusChar, double magnitude) {
+        if (isNoLoadStatus(statusChar)) {
+            return 0;
         }
         switch (statusChar) {
             case 'H': // negativo em movimento
             case 'I': // negativo estável com tara
-            case 'L': // negativo
-                return -magnitude;
-            case 'M':
-                // Manual: "tara sem o peso da tara na plataforma" — o número é a tara,
-                // não há produto. Peso líquido efetivo ≈ 0 (não +tara).
+            case 'L': // negativo estável
+            case 'T': // negativo em movimento com tara
+                // Abaixo de zero: para checkout trata como 0 (sem produto).
                 return 0;
+            case 'P': // sobrecarga com tara
+            case 'Q': // sobrecarga sem tara
+            case 'X': // subcarga
+            case 'Y': // subcarga com tara
+                return magnitude;
+            case '@': // bruto em movimento
+            case 'A': // líquido em movimento
+            case 'D': // bruto estável
+            case 'E': // líquido estável
             default:
                 return magnitude;
         }
     }
 
-    static boolean isStableStatus(char statusChar) {
+    /**
+     * Estados em que não há produto na plataforma (ou só referência de tara).
+     */
+    static boolean isNoLoadStatus(char statusChar) {
         switch (statusChar) {
-            case 'D': // peso estável
-            case 'E': // líquido estável com tara
-            case 'F': // zero
+            case 'B': // zero em movimento
+            case 'C': // zero em movimento com tara
+            case 'F': // zero estável
             case 'G': // zero com tara
-            case 'I': // negativo estável com tara
-            case 'L': // negativo estável
+            case 'M': // tara sem recipiente na plataforma (manual Tabela 5)
+            case 'O': // valor da tara com sinal negativo
                 return true;
             default:
-                // A B C H M @ — em movimento / referência de tara
+                return false;
+        }
+    }
+
+    static boolean isStableStatus(char statusChar) {
+        switch (statusChar) {
+            case 'D':
+            case 'E':
+            case 'F':
+            case 'G':
+            case 'I':
+            case 'L':
+            case 'M': // referência de tara estável o suficiente para UI
+            case 'O':
+                return true;
+            default:
                 return false;
         }
     }
@@ -144,7 +198,7 @@ public final class DigitronDgnParser {
             return parsed;
         }
 
-        /** True quando a linha é status M (valor de tara, sem carga). */
+        /** True quando a linha é status M/O (valor de tara, sem carga). */
         public boolean isTareReferenceOnly() {
             return tareReferenceOnly;
         }

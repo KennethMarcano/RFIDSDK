@@ -14,6 +14,7 @@ import com.peripheral.core.RfidConfigurable;
 import com.peripheral.core.PeripheralDataListener;
 import com.peripheral.core.SerialConnectionConfig;
 import com.peripheral.core.SerialPortProber;
+import com.peripheral.scale.DigitronDgnParser;
 import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.session.PeripheralConnectionHandle;
 import com.peripheral.session.PeripheralSessionManager;
@@ -436,11 +437,20 @@ public class PeripheralConnectionPanel extends JPanel {
         if (!liveWeightActive || event == null) {
             return;
         }
-        Double kg = ScaleWeightFormat.parseKg(event.getWeight());
-        if (kg == null) {
-            return;
+        DigitronDgnParser.ParseResult parsed = DigitronDgnParser.parse(event.getRawPayload());
+        Double kg;
+        boolean stable;
+        if (parsed.isParsed()) {
+            kg = parsed.getWeightKg();
+            stable = parsed.isStable();
+        } else {
+            kg = ScaleWeightFormat.parseKg(event.getWeight());
+            if (kg == null) {
+                return;
+            }
+            kg = Math.max(0, kg);
+            stable = Boolean.TRUE.equals(event.getStable());
         }
-        boolean stable = Boolean.TRUE.equals(event.getStable());
         lbLiveWeight.setText(ScaleWeightFormat.formatGramsWithUnit(kg));
         lbLiveWeight.setForeground(stable ? WorkflowUiTheme.MONITOR_VALUE : Color.WHITE);
         if (ScaleWeightFormat.isOverload(kg)) {
@@ -448,9 +458,14 @@ public class PeripheralConnectionPanel extends JPanel {
                     + ScaleWeightFormat.MAX_GRAMS + " " + ScaleWeightFormat.UNIT);
             WorkflowUiTheme.setStatusColor(lbLiveWeightHint, WorkflowUiTheme.MONITOR_ALERT);
         } else {
-            lbLiveWeightHint.setText(stable
+            String raw = parsed.isParsed() ? parsed.getRaw() : event.getRawPayload();
+            String hint = stable
                     ? "●  PESO ESTÁVEL"
-                    : "○  Aguardando estabilização...");
+                    : "○  Aguardando estabilização...";
+            if (raw != null && !raw.isEmpty()) {
+                hint = hint + "  |  " + raw;
+            }
+            lbLiveWeightHint.setText(hint);
             WorkflowUiTheme.setStatusColor(lbLiveWeightHint,
                     stable ? WorkflowUiTheme.MONITOR_VALUE : WorkflowUiTheme.MONITOR_ALERT);
         }

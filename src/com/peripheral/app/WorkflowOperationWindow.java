@@ -5,6 +5,7 @@ import com.peripheral.pedido.Pedido;
 import com.peripheral.pedido.PedidoItem;
 import com.peripheral.pedido.PedidoSerial;
 import com.peripheral.pedido.PedidoVolume;
+import com.peripheral.scale.DigitronDgnParser;
 import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.workflow.PedidoValidationService;
 import com.peripheral.workflow.WorkflowController;
@@ -43,6 +44,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             new JLabel(ScaleWeightFormat.PLACEHOLDER, SwingConstants.CENTER);
     private final JLabel lbLiveWeightUnit = new JLabel(ScaleWeightFormat.UNIT);
     private final JLabel lbLiveWeightStable = new JLabel("Aguardando leitura da balança", SwingConstants.CENTER);
+    private final JLabel lbScaleRawLine = new JLabel(" ", SwingConstants.CENTER);
     private final CameraLiveMonitorPanel cameraMonitor = new CameraLiveMonitorPanel();
     private final RfidTagMonitorPanel liveTagMonitor =
             new RfidTagMonitorPanel("RFID — PRODUTOS DO PEDIDO", false);
@@ -217,14 +219,26 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         lbLiveWeightStable.setFont(lbLiveWeightStable.getFont().deriveFont(Font.PLAIN, 11f));
         lbLiveWeightStable.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
 
+        lbScaleRawLine.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        lbScaleRawLine.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
+
         JPanel valueRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
         valueRow.setOpaque(false);
         valueRow.add(lbLiveWeightValue);
         valueRow.add(lbLiveWeightUnit);
 
+        JPanel south = new JPanel();
+        south.setOpaque(false);
+        south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
+        lbLiveWeightStable.setAlignmentX(Component.CENTER_ALIGNMENT);
+        lbScaleRawLine.setAlignmentX(Component.CENTER_ALIGNMENT);
+        south.add(lbLiveWeightStable);
+        south.add(Box.createVerticalStrut(2));
+        south.add(lbScaleRawLine);
+
         panel.add(caption, BorderLayout.NORTH);
         panel.add(valueRow, BorderLayout.CENTER);
-        panel.add(lbLiveWeightStable, BorderLayout.SOUTH);
+        panel.add(south, BorderLayout.SOUTH);
         return panel;
     }
 
@@ -774,8 +788,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     /**
-     * Mesmo critério da tela de configuração: mostra o peso do evento da balança
-     * sem tara lógica nem recálculo intermediário.
+     * Mesma fonte da tela de configuração: reparseia a linha DGN e mostra só a
+     * carga de produto (status M/O/zero → 0 g). A linha bruta fica visível para diagnóstico.
      */
     @Override
     public void onWeightUpdate(com.peripheral.core.PeripheralDataEvent event) {
@@ -783,17 +797,29 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             if (event == null) {
                 return;
             }
-            Double kg = ScaleWeightFormat.parseKg(event.getWeight());
-            if (kg == null) {
-                return;
+            DigitronDgnParser.ParseResult parsed = DigitronDgnParser.parse(event.getRawPayload());
+            double kg;
+            boolean stable;
+            String raw;
+            if (parsed.isParsed()) {
+                kg = parsed.getWeightKg();
+                stable = parsed.isStable();
+                raw = parsed.getRaw();
+            } else {
+                Double fromField = ScaleWeightFormat.parseKg(event.getWeight());
+                if (fromField == null) {
+                    return;
+                }
+                kg = Math.max(0, fromField);
+                stable = Boolean.TRUE.equals(event.getStable());
+                raw = event.getRawPayload() != null ? event.getRawPayload() : "";
             }
-            lastRawPayload = event.getRawPayload();
-            boolean stable = Boolean.TRUE.equals(event.getStable());
-            updateWeightDisplay(kg, stable);
+            lastRawPayload = raw;
+            updateWeightDisplay(kg, stable, raw);
         });
     }
 
-    private void updateWeightDisplay(double kg, boolean stable) {
+    private void updateWeightDisplay(double kg, boolean stable, String rawLine) {
         boolean overload = ScaleWeightFormat.isOverload(kg);
         lbLiveWeightValue.setText(ScaleWeightFormat.formatGrams(kg));
         lbLiveWeightUnit.setText(ScaleWeightFormat.UNIT);
@@ -808,8 +834,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                     ? WorkflowUiTheme.MONITOR_VALUE
                     : WorkflowUiTheme.MONITOR_ALERT);
         }
-        if (lastRawPayload != null && !lastRawPayload.isEmpty()) {
-            lbLiveWeightValue.setToolTipText("Linha da balança: " + lastRawPayload);
+        if (rawLine != null && !rawLine.isEmpty()) {
+            lbScaleRawLine.setText(rawLine);
+            lbLiveWeightValue.setToolTipText("Linha da balança: " + rawLine);
+        } else {
+            lbScaleRawLine.setText(" ");
         }
     }
 
@@ -899,6 +928,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             lbLiveWeightUnit.setText(ScaleWeightFormat.UNIT);
             lbLiveWeightStable.setText("Aguardando leitura da balança");
             lbLiveWeightStable.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
+            lbScaleRawLine.setText(" ");
             lastRawPayload = null;
             cameraMonitor.ensureLivePreview();
         });

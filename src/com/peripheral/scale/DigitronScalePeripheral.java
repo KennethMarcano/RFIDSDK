@@ -73,13 +73,16 @@ public class DigitronScalePeripheral implements ReadablePeripheral, ScaleConfigu
     @Override
     public void startContinuousReading(PeripheralDataListener listener) throws PeripheralException {
         ensureConnected();
-        if (continuousReading.get()) {
-            return;
-        }
         dataListener = listener;
-        continuousReading.set(true);
-        serialLink.setLineListener(line -> dispatchRaw(line, listener));
-        notifyReadingState(listener, true);
+        // Sempre troca o listener: se a leitura da tela de config ainda estiver
+        // ativa, o fluxo antigo retornava cedo e a janela de checkout não recebia
+        // os eventos (ou ficava com o callback errado).
+        serialLink.setLineListener(line -> dispatchRaw(line, dataListener));
+        if (continuousReading.compareAndSet(false, true)) {
+            notifyReadingState(listener, true);
+        } else {
+            notifyReadingState(listener, true);
+        }
     }
 
     @Override

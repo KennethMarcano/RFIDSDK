@@ -75,10 +75,6 @@ public class DigitronScaleProber implements SerialPortProber {
         if (line == null) {
             return false;
         }
-        String trimmed = line.trim();
-        if (trimmed.endsWith("#")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1).trim();
-        }
-        return DGN_LINE.matcher(trimmed).matches();
+        return DGN_LINE.matcher(DigitronDgnParser.sanitize(line)).matches();
     }
 }
