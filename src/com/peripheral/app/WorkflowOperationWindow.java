@@ -249,8 +249,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         monitors.add(cameraMonitor);
         monitors.setPreferredSize(new Dimension(0, MONITOR_ROW_HEIGHT));
 
-        liveTagMonitor.setHint("RFID contínuo — todos os produtos do pedido aparecem abaixo; "
-                + "o código muda para DETECTADO ao identificar.");
+        liveTagMonitor.setHint("RFID contínuo — produtos em grade; o código identificado muda para OK.");
 
         JTabbedPane tabs = new JTabbedPane();
         WorkflowUiTheme.styleTabbedPane(tabs);
@@ -685,7 +684,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         List<RfidTagMonitorPanel.ProductEntry> entries = buildExpectedProductEntries();
         if (!entries.isEmpty()) {
             liveTagMonitor.setExpectedProducts(entries);
-            liveTagMonitor.setHint("Produtos do pedido — o código identificado aparece como DETECTADO.");
+            liveTagMonitor.setHint("Produtos do pedido — o código identificado aparece como OK.");
         }
     }
 
@@ -922,7 +921,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             clearHistory();
             liveTagMonitor.reset();
             refreshExpectedProducts();
-            liveTagMonitor.setHint("Produtos do pedido — o código identificado aparece como DETECTADO.");
+            liveTagMonitor.setHint("Produtos do pedido — o código identificado aparece como OK.");
             lbTagProgress.setText("Códigos: 0");
             lbLiveWeightValue.setText(ScaleWeightFormat.PLACEHOLDER);
             lbLiveWeightUnit.setText(ScaleWeightFormat.UNIT);

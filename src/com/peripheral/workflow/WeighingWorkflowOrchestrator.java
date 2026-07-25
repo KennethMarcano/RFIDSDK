@@ -10,12 +10,11 @@ import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.session.PeripheralSessionManager;
 import com.peripheral.session.PeripheralSlot;
 
+import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.List;
-import java.io.IOException;
 
 public class WeighingWorkflowOrchestrator implements WorkflowController {
 
@@ -39,6 +38,7 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
     private final AtomicBoolean awaitingUserStart = new AtomicBoolean(false);
     private final AtomicLong stableSinceMs = new AtomicLong(0);
     private final AtomicBoolean stabilizationTriggered = new AtomicBoolean(false);
+    private final AtomicBoolean rfidCollecting = new AtomicBoolean(false);
 
     public WeighingWorkflowOrchestrator(PeripheralSessionManager sessionManager) {
         this.sessionManager = sessionManager;
@@ -61,6 +61,8 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         waitingForNext.set(false);
         cycleInProgress.set(false);
         awaitingUserStart.set(true);
+        rfidCollecting.set(false);
+        context.clearTags();
         resetStabilizationTracking();
 
         try {
@@ -73,6 +75,7 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             ReadablePeripheral scale = sessionManager.getDevice(PeripheralSlot.SCALE);
             PeripheralSafeIo.stopReading(scale);
             scale.startContinuousReading(scaleListener);
+            startContinuousRfidIfEnabled();
         }
         notifyAwaitingWeighingStart();
     }
@@ -83,6 +86,8 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         armed.set(false);
         waitingForNext.set(false);
         awaitingUserStart.set(false);
+        rfidCollecting.set(false);
+        context.clearTags();
         resetStabilizationTracking();
         stopScaleReading();
         stopRfidReading();
@@ -104,6 +109,8 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         armed.set(false);
         cycleInProgress.set(false);
         awaitingUserStart.set(true);
+        rfidCollecting.set(false);
+        context.clearTags();
         resetStabilizationTracking();
         sessionStore.clearSession();
         try {
@@ -125,12 +132,19 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         if (!running.get() || !awaitingUserStart.compareAndSet(true, false)) {
             return;
         }
+        context.clearTags();
+        rfidCollecting.set(config.isEnabled(WorkflowStep.RFID_READ));
         armed.set(true);
         resetStabilizationTracking();
         String message = config.isSimulationMode()
                 ? "Modo simulação — clique em Simular pesagem estável"
-                : "Coloque o item na balança — aguardando estabilização (1,5 s)...";
+                : config.isEnabled(WorkflowStep.RFID_READ)
+                        ? "RFID monitorando — coloque os produtos; fluxo após 1,5 s estáveis"
+                        : "Coloque o item na balança — aguardando estabilização (1,5 s)...";
         notifyStep(WorkflowStep.WEIGHING, message);
+        if (config.isEnabled(WorkflowStep.RFID_READ)) {
+            notifyStep(WorkflowStep.RFID_READ, "Identificando produtos durante a pesagem...");
+        }
     }
 
     public void acknowledgeNext() {
@@ -140,6 +154,8 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         armed.set(false);
         cycleInProgress.set(false);
         awaitingUserStart.set(true);
+        rfidCollecting.set(false);
+        context.clearTags();
         resetStabilizationTracking();
         notifyAwaitingWeighingStart();
     }
@@ -187,7 +203,10 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             if (!running.get()) {
                 return;
             }
-            runCycle(scenario.getWeightKg(), true, scenario);
+            if (config.isEnabled(WorkflowStep.RFID_READ)) {
+                injectSimulatedTags(scenario);
+            }
+            runCycle(scenario.getWeightKg(), true);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             handleCycleFailure("Simulação interrompida", e);
@@ -200,6 +219,8 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         cycleInProgress.set(false);
         armed.set(false);
         awaitingUserStart.set(true);
+        rfidCollecting.set(false);
+        context.clearTags();
         resetStabilizationTracking();
         notifyAwaitingWeighingStart();
         if (listener != null) {
@@ -238,6 +259,45 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         }
     };
 
+    private final PeripheralDataListener continuousRfidListener = new PeripheralDataListener() {
+        @Override
+        public void onData(PeripheralDataEvent event) {
+            if (!running.get() || event == null) {
+                return;
+            }
+            if (!rfidCollecting.get() && !awaitingUserStart.get()) {
+                return;
+            }
+            if (!rfidCollecting.get()) {
+                if (listener != null) {
+                    listener.onTagRead(event);
+                }
+                return;
+            }
+            context.addTag(event.getEpc(), event.getCode());
+            if (listener != null) {
+                listener.onTagRead(event);
+            }
+        }
+
+        @Override
+        public void onError(Throwable error) {
+            if (listener != null && error != null) {
+                listener.onError("RFID: " + error.getMessage(), error);
+            }
+            if (PeripheralSafeIo.looksLikeConnectionLoss(error)) {
+                sessionManager.disconnect(PeripheralSlot.RFID_READER);
+                handleCycleFailure("Conexão com o leitor RFID foi perdida",
+                        error instanceof Exception ? (Exception) error : new PeripheralException(
+                                error != null ? error.getMessage() : "RFID desconectado", error));
+            }
+        }
+
+        @Override
+        public void onReadingStateChanged(boolean reading) {
+        }
+    };
+
     private void evaluateStabilization(double weight, boolean stable) {
         if (!stable || weight <= WorkflowConfig.MIN_WEIGHT_KG) {
             resetStabilizationTracking();
@@ -258,7 +318,7 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             if (stabilizationTriggered.compareAndSet(false, true)) {
                 armed.set(false);
                 resetStabilizationTracking();
-                executor.submit(() -> runCycle(weight, stable, null));
+                executor.submit(() -> runCycle(weight, stable));
             }
             return;
         }
@@ -282,20 +342,13 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         stabilizationTriggered.set(false);
     }
 
-    private void runCycle(double weightKg, boolean stable, WorkflowMockScenario simulation) {
+    private void runCycle(double weightKg, boolean stable) {
         if (!running.get() || !cycleInProgress.compareAndSet(false, true)) {
             return;
         }
-        context.clearTags();
+        rfidCollecting.set(false);
         context.beginCycle(weightKg, stable);
         try {
-            if (config.isEnabled(WorkflowStep.RFID_READ)) {
-                if (simulation != null) {
-                    runSimulatedRfidBurst(simulation);
-                } else {
-                    runRfidBurst();
-                }
-            }
             if (!running.get()) {
                 return;
             }
@@ -338,61 +391,37 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         }
     }
 
-    private void runSimulatedRfidBurst(WorkflowMockScenario scenario) throws InterruptedException {
-        notifyStep(WorkflowStep.RFID_READ, "Simulando leitura RFID...");
-        List<WorkflowMockScenario.MockTag> tags = scenario.getTags();
-        int durationMs = Math.min(config.getRfidReadDurationMs(), 400);
-        if (tags.isEmpty()) {
-            Thread.sleep(durationMs);
+    private void startContinuousRfidIfEnabled() throws PeripheralException {
+        if (config == null || !config.isEnabled(WorkflowStep.RFID_READ)) {
             return;
         }
-        long intervalMs = Math.max(80, durationMs / tags.size());
-        for (WorkflowMockScenario.MockTag tag : tags) {
-            if (!running.get()) {
-                return;
-            }
-            context.addTag(tag.getEpc(), tag.getCode());
-            Thread.sleep(intervalMs);
-        }
-    }
-
-    private void runRfidBurst() throws PeripheralException, InterruptedException {
         ReadablePeripheral rfid = sessionManager.getDevice(PeripheralSlot.RFID_READER);
         if (rfid == null || !rfid.isConnected()) {
             throw new PeripheralException("Leitor RFID não conectado");
         }
-        notifyStep(WorkflowStep.RFID_READ,
-                "Lendo tags RFID por " + (config.getRfidReadDurationMs() / 1000) + " s...");
-        PeripheralDataListener tagListener = new PeripheralDataListener() {
-            @Override
-            public void onData(PeripheralDataEvent event) {
-                if (event == null) {
-                    return;
-                }
-                context.addTag(event.getEpc(), event.getCode());
-            }
-
-            @Override
-            public void onError(Throwable error) {
-                if (listener != null && error != null) {
-                    listener.onError("RFID: " + error.getMessage(), error);
-                }
-            }
-
-            @Override
-            public void onReadingStateChanged(boolean reading) {
-            }
-        };
-        rfid.startContinuousReading(tagListener);
-        try {
-            Thread.sleep(config.getRfidReadDurationMs());
-        } finally {
+        if (rfid.isReading()) {
             PeripheralSafeIo.stopReading(rfid);
         }
-        if (!rfid.isConnected()) {
-            sessionManager.disconnect(PeripheralSlot.RFID_READER);
-            throw new PeripheralException(
-                    "Conexão com o leitor RFID foi perdida. Reconecte o dispositivo e tente novamente.");
+        rfid.startContinuousReading(continuousRfidListener);
+        notifyStep(WorkflowStep.RFID_READ, "RFID monitorando continuamente...");
+    }
+
+    private void injectSimulatedTags(WorkflowMockScenario scenario) {
+        if (scenario == null) {
+            return;
+        }
+        notifyStep(WorkflowStep.RFID_READ, "Simulando detecção contínua de tags...");
+        for (WorkflowMockScenario.MockTag tag : scenario.getTags()) {
+            if (!running.get()) {
+                return;
+            }
+            context.addTag(tag.getEpc(), tag.getCode());
+            if (listener != null) {
+                listener.onTagRead(PeripheralDataEvent.builder(null)
+                        .code(tag.getCode())
+                        .epc(tag.getEpc())
+                        .build());
+            }
         }
     }
 

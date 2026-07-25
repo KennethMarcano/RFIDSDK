@@ -45,7 +45,7 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final ThemedButton btnTestCamera =
             WorkflowUiTheme.button("Testar", ThemedButton.Variant.SECONDARY);
 
-    private final JCheckBox cbRfid = new JCheckBox("Leitura RFID após estabilizar", true);
+    private final JCheckBox cbRfid = new JCheckBox("Leitura RFID contínua durante a pesagem", true);
     private final JCheckBox cbPhoto = new JCheckBox("Capturar foto", false);
     private final JCheckBox cbLabel = new JCheckBox("Imprimir etiqueta", false);
     private final JCheckBox cbWeighing = new JCheckBox("Pesagem (obrigatório)", true);
@@ -261,7 +261,8 @@ public class AutomatedWorkflowPanel extends JPanel {
         checks.setMaximumSize(new Dimension(Integer.MAX_VALUE, 130));
 
         JLabel help = WorkflowUiTheme.createHintLabel(
-                "<html>Após estabilizar 1,5 s → RFID (1 s) → validação do pedido (se ativa). "
+                "<html>RFID identifica os produtos durante a pesagem; após 1,5 s estáveis, o fluxo continua. "
+                        + "Validação do pedido (se ativa). "
                         + "Divergência: foto + IA fallback + revisão do operador. "
                         + "Caminho OK: etiqueta (e foto se marcada).</html>");
         help.setAlignmentX(Component.LEFT_ALIGNMENT);
