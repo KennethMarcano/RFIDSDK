@@ -1,6 +1,7 @@
 package com.peripheral.session;
 
 import com.peripheral.core.DeviceModelEntry;
+import com.peripheral.core.PeripheralSafeIo;
 import com.peripheral.core.ReadablePeripheral;
 import com.peripheral.core.SerialConnectionConfig;
 
@@ -56,7 +57,7 @@ public class PeripheralConnectionHandle {
 
     public void clear() {
         if (device != null) {
-            device.disconnect();
+            PeripheralSafeIo.disconnect(device);
             device = null;
         }
         model = null;

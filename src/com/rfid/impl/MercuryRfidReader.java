@@ -22,8 +22,14 @@ import com.thingmagic.TagReadData;
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MercuryRfidReader extends AbstractRfidReader {
+
+    private static final long STOP_TIMEOUT_MS = 2500L;
 
     /** Preferência de região para LatAm / maior faixa RF (OPEN/NA antes de regiões restritas). */
     private static final Reader.Region[] REGION_PREFERENCE = {
@@ -54,8 +60,14 @@ public class MercuryRfidReader extends AbstractRfidReader {
     private String regionName = "";
     private String modelName = "";
     private String lastRfDiagnostics = "";
+    private final AtomicBoolean tearingDown = new AtomicBoolean(false);
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MercuryRfidReader");
+        t.setDaemon(true);
+        return t;
+    });
+    private final ExecutorService shutdownExecutor = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "MercuryRfidShutdown");
         t.setDaemon(true);
         return t;
     });
@@ -68,6 +80,9 @@ public class MercuryRfidReader extends AbstractRfidReader {
     };
 
     private final ReadExceptionListener mercuryExceptionListener = (r, re) -> {
+        if (re != null && isFatalTransportError(re)) {
+            scheduleForceTeardown();
+        }
         RfidTagListener l = tagListener;
         if (l != null && re != null) {
             l.onError(re);
@@ -108,6 +123,7 @@ public class MercuryRfidReader extends AbstractRfidReader {
                 modelName = "Mercury";
             }
             connected = true;
+            tearingDown.set(false);
             setPowerPercent(config.getDefaultPowerPercent());
             refreshDiagnostics();
             readerInfo = modelName + " | " + formatDbm(nativePowerCentidBm)
@@ -127,13 +143,14 @@ public class MercuryRfidReader extends AbstractRfidReader {
         stopContinuousReading();
         destroyReaderQuietly();
         connected = false;
+        tearingDown.set(false);
         portName = null;
         lastRfDiagnostics = "";
     }
 
     @Override
     public boolean isConnected() {
-        return connected && reader != null;
+        return connected && reader != null && !tearingDown.get();
     }
 
     @Override
@@ -202,23 +219,28 @@ public class MercuryRfidReader extends AbstractRfidReader {
 
     @Override
     public void stopContinuousReading() {
-        if (!continuousReading) {
+        continuousReading = false;
+        final Reader r = reader;
+        if (r == null) {
+            notifyReadingState(false);
             return;
         }
-        continuousReading = false;
-        if (reader != null) {
-            try {
-                reader.stopReading();
-            } catch (Throwable ignored) {
+        Future<?> future = shutdownExecutor.submit(() -> stopReaderQuietly(r));
+        try {
+            future.get(STOP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            // Cabo/USB morto: stopReading pode bloquear — força destroy.
+            connected = false;
+            if (reader == r) {
+                reader = null;
             }
             try {
-                reader.removeReadListener(mercuryReadListener);
+                r.destroy();
             } catch (Throwable ignored) {
             }
-            try {
-                reader.removeReadExceptionListener(mercuryExceptionListener);
-            } catch (Throwable ignored) {
-            }
+        } catch (Exception e) {
+            future.cancel(true);
         }
         notifyReadingState(false);
     }
@@ -466,13 +488,71 @@ public class MercuryRfidReader extends AbstractRfidReader {
         return new RfidTagEvent(epc, code, rssi, antenna, System.currentTimeMillis());
     }
 
+    private void stopReaderQuietly(Reader r) {
+        if (r == null) {
+            return;
+        }
+        try {
+            r.stopReading();
+        } catch (Throwable ignored) {
+        }
+        try {
+            r.removeReadListener(mercuryReadListener);
+        } catch (Throwable ignored) {
+        }
+        try {
+            r.removeReadExceptionListener(mercuryExceptionListener);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void scheduleForceTeardown() {
+        if (!tearingDown.compareAndSet(false, true)) {
+            return;
+        }
+        continuousReading = false;
+        connected = false;
+        shutdownExecutor.execute(() -> {
+            Reader r = reader;
+            reader = null;
+            stopReaderQuietly(r);
+            if (r != null) {
+                try {
+                    r.destroy();
+                } catch (Throwable ignored) {
+                }
+            }
+            notifyReadingState(false);
+        });
+    }
+
+    private static boolean isFatalTransportError(Throwable error) {
+        if (error == null) {
+            return false;
+        }
+        String m = String.valueOf(error.getMessage()).toLowerCase();
+        return m.contains("timeout")
+                || m.contains("timed out")
+                || m.contains("connection lost")
+                || m.contains("broken")
+                || m.contains("communication error")
+                || m.contains("not connected")
+                || m.contains("device was reset")
+                || m.contains("i/o")
+                || m.contains("ioexception")
+                || m.contains("port is closed")
+                || m.contains("no such port");
+    }
+
     private void destroyReaderQuietly() {
-        if (reader != null) {
+        Reader r = reader;
+        reader = null;
+        if (r != null) {
+            stopReaderQuietly(r);
             try {
-                reader.destroy();
+                r.destroy();
             } catch (Throwable ignored) {
             }
-            reader = null;
         }
     }
 

@@ -5,11 +5,13 @@ import com.peripheral.core.ParityOption;
 import com.peripheral.core.PeripheralCatalog;
 import com.peripheral.core.PeripheralDataEvent;
 import com.peripheral.core.PeripheralException;
+import com.peripheral.core.PeripheralSafeIo;
 import com.peripheral.core.PeripheralType;
 import com.peripheral.core.PortProbeFactory;
 import com.peripheral.core.PortProbeResult;
 import com.peripheral.core.ReadablePeripheral;
 import com.peripheral.core.RfidConfigurable;
+import com.peripheral.core.PeripheralDataListener;
 import com.peripheral.core.SerialConnectionConfig;
 import com.peripheral.core.SerialPortProber;
 import com.peripheral.scale.ScaleWeightFormat;
@@ -88,6 +90,8 @@ public class PeripheralConnectionPanel extends JPanel {
     private Window ownerWindow;
     private boolean liveWeightActive;
     private boolean liveRfidActive;
+    private boolean busyOperation;
+    private boolean closingStopRequested;
 
     public PeripheralConnectionPanel(PeripheralSlot slot, PeripheralSessionManager sessionManager,
                                      ConnectionListener connectionListener,
@@ -385,11 +389,21 @@ public class PeripheralConnectionPanel extends JPanel {
         }
         try {
             if (device.isReading()) {
-                device.stopContinuousReading();
+                PeripheralSafeIo.stopReading(device);
             }
             liveWeightActive = true;
             lbLiveWeightHint.setText("Atualizando continuamente — coloque o item sobre a balança");
-            device.startContinuousReading(event -> SwingUtilities.invokeLater(() -> updateLiveWeight(event)));
+            device.startContinuousReading(new PeripheralDataListener() {
+                @Override
+                public void onData(PeripheralDataEvent event) {
+                    SwingUtilities.invokeLater(() -> updateLiveWeight(event));
+                }
+
+                @Override
+                public void onError(Throwable error) {
+                    SwingUtilities.invokeLater(() -> handleDeviceError(error));
+                }
+            });
         } catch (PeripheralException e) {
             liveWeightActive = false;
             lbLiveWeightHint.setText("Não foi possível iniciar a leitura: " + e.getMessage());
@@ -404,8 +418,8 @@ public class PeripheralConnectionPanel extends JPanel {
         }
         liveWeightActive = false;
         ReadablePeripheral device = sessionManager.getDevice(slot);
-        if (device != null && device.isReading()) {
-            device.stopContinuousReading();
+        if (device != null) {
+            PeripheralSafeIo.stopReading(device);
         }
     }
 
@@ -446,9 +460,76 @@ public class PeripheralConnectionPanel extends JPanel {
         stopLiveRfidReading();
     }
 
+    /**
+     * Encerramento seguro em background (não bloqueia EDT).
+     * Usar ao fechar o diálogo ou desconectar.
+     */
+    public void stopLiveReadingAsync(Runnable onDone) {
+        showBusy("Encerrando leitura...");
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                ReadablePeripheral device = sessionManager.getDevice(slot);
+                liveWeightActive = false;
+                liveRfidActive = false;
+                PeripheralSafeIo.stopReading(device);
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                hideBusy();
+                updateRfidTestControls();
+                if (onDone != null) {
+                    onDone.run();
+                }
+            }
+        }.execute();
+    }
+
+    private void showBusy(String message) {
+        busyOperation = true;
+        Window w = ownerWindow != null ? ownerWindow : SwingUtilities.getWindowAncestor(this);
+        if (w != null) {
+            WorkflowUiTheme.showBusy(w, message);
+        } else {
+            setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            lbStatus.setText(message);
+            WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.WARNING);
+        }
+    }
+
+    private void hideBusy() {
+        busyOperation = false;
+        Window w = ownerWindow != null ? ownerWindow : SwingUtilities.getWindowAncestor(this);
+        if (w != null) {
+            WorkflowUiTheme.hideBusy(w);
+        }
+        setCursor(Cursor.getDefaultCursor());
+    }
+
     private void toggleRfidTest() {
         if (liveRfidActive) {
-            stopLiveRfidReading();
+            showBusy("Parando teste RFID...");
+            new SwingWorker<Void, Void>() {
+                @Override
+                protected Void doInBackground() {
+                    liveRfidActive = false;
+                    ReadablePeripheral device = sessionManager.getDevice(slot);
+                    PeripheralSafeIo.stopReading(device);
+                    return null;
+                }
+
+                @Override
+                protected void done() {
+                    hideBusy();
+                    tagMonitor.setHint("Teste pausado — " + tagMonitor.getUniqueTagCount()
+                            + " tag(s) única(s) em " + tagMonitor.getTotalReads() + " leitura(s).");
+                    log("Teste RFID parado: " + tagMonitor.getUniqueTagCount() + " tag(s) única(s), "
+                            + tagMonitor.getTotalReads() + " leitura(s)");
+                    updateRfidTestControls();
+                }
+            }.execute();
         } else {
             startLiveRfidReading();
         }
@@ -466,11 +547,21 @@ public class PeripheralConnectionPanel extends JPanel {
         }
         try {
             if (device.isReading()) {
-                device.stopContinuousReading();
+                PeripheralSafeIo.stopReading(device);
             }
             liveRfidActive = true;
             tagMonitor.setHint("Aproxime as tags do leitor...");
-            device.startContinuousReading(event -> SwingUtilities.invokeLater(() -> registerTagEvent(event)));
+            device.startContinuousReading(new PeripheralDataListener() {
+                @Override
+                public void onData(PeripheralDataEvent event) {
+                    SwingUtilities.invokeLater(() -> registerTagEvent(event));
+                }
+
+                @Override
+                public void onError(Throwable error) {
+                    SwingUtilities.invokeLater(() -> handleDeviceError(error));
+                }
+            });
             log("Teste RFID iniciado (" + slot.getLabel() + ")");
         } catch (PeripheralException e) {
             liveRfidActive = false;
@@ -487,8 +578,8 @@ public class PeripheralConnectionPanel extends JPanel {
         boolean wasActive = liveRfidActive;
         liveRfidActive = false;
         ReadablePeripheral device = sessionManager.getDevice(slot);
-        if (device != null && device.isReading()) {
-            device.stopContinuousReading();
+        if (device != null) {
+            PeripheralSafeIo.stopReading(device);
         }
         if (wasActive) {
             tagMonitor.setHint("Teste pausado — " + tagMonitor.getUniqueTagCount()
@@ -497,6 +588,63 @@ public class PeripheralConnectionPanel extends JPanel {
                     + tagMonitor.getTotalReads() + " leitura(s)");
         }
         updateRfidTestControls();
+    }
+
+    private void handleDeviceError(Throwable error) {
+        String msg = error != null && error.getMessage() != null
+                ? error.getMessage()
+                : "Erro desconhecido no dispositivo";
+        log("ERRO " + slot.getLabel() + ": " + msg);
+        if (PeripheralSafeIo.looksLikeConnectionLoss(error) || !isConnected()) {
+            handleConnectionLost(msg);
+            return;
+        }
+        lbStatus.setText("Aviso: " + msg);
+        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.WARNING);
+        if (slot.getPeripheralType() == PeripheralType.RFID_READER) {
+            tagMonitor.setHint("Aviso do leitor: " + msg);
+        }
+    }
+
+    private void handleConnectionLost(String detail) {
+        if (busyOperation && closingStopRequested) {
+            return;
+        }
+        liveRfidActive = false;
+        liveWeightActive = false;
+        showBusy("Conexão perdida — recuperando...");
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                sessionManager.disconnect(slot);
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                hideBusy();
+                lbStatus.setText("Conexão perdida");
+                WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
+                lbDeviceInfo.setText("-");
+                lbPowerDbm.setText("— dBm");
+                btnDisconnect.setEnabled(false);
+                setSelectionEnabled(true);
+                resetLiveWeightDisplay();
+                if (slot.getPeripheralType() == PeripheralType.RFID_READER) {
+                    tagMonitor.setHint("Conexão com o leitor foi perdida. Reconecte e tente novamente.");
+                }
+                updateRfidTestControls();
+                notifyConnectionChanged(false);
+                log("Conexão perdida (" + slot.getLabel() + "): " + detail);
+                JOptionPane.showMessageDialog(
+                        getDialogParent(),
+                        "A conexão com o " + slot.getLabel().toLowerCase()
+                                + " foi perdida.\n\nDetalhe: " + detail
+                                + "\n\nA aplicação continua funcionando — reconecte o dispositivo.",
+                        "Conexão perdida",
+                        JOptionPane.WARNING_MESSAGE);
+            }
+        }.execute();
     }
 
     private void registerTagEvent(PeripheralDataEvent event) {
@@ -666,6 +814,7 @@ public class PeripheralConnectionPanel extends JPanel {
         btnTestPort.setEnabled(false);
         btnConnect.setEnabled(false);
         lbStatus.setText("Testando " + port + "...");
+        showBusy("Testando porta " + port + "...");
 
         new SwingWorker<PortProbeResult, Void>() {
             @Override
@@ -676,6 +825,7 @@ public class PeripheralConnectionPanel extends JPanel {
 
             @Override
             protected void done() {
+                hideBusy();
                 btnTestPort.setEnabled(!isConnected());
                 btnConnect.setEnabled(!isConnected());
                 try {
@@ -723,6 +873,7 @@ public class PeripheralConnectionPanel extends JPanel {
         btnConnect.setEnabled(false);
         btnTestPort.setEnabled(false);
         lbStatus.setText("Verificando " + port + "...");
+        showBusy("Verificando dispositivo em " + port + "...");
 
         new SwingWorker<PortProbeResult, Void>() {
             @Override
@@ -736,6 +887,7 @@ public class PeripheralConnectionPanel extends JPanel {
                 try {
                     PortProbeResult probe = get();
                     if (probe.isBlocking()) {
+                        hideBusy();
                         btnConnect.setEnabled(true);
                         btnTestPort.setEnabled(true);
                         lbStatus.setText("Erro: " + probe.getMessage());
@@ -744,6 +896,7 @@ public class PeripheralConnectionPanel extends JPanel {
                         return;
                     }
                     if (probe.isSuspicious()) {
+                        hideBusy();
                         String body = probe.getMessage();
                         if (!probe.getDetail().isEmpty()) {
                             body = body + "\n\n" + probe.getDetail();
@@ -761,9 +914,11 @@ public class PeripheralConnectionPanel extends JPanel {
                             lbStatus.setText("Conexão cancelada");
                             return;
                         }
+                        showBusy("Conectando em " + port + "...");
                     }
                     performConnect(port);
                 } catch (Exception e) {
+                    hideBusy();
                     btnConnect.setEnabled(true);
                     btnTestPort.setEnabled(true);
                     lbStatus.setText("Erro na verificação");
@@ -775,6 +930,7 @@ public class PeripheralConnectionPanel extends JPanel {
 
     private void performConnect(String port) {
         lbStatus.setText("Conectando...");
+        showBusy("Conectando " + slot.getLabel().toLowerCase() + "...");
         new SwingWorker<String, Void>() {
             @Override
             protected String doInBackground() {
@@ -789,6 +945,7 @@ public class PeripheralConnectionPanel extends JPanel {
 
             @Override
             protected void done() {
+                hideBusy();
                 String error = null;
                 try {
                     error = get();
@@ -826,19 +983,40 @@ public class PeripheralConnectionPanel extends JPanel {
     }
 
     public void disconnectDevice() {
-        stopLiveReading();
-        sessionManager.disconnect(slot);
-        lbStatus.setText("Desconectado");
-        WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.TEXT_SECONDARY);
-        lbDeviceInfo.setText("-");
-        btnDisconnect.setEnabled(false);
-        setSelectionEnabled(true);
-        lbPowerDbm.setText("— dBm");
-        resetLiveWeightDisplay();
-        tagMonitor.reset();
-        tagMonitor.setHint("Conecte o leitor e toque em Iniciar teste.");
-        updateRfidTestControls();
-        notifyConnectionChanged(false);
+        if (busyOperation) {
+            return;
+        }
+        closingStopRequested = true;
+        showBusy("Desconectando " + slot.getLabel().toLowerCase() + "...");
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                liveWeightActive = false;
+                liveRfidActive = false;
+                ReadablePeripheral device = sessionManager.getDevice(slot);
+                PeripheralSafeIo.stopReading(device);
+                sessionManager.disconnect(slot);
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                closingStopRequested = false;
+                hideBusy();
+                lbStatus.setText("Desconectado");
+                WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.TEXT_SECONDARY);
+                lbDeviceInfo.setText("-");
+                btnDisconnect.setEnabled(false);
+                setSelectionEnabled(true);
+                lbPowerDbm.setText("— dBm");
+                resetLiveWeightDisplay();
+                tagMonitor.reset();
+                tagMonitor.setHint("Conecte o leitor e toque em Iniciar teste.");
+                updateRfidTestControls();
+                notifyConnectionChanged(false);
+                log("Desconectado " + slot.getLabel());
+            }
+        }.execute();
     }
 
     private void applyPower() {

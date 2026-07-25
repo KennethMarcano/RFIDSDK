@@ -19,6 +19,7 @@ public class PeripheralConfigDialog extends JDialog {
     private final ConfigDialogListener listener;
     private final PeripheralSlot slot;
     private boolean notified;
+    private boolean closing;
 
     public PeripheralConfigDialog(Window owner, PeripheralSlot slot,
                                   PeripheralSessionManager sessionManager,
@@ -66,7 +67,7 @@ public class PeripheralConfigDialog extends JDialog {
         content.add(section, BorderLayout.CENTER);
 
         ThemedButton btnDone = WorkflowUiTheme.button("Concluído", ThemedButton.Variant.PRIMARY);
-        btnDone.addActionListener(e -> closeDialog());
+        btnDone.addActionListener(e -> beginClose());
         JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         south.setOpaque(false);
         south.add(btnDone);
@@ -74,12 +75,11 @@ public class PeripheralConfigDialog extends JDialog {
 
         getContentPane().setBackground(WorkflowUiTheme.BG_PAGE);
         setContentPane(content);
-        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
-            public void windowClosed(WindowEvent e) {
-                connectionPanel.stopLiveReading();
-                notifyClosed();
+            public void windowClosing(WindowEvent e) {
+                beginClose();
             }
         });
         WorkflowUiTheme.applyTouchScreenSize(this);
@@ -91,10 +91,15 @@ public class PeripheralConfigDialog extends JDialog {
         setVisible(true);
     }
 
-    private void closeDialog() {
-        connectionPanel.stopLiveReading();
-        dispose();
-        notifyClosed();
+    private void beginClose() {
+        if (closing) {
+            return;
+        }
+        closing = true;
+        connectionPanel.stopLiveReadingAsync(() -> {
+            dispose();
+            notifyClosed();
+        });
     }
 
     private void notifyClosed() {
@@ -102,7 +107,6 @@ public class PeripheralConfigDialog extends JDialog {
             return;
         }
         notified = true;
-        connectionPanel.stopLiveReading();
         if (listener != null) {
             listener.onConfigurationClosed(slot, connectionPanel.isConnected());
         }

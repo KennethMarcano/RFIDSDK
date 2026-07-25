@@ -3,6 +3,7 @@ package com.peripheral.workflow;
 import com.peripheral.core.PeripheralDataEvent;
 import com.peripheral.core.PeripheralDataListener;
 import com.peripheral.core.PeripheralException;
+import com.peripheral.core.PeripheralSafeIo;
 import com.peripheral.core.ReadablePeripheral;
 import com.peripheral.scale.DigitronDgnParser;
 import com.peripheral.session.PeripheralSessionManager;
@@ -383,21 +384,26 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         try {
             Thread.sleep(config.getRfidReadDurationMs());
         } finally {
-            rfid.stopContinuousReading();
+            PeripheralSafeIo.stopReading(rfid);
+        }
+        if (!rfid.isConnected()) {
+            sessionManager.disconnect(PeripheralSlot.RFID_READER);
+            throw new PeripheralException(
+                    "Conexão com o leitor RFID foi perdida. Reconecte o dispositivo e tente novamente.");
         }
     }
 
     private void stopScaleReading() {
         ReadablePeripheral scale = sessionManager.getDevice(PeripheralSlot.SCALE);
-        if (scale != null && scale.isConnected()) {
-            scale.stopContinuousReading();
+        if (scale != null) {
+            PeripheralSafeIo.stopReading(scale);
         }
     }
 
     private void stopRfidReading() {
         ReadablePeripheral rfid = sessionManager.getDevice(PeripheralSlot.RFID_READER);
-        if (rfid != null && rfid.isConnected()) {
-            rfid.stopContinuousReading();
+        if (rfid != null) {
+            PeripheralSafeIo.stopReading(rfid);
         }
     }
 

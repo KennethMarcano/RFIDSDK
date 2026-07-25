@@ -681,4 +681,158 @@ public final class WorkflowUiTheme {
             ((ThemedButton) button).setVariant(variant);
         }
     }
+
+    private static final String BUSY_OVERLAY_KEY = "workflow.ui.busyOverlay";
+    private static final String BUSY_PREV_GLASS_KEY = "workflow.ui.busyPrevGlass";
+    private static final String BUSY_PREV_CURSOR_KEY = "workflow.ui.busyPrevCursor";
+    private static final String BUSY_MESSAGE_KEY = "workflow.ui.busyMessage";
+
+    /**
+     * Overlay modal de progresso (glass pane) — bloqueia cliques e informa o usuário
+     * durante probe/conexão/encerramento sem parecer que a app travou.
+     */
+    public static void showBusy(Window window, String message) {
+        if (window == null) {
+            return;
+        }
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> showBusy(window, message));
+            return;
+        }
+        if (!(window instanceof RootPaneContainer)) {
+            window.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            return;
+        }
+        RootPaneContainer root = (RootPaneContainer) window;
+        JRootPane rootPane = root.getRootPane();
+        String text = (message == null || message.trim().isEmpty())
+                ? "Processando, aguarde..."
+                : message.trim();
+
+        JComponent existing = (JComponent) rootPane.getClientProperty(BUSY_OVERLAY_KEY);
+        if (existing != null) {
+            JLabel label = (JLabel) existing.getClientProperty(BUSY_MESSAGE_KEY);
+            if (label != null) {
+                label.setText(text);
+            }
+            existing.setVisible(true);
+            existing.revalidate();
+            existing.repaint();
+            return;
+        }
+
+        JPanel overlay = new JPanel(new GridBagLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setColor(new Color(37, 47, 61, 160));
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        overlay.setOpaque(false);
+        overlay.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+
+        JPanel card = new JPanel();
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+        card.setOpaque(true);
+        card.setBackground(BG_CARD);
+        card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_FOCUS, 1),
+                empty(18, 22, 18, 22)));
+        card.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel title = new JLabel("Aguarde");
+        title.setFont(fontTitle(title));
+        title.setForeground(TEXT_PRIMARY);
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel detail = new JLabel(text);
+        detail.setFont(fontStatus(detail));
+        detail.setForeground(TEXT_SECONDARY);
+        detail.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JProgressBar bar = new JProgressBar();
+        bar.setIndeterminate(true);
+        bar.setAlignmentX(Component.CENTER_ALIGNMENT);
+        bar.setPreferredSize(new Dimension(220, 10));
+        bar.setMaximumSize(new Dimension(280, 10));
+        bar.setForeground(ACCENT);
+        bar.setBackground(BG_CARD_HIGHLIGHT);
+        bar.setBorderPainted(false);
+
+        card.add(title);
+        card.add(Box.createVerticalStrut(8));
+        card.add(detail);
+        card.add(Box.createVerticalStrut(14));
+        card.add(bar);
+
+        overlay.add(card);
+        overlay.putClientProperty(BUSY_MESSAGE_KEY, detail);
+
+        // Consome eventos para não clicar nos controles atrás
+        overlay.addMouseListener(new java.awt.event.MouseAdapter() {
+        });
+        overlay.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+        });
+        overlay.addKeyListener(new java.awt.event.KeyAdapter() {
+        });
+        overlay.setFocusable(true);
+
+        rootPane.putClientProperty(BUSY_PREV_GLASS_KEY, root.getGlassPane());
+        rootPane.putClientProperty(BUSY_PREV_CURSOR_KEY, window.getCursor());
+        rootPane.putClientProperty(BUSY_OVERLAY_KEY, overlay);
+        root.setGlassPane(overlay);
+        overlay.setVisible(true);
+        overlay.requestFocusInWindow();
+        window.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+    }
+
+    public static void hideBusy(Window window) {
+        if (window == null) {
+            return;
+        }
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> hideBusy(window));
+            return;
+        }
+        if (!(window instanceof RootPaneContainer)) {
+            window.setCursor(Cursor.getDefaultCursor());
+            return;
+        }
+        RootPaneContainer root = (RootPaneContainer) window;
+        JRootPane rootPane = root.getRootPane();
+        JComponent overlay = (JComponent) rootPane.getClientProperty(BUSY_OVERLAY_KEY);
+        if (overlay == null) {
+            window.setCursor(Cursor.getDefaultCursor());
+            return;
+        }
+        overlay.setVisible(false);
+        Object prevGlass = rootPane.getClientProperty(BUSY_PREV_GLASS_KEY);
+        if (prevGlass instanceof Component) {
+            root.setGlassPane((Component) prevGlass);
+        } else {
+            JPanel empty = new JPanel();
+            empty.setOpaque(false);
+            empty.setVisible(false);
+            root.setGlassPane(empty);
+        }
+        Object prevCursor = rootPane.getClientProperty(BUSY_PREV_CURSOR_KEY);
+        window.setCursor(prevCursor instanceof Cursor
+                ? (Cursor) prevCursor
+                : Cursor.getDefaultCursor());
+        rootPane.putClientProperty(BUSY_OVERLAY_KEY, null);
+        rootPane.putClientProperty(BUSY_PREV_GLASS_KEY, null);
+        rootPane.putClientProperty(BUSY_PREV_CURSOR_KEY, null);
+        rootPane.putClientProperty(BUSY_MESSAGE_KEY, null);
+    }
+
+    public static boolean isBusyShowing(Window window) {
+        if (!(window instanceof RootPaneContainer)) {
+            return false;
+        }
+        JRootPane rootPane = ((RootPaneContainer) window).getRootPane();
+        return rootPane.getClientProperty(BUSY_OVERLAY_KEY) != null;
+    }
 }
