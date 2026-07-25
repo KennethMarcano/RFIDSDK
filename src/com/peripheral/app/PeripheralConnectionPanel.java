@@ -753,7 +753,7 @@ public class PeripheralConnectionPanel extends JPanel {
         try {
             List<SerialPortInfo> ports = SerialPortDiscovery.listPorts();
             if (ports.isEmpty()) {
-                cbPort.addItem(SerialPortInfo.placeholder("(nenhuma porta encontrada)"));
+                cbPort.addItem(SerialPortInfo.placeholder("(nenhuma porta serial encontrada)"));
             } else {
                 for (SerialPortInfo port : ports) {
                     cbPort.addItem(port);
