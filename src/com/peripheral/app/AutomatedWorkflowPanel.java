@@ -50,7 +50,8 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final JCheckBox cbLabel = new JCheckBox("Imprimir etiqueta", false);
     private final JCheckBox cbWeighing = new JCheckBox("Pesagem (obrigatório)", true);
     private final JCheckBox cbSimulation = new JCheckBox("Modo simulação (sem hardware)", false);
-    private final JCheckBox cbOrderValidation = new JCheckBox("Validar pedido (peso + RFID + IA fallback)", false);
+    private final JCheckBox cbOrderValidation = new JCheckBox("Validar pedido (peso + RFID)", false);
+    private final JCheckBox cbAiFallback = new JCheckBox("IA fallback (análise de vídeo na divergência)", false);
     private final JCheckBox cbPedidoMock = new JCheckBox("Usar pedido mock (demo)", true);
     private final JCheckBox cbDemoDivergence = new JCheckBox("Cenário demo (forçar divergência)", false);
     private final JTextField tfPedidoNumero = new JTextField("1001", 8);
@@ -124,7 +125,13 @@ public class AutomatedWorkflowPanel extends JPanel {
         btnRestartWorkflow.addActionListener(e -> restartWorkflowSession());
         cbRfid.addActionListener(e -> updateWorkflowControls());
         cbSimulation.addActionListener(e -> updateWorkflowControls());
-        cbOrderValidation.addActionListener(e -> updateWorkflowControls());
+        cbOrderValidation.addActionListener(e -> {
+            if (!cbOrderValidation.isSelected()) {
+                cbAiFallback.setSelected(false);
+            }
+            updateWorkflowControls();
+        });
+        cbAiFallback.addActionListener(e -> updateWorkflowControls());
         btnLoadPedido.addActionListener(e -> loadPedido());
         btnRecalibrateCamera.addActionListener(e -> recalibrateCamera());
     }
@@ -183,6 +190,7 @@ public class AutomatedWorkflowPanel extends JPanel {
 
     private JPanel buildOrderTab() {
         WorkflowUiTheme.styleTouchCheckBox(cbOrderValidation);
+        WorkflowUiTheme.styleTouchCheckBox(cbAiFallback);
         WorkflowUiTheme.styleTouchCheckBox(cbPedidoMock);
         WorkflowUiTheme.styleTouchCheckBox(cbDemoDivergence);
         WorkflowUiTheme.styleCompactTextField(tfPedidoNumero, 8);
@@ -198,6 +206,8 @@ public class AutomatedWorkflowPanel extends JPanel {
         column.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         column.add(WorkflowUiTheme.formRow(cbOrderValidation));
+        cbAiFallback.setBorder(WorkflowUiTheme.empty(0, 24, 0, 0));
+        column.add(WorkflowUiTheme.formRow(cbAiFallback));
 
         JPanel numberRow = WorkflowUiTheme.formRow(
                 WorkflowUiTheme.formLabel("Nº pedido"),
@@ -542,6 +552,7 @@ public class AutomatedWorkflowPanel extends JPanel {
         cbLabel.setEnabled(!workflowRunning);
         cbSimulation.setEnabled(!workflowRunning);
         cbOrderValidation.setEnabled(!workflowRunning);
+        cbAiFallback.setEnabled(!workflowRunning && cbOrderValidation.isSelected());
         cbPedidoMock.setEnabled(!workflowRunning);
         cbDemoDivergence.setEnabled(!workflowRunning && cbOrderValidation.isSelected());
         tfPedidoNumero.setEnabled(!workflowRunning);
@@ -636,7 +647,8 @@ public class AutomatedWorkflowPanel extends JPanel {
                 cbOrderValidation.isSelected(),
                 tolPercent,
                 tolKg,
-                cbDemoDivergence.isSelected());
+                cbDemoDivergence.isSelected(),
+                cbAiFallback.isSelected() && cbOrderValidation.isSelected());
         closeOperationWindow();
 
         CameraMicroserviceClient cameraClient = CameraMicroserviceLifecycle.getInstance().getClient();

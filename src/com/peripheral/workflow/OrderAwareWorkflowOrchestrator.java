@@ -286,7 +286,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
 
     @Override
     public void operatorReanalyze() throws PeripheralException {
-        if (!operatorReview.get()) {
+        if (!operatorReview.get() || !config.isAiFallbackEnabled()) {
             return;
         }
         runAiAnalysis();
@@ -326,7 +326,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                         "Revalidação OK — peso e códigos conferem. Clique em Finalizar pedido.");
             } else {
                 notifyStep(WorkflowStep.VALIDATE_ORDER, validation.getSummaryMessage());
-                if (context.getPhotoPath() != null && !context.getPhotoPath().isEmpty()) {
+                if (config.isAiFallbackEnabled()
+                        && context.getPhotoPath() != null && !context.getPhotoPath().isEmpty()) {
                     runAiAnalysis();
                 }
             }
@@ -575,18 +576,27 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         context.setValidationStatusLabel("DIVERGENCIA");
         notifyStep(WorkflowStep.VALIDATE_ORDER, validation.getSummaryMessage());
 
-        try {
-            capturePhotoMandatory();
-        } catch (Exception e) {
-            notifyStep(WorkflowStep.CAPTURE_PHOTO,
-                    "Foto indisponível: " + e.getMessage() + " — continue com revisão manual.");
+        // Sem IA de fallback: sem foto/análise de vídeo — revisão 100% do operador.
+        if (config.isAiFallbackEnabled()) {
+            try {
+                capturePhotoMandatory();
+            } catch (Exception e) {
+                notifyStep(WorkflowStep.CAPTURE_PHOTO,
+                        "Foto indisponível: " + e.getMessage() + " — continue com revisão manual.");
+            }
         }
 
         if (config.isEnabled(WorkflowStep.PRINT_LABEL)) {
             printLabel();
         }
 
-        runAiAnalysis();
+        if (config.isAiFallbackEnabled()) {
+            runAiAnalysis();
+        } else {
+            context.setAiMessage(null);
+            notifyStep(WorkflowStep.OPERATOR_REVIEW,
+                    "Divergência — revise manualmente: reler tags, liberar volume ou reiniciar.");
+        }
         enterOperatorReview(validation.getSummaryMessage());
     }
 

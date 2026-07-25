@@ -19,6 +19,7 @@ public class WorkflowConfig {
     private final double weightTolerancePercent;
     private final double weightToleranceKg;
     private final boolean demoForceDivergence;
+    private final boolean aiFallbackEnabled;
 
     public WorkflowConfig(Set<WorkflowStep> enabledSteps, int rfidReadDurationMs) {
         this(enabledSteps, rfidReadDurationMs, false);
@@ -32,6 +33,15 @@ public class WorkflowConfig {
     public WorkflowConfig(Set<WorkflowStep> enabledSteps, int rfidReadDurationMs, boolean simulationMode,
                           boolean orderValidationEnabled, double weightTolerancePercent,
                           double weightToleranceKg, boolean demoForceDivergence) {
+        // Compatibilidade: por padrão a IA de fallback acompanha a validação do pedido.
+        this(enabledSteps, rfidReadDurationMs, simulationMode, orderValidationEnabled,
+                weightTolerancePercent, weightToleranceKg, demoForceDivergence, orderValidationEnabled);
+    }
+
+    public WorkflowConfig(Set<WorkflowStep> enabledSteps, int rfidReadDurationMs, boolean simulationMode,
+                          boolean orderValidationEnabled, double weightTolerancePercent,
+                          double weightToleranceKg, boolean demoForceDivergence,
+                          boolean aiFallbackEnabled) {
         EnumSet<WorkflowStep> steps = EnumSet.of(WorkflowStep.WEIGHING);
         if (enabledSteps != null) {
             steps.addAll(enabledSteps);
@@ -45,6 +55,8 @@ public class WorkflowConfig {
         this.weightToleranceKg = weightToleranceKg > 0
                 ? weightToleranceKg : DEFAULT_WEIGHT_TOLERANCE_KG;
         this.demoForceDivergence = demoForceDivergence;
+        // IA só faz sentido junto da validação do pedido.
+        this.aiFallbackEnabled = aiFallbackEnabled && orderValidationEnabled;
     }
 
     public boolean isEnabled(WorkflowStep step) {
@@ -81,5 +93,10 @@ public class WorkflowConfig {
 
     public boolean isDemoForceDivergence() {
         return demoForceDivergence;
+    }
+
+    /** IA de fallback (foto + análise de vídeo na divergência). Requer validação de pedido. */
+    public boolean isAiFallbackEnabled() {
+        return aiFallbackEnabled;
     }
 }
