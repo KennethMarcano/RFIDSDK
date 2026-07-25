@@ -35,6 +35,12 @@ def analyze(image_path: str, expected_products: list[dict]) -> dict:
         logger.exception("Inferência falhou")
         return _error(f"Falha na inferência: {exc}")
 
+    # Backend IMX500: a foto JPG é só registro; a IA roda no sensor.
+    state = model_manager.get_state()
+    backend_note = ""
+    if state.backend == "imx500_rpk":
+        backend_note = " (IMX500 on-sensor)"
+
     detected_labels = [d.label for d in detections]
     detected_counts = Counter(_normalize(label) for label in detected_labels)
 
@@ -69,15 +75,16 @@ def analyze(image_path: str, expected_products: list[dict]) -> dict:
 
     if missing:
         names = ", ".join(p["name"] for p in missing)
-        message = f"IA: não identificado — {names}"
+        message = f"IA: não identificado — {names}{backend_note}"
     elif not expected_products:
         message = (
-            f"IA: {len(detected_products)} detecção(ões) "
-            f"(nenhum produto esperado informado)."
+            f"IA: {len(detected_products)} detecção(ões){backend_note}"
         )
     else:
-        message = f"IA: todos os produtos esperados identificados ({len(expected_products)})."
-
+        message = (
+            f"IA: todos os produtos esperados identificados "
+            f"({len(expected_products)}){backend_note}."
+        )
     return {
         "success": True,
         "detected_products": detected_products,

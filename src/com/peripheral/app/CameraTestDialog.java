@@ -244,8 +244,13 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
             @Override
             protected CameraMicroserviceClient.AnalysisResult doInBackground() {
                 try {
+                    // IMX500 é exclusiva: libera rpicam-vid antes da inferência on-sensor.
+                    CameraHardware.stopPreview();
+                    Thread.sleep(250);
                     Path path = ensureTempFramePath();
-                    ImageIO.write(snapshot, "jpg", path.toFile());
+                    if (snapshot != null) {
+                        ImageIO.write(snapshot, "jpg", path.toFile());
+                    }
                     CameraMicroserviceClient client =
                             CameraMicroserviceLifecycle.getInstance().getClient();
                     if (!client.checkReady() && !client.checkHealth()) {
@@ -257,6 +262,13 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
                 } catch (Exception e) {
                     error = e.getMessage();
                     return null;
+                } finally {
+                    try {
+                        if (dialogAlive.get()) {
+                            CameraHardware.startPreview();
+                        }
+                    } catch (Exception ignored) {
+                    }
                 }
             }
 

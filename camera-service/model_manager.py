@@ -49,7 +49,7 @@ class ModelState:
     rpk_ready: bool = False
     last_error: Optional[str] = None
     load_ms: int = 0
-    backend: str = "none"  # onnx | stub | none
+    backend: str = "none"  # onnx | imx500_rpk | stub | none
 
 
 def get_state() -> ModelState:
@@ -100,53 +100,61 @@ def load() -> ModelState:
         st.labels = _load_labels(config.model_labels_path())
         st.rpk_path, st.rpk_ready = _ensure_rpk()
         onnx = config.model_onnx_path()
-        if not onnx.is_file():
-            raise FileNotFoundError(f"ONNX não encontrado: {onnx}")
+        st.onnx_path = onnx if onnx.is_file() else None
 
-        try:
-            import onnxruntime as ort  # type: ignore
-        except ImportError as exc:
-            if config.STUB_MODE:
-                st.backend = "stub"
-                st.loaded = True
-                st.onnx_path = onnx
+        ort_error: Optional[str] = None
+        if st.onnx_path is not None:
+            ort_error = _try_load_onnx(st, st.onnx_path)
+
+        if st.loaded and st.backend == "onnx":
+            st.load_ms = int((time.perf_counter() - started) * 1000)
+            with _lock:
+                _state = st
+            return st
+
+        # Caminho correto para modelos Sony/IMX500: RPK on-sensor
+        if st.rpk_ready and st.rpk_path is not None:
+            st.backend = "imx500_rpk"
+            st.loaded = True
+            st.session = None
+            if ort_error:
                 st.last_error = (
-                    "onnxruntime ausente — stub ativo (dev). "
-                    "No Raspberry: pip install -r requirements.txt"
+                    "ONNX do conversor Sony não roda no CPU (ops mct_quantizers). "
+                    "Usando network.rpk na IMX500 (correto). "
+                    f"Detalhe ORT: {ort_error}"
                 )
                 logger.warning(st.last_error)
             else:
-                raise RuntimeError(
-                    "onnxruntime não instalado. Execute: "
-                    "pip install -r camera-service/requirements.txt"
-                ) from exc
-        else:
-            opts = ort.SessionOptions()
-            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            providers = _select_providers(ort)
-            st.session = ort.InferenceSession(
-                str(onnx), sess_options=opts, providers=providers
-            )
-            inputs = st.session.get_inputs()
-            if not inputs:
-                raise RuntimeError("Modelo ONNX sem inputs")
-            st.input_name = inputs[0].name
-            st.input_size = _infer_input_size(inputs[0].shape, config.INPUT_SIZE)
-            st.onnx_path = onnx
-            st.backend = "onnx"
-            st.loaded = True
-            # Warm-up: 1 inferência dummy para manter kernels prontos
-            _warmup(st)
+                st.last_error = None
             logger.info(
-                "Modelo ONNX carregado (%s), labels=%d, rpk=%s, providers=%s",
-                onnx.name,
+                "Backend IMX500 RPK pronto (%s), labels=%d",
+                st.rpk_path.name,
                 len(st.labels),
-                "ok" if st.rpk_ready else "pendente",
-                providers,
             )
+            st.load_ms = int((time.perf_counter() - started) * 1000)
+            with _lock:
+                _state = st
+            return st
 
-        st.load_ms = int((time.perf_counter() - started) * 1000)
-        st.last_error = st.last_error  # preserve stub warning if any
+        if config.STUB_MODE:
+            st.backend = "stub"
+            st.loaded = True
+            st.last_error = (
+                "Stub: sem RPK/ONNX executável neste host. "
+                + (ort_error or "Gere network.rpk no Raspberry com imx500-package.")
+            )
+            logger.warning(st.last_error)
+            st.load_ms = int((time.perf_counter() - started) * 1000)
+            with _lock:
+                _state = st
+            return st
+
+        raise RuntimeError(
+            "Modelo IA indisponível. O ONNX Sony não abre no ONNX Runtime "
+            f"({ort_error or 'erro desconhecido'}). "
+            "No Raspberry gere o RPK: bash scripts/ensure-imx-model.sh "
+            "(requer imx500-package / imx500-tools) e reinicie a app."
+        )
     except Exception as exc:
         st.loaded = False
         st.backend = "none"
@@ -157,6 +165,45 @@ def load() -> ModelState:
     with _lock:
         _state = st
     return st
+
+
+def _try_load_onnx(st: ModelState, onnx: Path) -> Optional[str]:
+    """Tenta ORT; devolve mensagem de erro se falhar (ex.: ops Sony)."""
+    try:
+        import onnxruntime as ort  # type: ignore
+    except ImportError:
+        return "onnxruntime não instalado no venv"
+
+    try:
+        opts = ort.SessionOptions()
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        providers = _select_providers(ort)
+        st.session = ort.InferenceSession(
+            str(onnx), sess_options=opts, providers=providers
+        )
+        inputs = st.session.get_inputs()
+        if not inputs:
+            return "Modelo ONNX sem inputs"
+        st.input_name = inputs[0].name
+        st.input_size = _infer_input_size(inputs[0].shape, config.INPUT_SIZE)
+        st.onnx_path = onnx
+        st.backend = "onnx"
+        st.loaded = True
+        _warmup(st)
+        logger.info(
+            "Modelo ONNX carregado (%s), labels=%d, providers=%s",
+            onnx.name,
+            len(st.labels),
+            providers,
+        )
+        return None
+    except Exception as exc:
+        msg = str(exc)
+        logger.warning("ONNX Runtime não carregou %s: %s", onnx.name, msg)
+        st.session = None
+        st.loaded = False
+        st.backend = "none"
+        return msg
 
 
 def unload() -> None:
@@ -170,14 +217,29 @@ def unload() -> None:
 
 
 def detect(image_path: str, threshold: Optional[float] = None) -> list[Detection]:
-    """Roda inferência na imagem e devolve detecções com labels do pedido."""
+    """Roda inferência. No backend imx500_rpk ignora a imagem e captura live no sensor."""
     st = ensure_loaded()
     if not st.loaded:
         raise RuntimeError(st.last_error or "Modelo não carregado")
-    if st.backend == "stub" or st.session is None:
+    thr = config.DETECTION_THRESHOLD if threshold is None else float(threshold)
+
+    if st.backend == "stub":
         return []
 
-    thr = config.DETECTION_THRESHOLD if threshold is None else float(threshold)
+    if st.backend == "imx500_rpk":
+        if st.rpk_path is None or not st.rpk_path.is_file():
+            raise RuntimeError("network.rpk ausente — rode bash scripts/ensure-imx-model.sh")
+        import imx500_inference
+
+        return imx500_inference.detect_live(
+            rpk_path=st.rpk_path,
+            labels=st.labels,
+            threshold=thr,
+        )
+
+    if st.session is None:
+        raise RuntimeError(st.last_error or "Sessão ONNX ausente")
+
     tensor = _preprocess_image(Path(image_path), st.input_size)
     outputs = st.session.run(None, {st.input_name: tensor})
     return _parse_outputs(outputs, st.labels, thr)

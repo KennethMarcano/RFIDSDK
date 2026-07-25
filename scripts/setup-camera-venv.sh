@@ -43,6 +43,11 @@ echo "Instalando dependências do camera-service ..."
 
 echo
 echo "OK. Python do serviço: $PY"
-"$PY" -c "import onnxruntime, PIL, numpy, fastapi, uvicorn; print('imports OK')"
+"$PY" -c "import PIL, numpy, fastapi, uvicorn; print('imports base OK')"
+"$PY" -c "import onnxruntime; print('onnxruntime OK')" 2>/dev/null || echo "aviso: onnxruntime falhou (ok se for usar só RPK/IMX500)"
 echo
-echo "A app Java / iniciar.sh usará este venv automaticamente."
+echo "Próximo passo no Raspberry (obrigatório para este modelo Sony):"
+echo "  sudo apt install -y imx500-tools imx500-all python3-picamera2"
+echo "  bash scripts/ensure-imx-model.sh"
+echo "  ./iniciar.sh"
+echo "Confirme: curl -s http://127.0.0.1:8765/model/status | grep backend"
