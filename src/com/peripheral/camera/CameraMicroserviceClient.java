@@ -178,7 +178,140 @@ public class CameraMicroserviceClient {
         boolean success = body.contains("\"success\":true") || body.contains("\"success\": true");
         String message = extractJsonString(body, "message");
         List<String> missing = extractMissingProducts(body);
-        return new AnalysisResult(success, message, missing);
+        List<Detection> detections = extractDetections(body);
+        return new AnalysisResult(success, message, missing, detections);
+    }
+
+    private static List<Detection> extractDetections(String body) {
+        List<Detection> result = new ArrayList<>();
+        if (body == null) {
+            return result;
+        }
+        int arrIdx = body.indexOf("\"detected_products\"");
+        if (arrIdx < 0) {
+            return result;
+        }
+        int bracket = body.indexOf('[', arrIdx);
+        if (bracket < 0) {
+            return result;
+        }
+        int end = findMatchingBracket(body, bracket);
+        if (end < 0) {
+            return result;
+        }
+        String arrayBody = body.substring(bracket + 1, end);
+        int searchFrom = 0;
+        while (true) {
+            int objStart = arrayBody.indexOf('{', searchFrom);
+            if (objStart < 0) {
+                break;
+            }
+            int objEnd = findMatchingBrace(arrayBody, objStart);
+            if (objEnd < 0) {
+                break;
+            }
+            String obj = arrayBody.substring(objStart, objEnd + 1);
+            String code = extractJsonString(obj, "code");
+            if (code == null || code.isEmpty()) {
+                code = extractJsonString(obj, "name");
+            }
+            double confidence = extractJsonNumber(obj, "confidence", 0);
+            double[] box = extractJsonBox(obj);
+            if (code != null && !code.isEmpty()) {
+                result.add(new Detection(code, confidence, box));
+            }
+            searchFrom = objEnd + 1;
+        }
+        return result;
+    }
+
+    private static int findMatchingBracket(String s, int openIdx) {
+        int depth = 0;
+        for (int i = openIdx; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '[') {
+                depth++;
+            } else if (c == ']') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static int findMatchingBrace(String s, int openIdx) {
+        int depth = 0;
+        for (int i = openIdx; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static double extractJsonNumber(String body, String key, double defaultValue) {
+        String pattern = "\"" + key + "\":";
+        int start = body.indexOf(pattern);
+        if (start < 0) {
+            pattern = "\"" + key + "\": ";
+            start = body.indexOf(pattern);
+            if (start < 0) {
+                return defaultValue;
+            }
+        }
+        start += pattern.length();
+        while (start < body.length() && Character.isWhitespace(body.charAt(start))) {
+            start++;
+        }
+        int end = start;
+        while (end < body.length()) {
+            char c = body.charAt(end);
+            if ((c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E') {
+                end++;
+            } else {
+                break;
+            }
+        }
+        if (end <= start) {
+            return defaultValue;
+        }
+        try {
+            return Double.parseDouble(body.substring(start, end));
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private static double[] extractJsonBox(String obj) {
+        double[] box = new double[]{0, 0, 0, 0};
+        int idx = obj.indexOf("\"box\"");
+        if (idx < 0) {
+            return box;
+        }
+        int bracket = obj.indexOf('[', idx);
+        if (bracket < 0) {
+            return box;
+        }
+        int end = findMatchingBracket(obj, bracket);
+        if (end < 0) {
+            return box;
+        }
+        String[] parts = obj.substring(bracket + 1, end).split(",");
+        for (int i = 0; i < Math.min(4, parts.length); i++) {
+            try {
+                box[i] = Double.parseDouble(parts[i].trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return box;
     }
 
     private static List<String> extractMissingProducts(String body) {
@@ -298,11 +431,18 @@ public class CameraMicroserviceClient {
         private final boolean success;
         private final String message;
         private final List<String> missingProducts;
+        private final List<Detection> detections;
 
         public AnalysisResult(boolean success, String message, List<String> missingProducts) {
+            this(success, message, missingProducts, null);
+        }
+
+        public AnalysisResult(boolean success, String message, List<String> missingProducts,
+                              List<Detection> detections) {
             this.success = success;
             this.message = message;
             this.missingProducts = missingProducts != null ? missingProducts : new ArrayList<>();
+            this.detections = detections != null ? detections : new ArrayList<>();
         }
 
         public boolean isSuccess() {
@@ -315,6 +455,38 @@ public class CameraMicroserviceClient {
 
         public List<String> getMissingProducts() {
             return missingProducts;
+        }
+
+        public List<Detection> getDetections() {
+            return detections;
+        }
+    }
+
+    /** Detecção do modelo (código + confiança + box normalizado x1,y1,x2,y2). */
+    public static final class Detection {
+        private final String code;
+        private final double confidence;
+        private final double[] box;
+
+        public Detection(String code, double confidence, double[] box) {
+            this.code = code != null ? code : "";
+            this.confidence = confidence;
+            this.box = box != null && box.length >= 4
+                    ? new double[]{box[0], box[1], box[2], box[3]}
+                    : new double[]{0, 0, 0, 0};
+        }
+
+        public String getCode() {
+            return code;
+        }
+
+        public double getConfidence() {
+            return confidence;
+        }
+
+        /** x1,y1,x2,y2 normalizados 0..1 (ou pixels se > 1). */
+        public double[] getBox() {
+            return box.clone();
         }
     }
 }
