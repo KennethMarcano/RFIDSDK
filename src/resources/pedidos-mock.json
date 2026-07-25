@@ -7,33 +7,28 @@
           "indice": 1,
           "itens": [
             {
-              "codigoProduto": "SKU001",
-              "nome": "Caixa A",
-              "pesoUnitarioKg": 0.500,
-              "seriais": ["SN1001-001", "SN1001-002"]
+              "codigoProduto": "003509",
+              "nome": "Produto 003509",
+              "pesoUnitarioKg": 0.073,
+              "seriais": ["003509"]
             },
             {
-              "codigoProduto": "SKU002",
-              "nome": "Caixa B",
-              "pesoUnitarioKg": 0.800,
-              "seriais": ["SN1001-003"]
-            }
-          ]
-        },
-        {
-          "indice": 2,
-          "itens": [
-            {
-              "codigoProduto": "ABC123",
-              "nome": "Produto Demo Divergência",
-              "pesoUnitarioKg": 1.200,
-              "seriais": ["SN1001-004"]
+              "codigoProduto": "003511",
+              "nome": "Produto 003511",
+              "pesoUnitarioKg": 0.033,
+              "seriais": ["003511"]
             },
             {
-              "codigoProduto": "SKU003",
-              "nome": "Caixa C",
-              "pesoUnitarioKg": 0.350,
-              "seriais": ["SN1001-005", "SN1001-006"]
+              "codigoProduto": "003907",
+              "nome": "Produto 003907",
+              "pesoUnitarioKg": 0.011,
+              "seriais": ["003907"]
+            },
+            {
+              "codigoProduto": "004077",
+              "nome": "Produto 004077",
+              "pesoUnitarioKg": 0.349,
+              "seriais": ["004077"]
             }
           ]
         }
@@ -46,38 +41,28 @@
           "indice": 1,
           "itens": [
             {
-              "codigoProduto": "XYZ789",
-              "nome": "Palete X",
-              "pesoUnitarioKg": 2.100,
-              "seriais": ["SN2002-001", "SN2002-002", "SN2002-003"]
-            }
-          ]
-        },
-        {
-          "indice": 2,
-          "itens": [
-            {
-              "codigoProduto": "XYZ789",
-              "nome": "Palete X",
-              "pesoUnitarioKg": 2.100,
-              "seriais": ["SN2002-004", "SN2002-005"]
+              "codigoProduto": "003509",
+              "nome": "Produto 003509",
+              "pesoUnitarioKg": 0.073,
+              "seriais": ["003509"]
             },
             {
-              "codigoProduto": "DEF456",
-              "nome": "Acessório Y",
-              "pesoUnitarioKg": 0.250,
-              "seriais": ["SN2002-006"]
-            }
-          ]
-        },
-        {
-          "indice": 3,
-          "itens": [
+              "codigoProduto": "003511",
+              "nome": "Produto 003511",
+              "pesoUnitarioKg": 0.033,
+              "seriais": ["003511"]
+            },
             {
-              "codigoProduto": "DEF456",
-              "nome": "Acessório Y",
-              "pesoUnitarioKg": 0.250,
-              "seriais": ["SN2002-007", "SN2002-008", "SN2002-009", "SN2002-010"]
+              "codigoProduto": "003907",
+              "nome": "Produto 003907",
+              "pesoUnitarioKg": 0.011,
+              "seriais": ["003907"]
+            },
+            {
+              "codigoProduto": "004077",
+              "nome": "Produto 004077",
+              "pesoUnitarioKg": 0.349,
+              "seriais": ["004077"]
             }
           ]
         }

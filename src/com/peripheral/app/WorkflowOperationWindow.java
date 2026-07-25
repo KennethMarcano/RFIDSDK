@@ -45,7 +45,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final ThemedButton btnReanalyze =
             WorkflowUiTheme.button("Re-analisar IA", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnConfirmOperator =
-            WorkflowUiTheme.button("Finalizar volume", ThemedButton.Variant.SUCCESS);
+            WorkflowUiTheme.button("Finalizar pedido", ThemedButton.Variant.SUCCESS);
 
     private final JLabel lbStatus = new JLabel("Aguardando início do fluxo...");
     private final JPanel statusIndicator = new JPanel();
@@ -70,7 +70,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     private final JPanel simulationPanel = new JPanel(new GridBagLayout());
     private final JSpinner spMockWeight =
-            new JSpinner(new SpinnerNumberModel(3.125, 0.001, ScaleWeightFormat.MAX_KG, 0.001));
+            new JSpinner(new SpinnerNumberModel(WorkflowMockData.DEFAULT_WEIGHT_KG, 0.001,
+                    ScaleWeightFormat.MAX_KG, 0.001));
     private final JTextField tfMockTags = new JTextField(WorkflowMockData.DEFAULT_TAGS_TEXT, 22);
     private final JCheckBox cbFastStabilization = new JCheckBox("Estabilização rápida (~200 ms)", true);
     private final ThemedButton btnLoadSample =
@@ -351,8 +352,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         simulationPanel.add(cbFastStabilization, gbc);
 
         JLabel hint = WorkflowUiTheme.createHintLabel(
-                "<html>Informe os <b>seriais</b> do volume separados por vírgula (EPC = serial). "
-                        + "Ex.: <code>SN1001-001, SN1001-002</code>.</html>");
+                "<html>Informe os <b>códigos</b> das tags separados por vírgula. "
+                        + "Ex.: <code>003509, 003511, 003907, 004077</code>.</html>");
         gbc.gridy = 3;
         gbc.weightx = 1;
         simulationPanel.add(hint, gbc);
@@ -590,8 +591,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             return;
         }
         int confirm = JOptionPane.showConfirmDialog(this,
-                "Confirmo que o volume está OK e pode avançar.",
-                "Finalizar volume",
+                "Confirmo que o pedido está OK e pode ser finalizado.",
+                "Finalizar pedido",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.QUESTION_MESSAGE);
         if (confirm != JOptionPane.YES_OPTION) {
@@ -603,16 +604,27 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onOrderLoaded(Pedido pedido) {
         SwingUtilities.invokeLater(() -> {
             if (pedido != null) {
-                lbVolume.setText("Pedido " + pedido.getNumero() + " — Volume 1 de " + pedido.getVolumeCount());
+                int produtos = 0;
+                if (pedido.getVolumeCount() > 0 && pedido.getVolume(0) != null) {
+                    produtos = pedido.getVolume(0).getItens().size();
+                }
+                lbVolume.setText("Pedido " + pedido.getNumero()
+                        + " — " + produtos + " produto(s)");
             }
         });
     }
 
     public void onVolumeChanged(int currentIndex, int totalVolumes) {
         SwingUtilities.invokeLater(() -> {
-            lbVolume.setText("Volume " + currentIndex + " de " + totalVolumes);
-            setStatus("Aguardando início do volume " + currentIndex + "...",
-                    WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
+            if (totalVolumes <= 1) {
+                lbVolume.setText("Validação do pedido");
+                setStatus("Aguardando início da pesagem...",
+                        WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
+            } else {
+                lbVolume.setText("Volume " + currentIndex + " de " + totalVolumes);
+                setStatus("Aguardando início do volume " + currentIndex + "...",
+                        WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
+            }
         });
     }
 

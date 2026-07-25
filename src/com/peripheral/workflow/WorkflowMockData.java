@@ -6,13 +6,16 @@ import java.util.List;
 public final class WorkflowMockData {
 
     public static final String DEFAULT_TAGS_TEXT =
-            "SN1001-001, SN1001-002, SN1001-003";
+            "003509, 003511, 003907, 004077";
+
+    /** Peso esperado do volume único do mock (73+33+11+349 g = 466 g). */
+    public static final double DEFAULT_WEIGHT_KG = 0.466;
 
     private WorkflowMockData() {
     }
 
     public static WorkflowMockScenario sample(boolean fastStabilization) {
-        return new WorkflowMockScenario(3.125, parseTags(DEFAULT_TAGS_TEXT), fastStabilization);
+        return new WorkflowMockScenario(DEFAULT_WEIGHT_KG, parseTags(DEFAULT_TAGS_TEXT), fastStabilization);
     }
 
     public static WorkflowMockScenario fromInput(double weightKg, String tagsText, boolean fastStabilization) {
@@ -53,7 +56,8 @@ public final class WorkflowMockData {
                 sb.append(", ");
             }
             sb.append(tag.getCode());
-            if (tag.getEpc() != null && !tag.getEpc().isEmpty()) {
+            if (tag.getEpc() != null && !tag.getEpc().isEmpty()
+                    && !tag.getEpc().equals(tag.getCode())) {
                 sb.append(':').append(tag.getEpc());
             }
         }

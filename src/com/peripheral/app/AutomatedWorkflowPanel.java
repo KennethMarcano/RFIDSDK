@@ -328,7 +328,7 @@ public class AutomatedWorkflowPanel extends JPanel {
             lbPedidoResumo.setText(resumo);
             lbPedidoResumo.setToolTipText(resumo);
             appendLog("Pedido carregado: " + loadedPedido.getNumero()
-                    + " (" + loadedPedido.getVolumeCount() + " volumes)");
+                    + " (" + formatPedidoResumo(loadedPedido) + ")");
         } catch (PedidoException e) {
             loadedPedido = null;
             lbPedidoResumo.setText("Erro: " + e.getMessage());
@@ -337,19 +337,26 @@ public class AutomatedWorkflowPanel extends JPanel {
     }
 
     private static String formatPedidoResumo(Pedido pedido) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Pedido ").append(pedido.getNumero())
-                .append(" — ").append(pedido.getVolumeCount()).append(" volume(s): ");
-        for (int i = 0; i < pedido.getVolumeCount(); i++) {
-            PedidoVolume vol = pedido.getVolume(i);
-            if (i > 0) {
-                sb.append(" | ");
-            }
-            sb.append("Vol.").append(vol.getIndice()).append(" (")
-                    .append(vol.getTotalSeriais()).append(" seriais, ")
-                    .append(String.format("%.3f", vol.getPesoEsperadoKg())).append(" kg)");
+        if (pedido.getVolumeCount() == 0) {
+            return "Pedido " + pedido.getNumero() + " — sem itens";
         }
-        return sb.toString();
+        PedidoVolume vol = pedido.getVolume(0);
+        int produtos = vol != null ? vol.getItens().size() : 0;
+        int seriais = vol != null ? vol.getTotalSeriais() : 0;
+        double peso = vol != null ? vol.getPesoEsperadoKg() : 0;
+        StringBuilder produtosTxt = new StringBuilder();
+        if (vol != null) {
+            for (int i = 0; i < vol.getItens().size(); i++) {
+                if (i > 0) {
+                    produtosTxt.append(", ");
+                }
+                produtosTxt.append(vol.getItens().get(i).getCodigoProduto());
+            }
+        }
+        return "Pedido " + pedido.getNumero()
+                + " — " + produtos + " produto(s) [" + produtosTxt + "]"
+                + ", " + seriais + " tag(s), "
+                + String.format(java.util.Locale.US, "%.3f kg", peso);
     }
 
     private void recalibrateCamera() {

@@ -172,8 +172,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         context.setCurrentVolume(volume);
         String message = config.isSimulationMode()
                 ? "Modo simulação — clique em Simular pesagem estável"
+                : (pedido.getVolumeCount() <= 1
+                ? "Aguardando estabilização do peso (1,5 s)..."
                 : "Volume " + (currentVolumeIndex + 1) + "/" + pedido.getVolumeCount()
-                + " — aguardando estabilização (1,5 s)...";
+                + " — aguardando estabilização (1,5 s)...");
         notifyStep(WorkflowStep.WEIGHING, message);
     }
 
@@ -312,7 +314,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             if (validation.isValid()) {
                 context.setValidationStatusLabel("REVALIDADO_OK");
                 notifyStep(WorkflowStep.VALIDATE_ORDER,
-                        "Revalidação OK — peso e seriais conferem. Clique em Finalizar volume.");
+                        "Revalidação OK — peso e códigos conferem. Clique em Finalizar pedido.");
             } else {
                 notifyStep(WorkflowStep.VALIDATE_ORDER, validation.getSummaryMessage());
                 if (context.getPhotoPath() != null && !context.getPhotoPath().isEmpty()) {

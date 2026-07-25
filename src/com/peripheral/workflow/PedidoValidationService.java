@@ -209,7 +209,7 @@ public class PedidoValidationService {
         }
 
         return new ValidationResult(true, ValidationStatus.OK,
-                Collections.singletonList("Peso e seriais conferem com o pedido."),
+                Collections.singletonList("Peso e códigos conferem com o pedido."),
                 unknown, expectedWeight, weightKg);
     }
 }
