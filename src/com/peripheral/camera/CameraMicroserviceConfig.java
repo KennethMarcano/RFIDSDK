@@ -32,9 +32,12 @@ public final class CameraMicroserviceConfig {
     public static CameraMicroserviceConfig fromSystemProperties() {
         String host = System.getProperty("rfidsdk.camera.host", "127.0.0.1");
         int port = parseInt(System.getProperty("rfidsdk.camera.port"), DEFAULT_PORT);
-        String python = System.getProperty("rfidsdk.camera.python", detectPython());
-        boolean stub = resolveStubMode();
         Path dir = findServiceDirectory();
+        String python = System.getProperty("rfidsdk.camera.python");
+        if (python == null || python.trim().isEmpty()) {
+            python = detectPython(dir);
+        }
+        boolean stub = resolveStubMode();
         return new CameraMicroserviceConfig(host, port, dir, python, stub);
     }
 
@@ -51,7 +54,29 @@ public final class CameraMicroserviceConfig {
         return !CameraHardware.isRpicamAvailable();
     }
 
-    private static String detectPython() {
+    /**
+     * Prefere o venv do camera-service ({@code .venv}) para evitar
+     * {@code externally-managed-environment} do pip no Raspberry Pi OS.
+     */
+    private static String detectPython(Path serviceDirectory) {
+        if (serviceDirectory != null) {
+            String os = System.getProperty("os.name", "").toLowerCase();
+            if (os.contains("win")) {
+                Path winPy = serviceDirectory.resolve(".venv").resolve("Scripts").resolve("python.exe");
+                if (winPy.toFile().isFile()) {
+                    return winPy.toAbsolutePath().toString();
+                }
+            } else {
+                Path venvPy3 = serviceDirectory.resolve(".venv").resolve("bin").resolve("python3");
+                if (venvPy3.toFile().canExecute() || venvPy3.toFile().isFile()) {
+                    return venvPy3.toAbsolutePath().toString();
+                }
+                Path venvPy = serviceDirectory.resolve(".venv").resolve("bin").resolve("python");
+                if (venvPy.toFile().canExecute() || venvPy.toFile().isFile()) {
+                    return venvPy.toAbsolutePath().toString();
+                }
+            }
+        }
         String os = System.getProperty("os.name", "").toLowerCase();
         return os.contains("win") ? "python" : "python3";
     }

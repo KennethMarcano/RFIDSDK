@@ -63,14 +63,25 @@ if [[ "$(uname -s)" == "Linux" ]]; then
   export RFIDSDK_USB_WARMUP_DONE=1
 fi
 
-# Dependências do fallback IA (ONNX) — instalação leve/idempotente
-if command -v python3 >/dev/null 2>&1 && [[ -f "${ROOT}/camera-service/requirements.txt" ]]; then
-  if ! python3 -c "import onnxruntime, PIL, numpy, fastapi, uvicorn" >/dev/null 2>&1; then
-    echo "Instalando dependências do camera-service (onnxruntime/Pillow/...) ..."
-    python3 -m pip install --user -q -r "${ROOT}/camera-service/requirements.txt" || true
-  fi
-fi
+# Dependências do fallback IA em venv (evita externally-managed-environment no Bookworm+)
 export CAMERA_MODEL_DIR="${ROOT}/camera-service/modelCamera"
+CAMERA_VENV_PY="${ROOT}/camera-service/.venv/bin/python3"
+if [[ ! -x "$CAMERA_VENV_PY" ]]; then
+  CAMERA_VENV_PY="${ROOT}/camera-service/.venv/bin/python"
+fi
+if [[ -x "$CAMERA_VENV_PY" ]]; then
+  if ! "$CAMERA_VENV_PY" -c "import onnxruntime, PIL, numpy, fastapi, uvicorn" >/dev/null 2>&1; then
+    echo "Atualizando venv do camera-service ..."
+    bash "${ROOT}/scripts/setup-camera-venv.sh" || true
+  fi
+elif command -v python3 >/dev/null 2>&1; then
+  echo "Venv do camera-service ausente — criando (uma vez) ..."
+  bash "${ROOT}/scripts/setup-camera-venv.sh" || {
+    echo "Aviso: não foi possível criar o venv. No Pi rode:" >&2
+    echo "  sudo apt install -y python3-venv python3-pip" >&2
+    echo "  bash scripts/setup-camera-venv.sh" >&2
+  }
+fi
 
 echo "Iniciando Periféricos eship ..."
 echo "  O microserviço Python da câmera carrega o modelo IMX500 em modelCamera/ no boot."
