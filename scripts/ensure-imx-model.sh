@@ -32,7 +32,7 @@ if ! command -v imx500-package >/dev/null 2>&1; then
   echo "ERRO: imx500-package não encontrado." >&2
   echo "  Instale no Raspberry Pi:" >&2
   echo "    sudo apt update" >&2
-  echo "    sudo apt install -y imx500-tools imx500-all python3-picamera2" >&2
+  echo "    sudo apt install -y imx500-all imx500-tools rpicam-apps" >&2
   echo "  Depois rode de novo: bash scripts/ensure-imx-model.sh" >&2
   exit 1
 fi
@@ -48,3 +48,5 @@ fi
 cp -f "$FOUND" "$RPK"
 echo "RPK pronto: $RPK"
 echo "Reinicie a app (./iniciar.sh). Backend esperado: imx500_rpk"
+echo "Inferência usa rpicam-still --post-process-file (não Picamera2)."
+echo "Pacotes necessários: imx500-all imx500-tools rpicam-apps"

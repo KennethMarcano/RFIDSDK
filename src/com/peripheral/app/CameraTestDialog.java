@@ -27,7 +27,7 @@ import java.util.function.Consumer;
  */
 public class CameraTestDialog extends JDialog implements CameraFrameStream.Listener {
 
-    private static final int AI_INTERVAL_MS = 1600;
+    private static final int AI_INTERVAL_MS = 3500;
 
     private final Consumer<String> logConsumer;
     private final JLabel lbVideo = new JLabel("Abrindo câmera...", SwingConstants.CENTER);

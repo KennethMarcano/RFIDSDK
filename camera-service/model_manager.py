@@ -3,12 +3,11 @@ Gerenciador singleton do modelo IMX500.
 
 Responsabilidades:
 1. Empacotar packerOut.zip -> network.rpk (imx500-package) uma vez, se necessário
-2. Carregar labels + sessão ONNX em memória no boot e manter até o shutdown
-3. Inferência sobre a foto capturada (fallback IA do fluxo)
+2. Carregar labels no boot; preferir backend rpicam + RPK (não Picamera2)
+3. Inferência via rpicam-still --post-process-file (on-sensor)
 4. Expor status estável para /health e /camera/status
 
-Não mantém Picamera2 aberto em idle (conflitaria com rpicam-still/vid da app Java).
-O firmware .rpk fica pronto no disco para uso on-sensor quando necessário.
+O model_imx.onnx do conversor Sony tem ops mct_quantizers e NÃO roda no ORT.
 """
 
 from __future__ import annotations
@@ -152,8 +151,9 @@ def load() -> ModelState:
         raise RuntimeError(
             "Modelo IA indisponível. O ONNX Sony não abre no ONNX Runtime "
             f"({ort_error or 'erro desconhecido'}). "
-            "No Raspberry gere o RPK: bash scripts/ensure-imx-model.sh "
-            "(requer imx500-package / imx500-tools) e reinicie a app."
+            "No Raspberry gere o RPK e use rpicam: "
+            "sudo apt install -y imx500-all imx500-tools rpicam-apps && "
+            "bash scripts/ensure-imx-model.sh"
         )
     except Exception as exc:
         st.loaded = False
