@@ -2,6 +2,9 @@ package com.peripheral.app;
 
 import com.peripheral.camera.CameraHardware;
 import com.peripheral.pedido.Pedido;
+import com.peripheral.pedido.PedidoItem;
+import com.peripheral.pedido.PedidoSerial;
+import com.peripheral.pedido.PedidoVolume;
 import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.workflow.PedidoValidationService;
 import com.peripheral.workflow.WorkflowController;
@@ -30,6 +33,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final boolean simulationMode;
     private final boolean orderValidationEnabled;
 
+    private Pedido currentPedido;
+    private int currentVolumeIndex = 1;
+
     private final JLabel lbVolume = new JLabel("");
     private final JLabel lbLiveWeightValue =
             new JLabel(ScaleWeightFormat.PLACEHOLDER, SwingConstants.CENTER);
@@ -39,7 +45,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final JLabel lbTareBadge = new JLabel("SEM TARA", SwingConstants.CENTER);
     private final CameraLiveMonitorPanel cameraMonitor = new CameraLiveMonitorPanel();
     private final RfidTagMonitorPanel liveTagMonitor =
-            new RfidTagMonitorPanel("RFID — PRODUTOS DETECTADOS");
+            new RfidTagMonitorPanel("RFID — PRODUTOS DO PEDIDO", false);
     private final JLabel lbTagProgress = new JLabel("Tags: 0", SwingConstants.LEFT);
 
     private final JPanel operatorReviewPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -257,12 +263,12 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         monitors.add(cameraMonitor);
         monitors.setPreferredSize(new Dimension(0, MONITOR_ROW_HEIGHT));
 
-        liveTagMonitor.setPreferredSize(new Dimension(0, 120));
-        liveTagMonitor.setHint("RFID contínuo — tags aparecerão ao detectar cada produto.");
+        liveTagMonitor.setHint("RFID contínuo — todos os produtos do pedido aparecem abaixo; "
+                + "o código muda para DETECTADO ao identificar.");
 
         JTabbedPane tabs = new JTabbedPane();
         WorkflowUiTheme.styleTabbedPane(tabs);
-        tabs.addTab("RFID", liveTagMonitor);
+        tabs.addTab("Produtos", liveTagMonitor);
         tabs.addTab("Histórico", buildHistoryPanel());
         if (simulationMode) {
             tabs.addTab("Simulação", new JScrollPane(buildSimulationPanel()));
@@ -319,8 +325,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private JPanel buildFooter() {
         btnStartWeighing.addActionListener(e -> {
             if (orchestrator != null) {
-                liveTagMonitor.reset();
-                liveTagMonitor.setHint("Pesagem iniciada — aproxime os produtos...");
+                liveTagMonitor.clearDetections();
+                liveTagMonitor.setHint("Pesagem iniciada — aproxime os produtos do leitor...");
                 orchestrator.confirmWeighingStart();
             }
         });
@@ -340,8 +346,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         btnEndWorkflow.addActionListener(e -> confirmEndWorkflow());
 
         btnRereadRfid.addActionListener(e -> runOperatorAction(() -> {
-            liveTagMonitor.reset();
-            liveTagMonitor.setHint("Tags limpas — releitura contínua ativa...");
+            liveTagMonitor.clearDetections();
+            liveTagMonitor.setHint("Detecções limpas — releitura contínua ativa...");
             orchestrator.operatorRereadRfid();
         }));
         btnCapturePhoto.addActionListener(e -> runOperatorAction(() -> orchestrator.operatorCapturePhoto()));
@@ -685,11 +691,10 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     public void onOrderLoaded(Pedido pedido) {
         SwingUtilities.invokeLater(() -> {
+            currentPedido = pedido;
             if (pedido != null) {
-                int produtos = 0;
-                if (pedido.getVolumeCount() > 0 && pedido.getVolume(0) != null) {
-                    produtos = pedido.getVolume(0).getItens().size();
-                }
+                refreshExpectedProducts();
+                int produtos = countExpectedProducts();
                 lbVolume.setText("Pedido " + pedido.getNumero()
                         + " — " + produtos + " produto(s)");
             }
@@ -698,8 +703,16 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     public void onVolumeChanged(int currentIndex, int totalVolumes) {
         SwingUtilities.invokeLater(() -> {
+            currentVolumeIndex = Math.max(1, currentIndex);
+            refreshExpectedProducts();
             if (totalVolumes <= 1) {
-                lbVolume.setText("Validação do pedido");
+                int produtos = countExpectedProducts();
+                if (currentPedido != null) {
+                    lbVolume.setText("Pedido " + currentPedido.getNumero()
+                            + " — " + produtos + " produto(s)");
+                } else {
+                    lbVolume.setText("Validação do pedido");
+                }
                 setStatus("Aguardando início da pesagem...",
                         WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
             } else {
@@ -708,6 +721,67 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                         WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
             }
         });
+    }
+
+    private void refreshExpectedProducts() {
+        List<RfidTagMonitorPanel.ProductEntry> entries = buildExpectedProductEntries();
+        if (!entries.isEmpty()) {
+            liveTagMonitor.setExpectedProducts(entries);
+            liveTagMonitor.setHint("Produtos do pedido — o código identificado aparece como DETECTADO.");
+        }
+    }
+
+    private List<RfidTagMonitorPanel.ProductEntry> buildExpectedProductEntries() {
+        List<RfidTagMonitorPanel.ProductEntry> entries = new ArrayList<>();
+        PedidoVolume volume = resolveCurrentVolume();
+        if (volume == null) {
+            return entries;
+        }
+        for (PedidoItem item : volume.getItens()) {
+            if (item == null) {
+                continue;
+            }
+            String name = item.getNome() != null ? item.getNome() : "";
+            if (item.hasSeriais()) {
+                int i = 0;
+                for (PedidoSerial serial : item.getSeriais()) {
+                    String code = serial.getSerial();
+                    if (code == null || code.isEmpty()) {
+                        code = serial.getEpc();
+                    }
+                    if (code != null && !code.isEmpty()) {
+                        String rowId = code + "#" + (i++);
+                        entries.add(new RfidTagMonitorPanel.ProductEntry(rowId, code, name));
+                    }
+                }
+            } else {
+                String code = item.getCodigoProduto();
+                if (code != null && !code.isEmpty()) {
+                    int qty = Math.max(1, item.getQuantidadeEsperada());
+                    for (int i = 0; i < qty; i++) {
+                        String label = qty > 1 ? (name + " (" + (i + 1) + "/" + qty + ")") : name;
+                        String rowId = code + "#" + i;
+                        entries.add(new RfidTagMonitorPanel.ProductEntry(rowId, code, label));
+                    }
+                }
+            }
+        }
+        return entries;
+    }
+
+    private PedidoVolume resolveCurrentVolume() {
+        if (currentPedido == null || currentPedido.getVolumeCount() <= 0) {
+            return null;
+        }
+        int idx0 = Math.max(0, currentVolumeIndex - 1);
+        if (idx0 >= currentPedido.getVolumeCount()) {
+            idx0 = 0;
+        }
+        return currentPedido.getVolume(idx0);
+    }
+
+    private int countExpectedProducts() {
+        return buildExpectedProductEntries().size();
     }
 
     public void onValidationResult(PedidoValidationService.ValidationResult result) {
@@ -837,12 +911,12 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         SwingUtilities.invokeLater(() -> {
             int detected = detectedCodes != null ? detectedCodes.size() : 0;
             if (expectedCount > 0) {
-                lbTagProgress.setText("Tags: " + detected + " / " + expectedCount);
+                lbTagProgress.setText("Códigos: " + detected + " / " + expectedCount);
             } else {
-                lbTagProgress.setText("Tags: " + detected);
+                lbTagProgress.setText("Códigos: " + detected);
             }
-            if (detectedCodes != null && !detectedCodes.isEmpty()) {
-                liveTagMonitor.setHint("Detectados: " + String.join(", ", detectedCodes));
+            if (detectedCodes != null) {
+                liveTagMonitor.syncDetectedCodes(detectedCodes);
             }
         });
     }
@@ -899,8 +973,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         SwingUtilities.invokeLater(() -> {
             clearHistory();
             liveTagMonitor.reset();
-            liveTagMonitor.setHint("RFID contínuo — tags aparecerão ao detectar cada produto.");
-            lbTagProgress.setText("Tags: 0");
+            refreshExpectedProducts();
+            liveTagMonitor.setHint("Produtos do pedido — o código identificado aparece como DETECTADO.");
+            lbTagProgress.setText("Códigos: 0");
             lbTareBadge.setText("SEM TARA");
             lbTareBadge.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
             lbGrossTareInfo.setText("Bruto — · Tara —");
