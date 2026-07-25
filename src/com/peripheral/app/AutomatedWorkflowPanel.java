@@ -785,8 +785,24 @@ public class AutomatedWorkflowPanel extends JPanel {
             }
 
             @Override
+            public void onScaleReading(double grossKg, double netKg, double tareKg,
+                                       boolean tareActive, boolean stable) {
+                window.onScaleReading(grossKg, netKg, tareKg, tareActive, stable);
+            }
+
+            @Override
+            public void onTareChanged(double tareKg, boolean active) {
+                window.onTareChanged(tareKg, active);
+            }
+
+            @Override
             public void onTagRead(PeripheralDataEvent event) {
                 window.onTagRead(event);
+            }
+
+            @Override
+            public void onTagInventoryUpdated(java.util.List<String> detectedCodes, int expectedCount) {
+                window.onTagInventoryUpdated(detectedCodes, expectedCount);
             }
 
             @Override

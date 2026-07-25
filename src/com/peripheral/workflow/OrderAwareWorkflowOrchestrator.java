@@ -17,7 +17,9 @@ import com.peripheral.session.PeripheralSlot;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -52,6 +54,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
 
     private int currentVolumeIndex;
     private double lastStableWeight;
+    private volatile double lastGrossWeightKg;
+    private volatile boolean lastGrossStable;
+    private final AtomicBoolean rfidCollecting = new AtomicBoolean(false);
 
     public OrderAwareWorkflowOrchestrator(PeripheralSessionManager sessionManager,
                                           Pedido pedido,
@@ -101,8 +106,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (!config.isSimulationMode()) {
             ReadablePeripheral scale = sessionManager.getDevice(PeripheralSlot.SCALE);
             scale.startContinuousReading(scaleListener);
+            startContinuousRfidIfEnabled();
         }
         notifyAwaitingWeighingStart();
+        notifyTareChanged();
     }
 
     @Override
@@ -116,10 +123,14 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         resetStabilizationTracking();
         stopScaleReading();
         stopRfidReading();
+        rfidCollecting.set(false);
+        context.clearTags();
+        context.clearTare();
         sessionStore.clearSession();
         if (listener != null) {
             listener.onSessionCleared();
             listener.onStopped();
+            listener.onTareChanged(0, false);
         }
     }
 
@@ -137,6 +148,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         armed.set(false);
         cycleInProgress.set(false);
         awaitingUserStart.set(true);
+        rfidCollecting.set(false);
+        context.clearTags();
+        context.clearTare();
         resetStabilizationTracking();
         sessionStore.clearSession();
         try {
@@ -148,6 +162,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             listener.onSessionCleared();
             listener.onVolumeChanged(currentVolumeIndex + 1, pedido.getVolumeCount());
             listener.onAwaitingWeighingStart();
+            listener.onTareChanged(0, false);
+            listener.onTagInventoryUpdated(Collections.emptyList(), expectedProductCount());
         }
     }
 
@@ -164,6 +180,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (!awaitingUserStart.compareAndSet(true, false)) {
             return;
         }
+        // Novo inventário do pedido: zera tags acumuladas antes da pesagem.
+        context.clearTags();
+        rfidCollecting.set(true);
+        notifyTagInventory();
         armed.set(true);
         resetStabilizationTracking();
         PedidoVolume volume = pedido.getVolume(currentVolumeIndex);
@@ -172,11 +192,62 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         context.setCurrentVolume(volume);
         String message = config.isSimulationMode()
                 ? "Modo simulação — clique em Simular pesagem estável"
-                : (pedido.getVolumeCount() <= 1
-                ? "Aguardando estabilização do peso (1,5 s)..."
-                : "Volume " + (currentVolumeIndex + 1) + "/" + pedido.getVolumeCount()
-                + " — aguardando estabilização (1,5 s)...");
+                : "RFID monitorando — coloque os produtos; validação após 1,5 s estáveis";
         notifyStep(WorkflowStep.WEIGHING, message);
+        notifyStep(WorkflowStep.RFID_READ, "Aguardando tags do pedido...");
+    }
+
+    @Override
+    public void applyTare() throws PeripheralException {
+        applyTare(lastGrossWeightKg, lastGrossStable);
+    }
+
+    @Override
+    public void applyTare(double grossWeightKg) throws PeripheralException {
+        applyTare(grossWeightKg, true);
+    }
+
+    private void applyTare(double grossWeightKg, boolean treatAsStable) throws PeripheralException {
+        if (!running.get()) {
+            throw new PeripheralException("O fluxo não está em execução.");
+        }
+        if (cycleInProgress.get()) {
+            throw new PeripheralException("Aguarde o ciclo atual terminar para tarar.");
+        }
+        if (!treatAsStable && !(config != null && config.isSimulationMode()) && !lastGrossStable) {
+            throw new PeripheralException("Aguarde o peso estabilizar antes de tarar.");
+        }
+        if (grossWeightKg < 0) {
+            throw new PeripheralException("Leitura de peso inválida para tara.");
+        }
+        if (!context.applyTare(grossWeightKg)) {
+            throw new PeripheralException("Não foi possível aplicar a tara.");
+        }
+        lastGrossWeightKg = grossWeightKg;
+        lastGrossStable = true;
+        notifyTareChanged();
+        publishScaleReading(grossWeightKg, true);
+        notifyStep(WorkflowStep.WEIGHING, String.format(java.util.Locale.US,
+                "Tara aplicada: %.0f g — coloque os produtos e toque em Iniciar pesagem",
+                grossWeightKg * 1000.0));
+    }
+
+    @Override
+    public void clearTare() {
+        context.clearTare();
+        notifyTareChanged();
+        publishScaleReading(lastGrossWeightKg, lastGrossStable);
+        notifyStep(WorkflowStep.WEIGHING, "Tara removida.");
+    }
+
+    @Override
+    public boolean isTareActive() {
+        return context.isTareActive();
+    }
+
+    @Override
+    public double getTareKg() {
+        return context.getTareKg();
     }
 
     @Override
@@ -235,6 +306,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         operatorReview.set(false);
         waitingForNext.set(false);
         cycleInProgress.set(false);
+        rfidCollecting.set(false);
         recordAndAdvance("APROVADO_OPERADOR");
     }
 
@@ -244,18 +316,16 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             return;
         }
         context.clearTags();
+        rfidCollecting.set(true);
+        notifyTagInventory();
         if (config.isSimulationMode()) {
             notifyStep(WorkflowStep.RFID_READ,
-                    "Seriais limpos — ajuste peso/seriais e clique em Simular pesagem estável.");
+                    "Tags limpas — ajuste peso/códigos e clique em Simular pesagem estável.");
             return;
         }
-        try {
-            runRfidBurst();
-            revalidateDuringReview();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new PeripheralException("Leitura RFID interrompida");
-        }
+        notifyStep(WorkflowStep.RFID_READ,
+                "Tags limpas — aproxime os produtos; a leitura contínua continua ativa.");
+        revalidateDuringReview();
     }
 
     @Override
@@ -284,25 +354,24 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             return;
         }
         try {
-            notifyStep(WorkflowStep.WEIGHING, "Re-simulando peso e seriais...");
+            notifyStep(WorkflowStep.WEIGHING, "Re-simulando peso e códigos...");
             context.clearTags();
-            context.updateWeight(scenario.getWeightKg(), true);
-            if (listener != null) {
-                listener.onWeightUpdate(PeripheralDataEvent.builder(null)
-                        .weight(String.format(java.util.Locale.US, "%.3f", scenario.getWeightKg()))
-                        .stable(true)
-                        .build());
-            }
+            rfidCollecting.set(true);
+            double gross = scenario.getWeightKg() + context.getTareKg();
+            lastGrossWeightKg = gross;
+            lastGrossStable = true;
+            context.updateScaleReading(gross, true);
+            publishScaleReading(gross, true);
 
             if (config.isEnabled(WorkflowStep.RFID_READ)) {
-                runSimulatedRfidBurst(scenario);
+                injectSimulatedTags(scenario);
             }
 
             PedidoVolume volume = context.getCurrentVolume();
             PedidoValidationService.ValidationResult validation = validationService.validate(
                     volume,
-                    context.getTagCodes(),
-                    scenario.getWeightKg(),
+                    context.snapshotTagCodes(),
+                    context.getNetWeightKg(),
                     config.getWeightTolerancePercent(),
                     config.getWeightToleranceKg());
 
@@ -350,6 +419,13 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             if (!running.get()) {
                 return;
             }
+            // Simulação: peso informado é o líquido desejado; soma a tara para obter bruto.
+            double gross = scenario.getWeightKg() + context.getTareKg();
+            lastGrossWeightKg = gross;
+            lastGrossStable = true;
+            if (config.isEnabled(WorkflowStep.RFID_READ)) {
+                injectSimulatedTags(scenario);
+            }
             runCycle(scenario.getWeightKg(), true, scenario);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -364,6 +440,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         armed.set(false);
         operatorReview.set(false);
         awaitingUserStart.set(true);
+        rfidCollecting.set(false);
         resetStabilizationTracking();
         notifyAwaitingWeighingStart();
         if (listener != null) {
@@ -377,29 +454,72 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             if (!running.get() || event == null) {
                 return;
             }
-            // Monitor da balança: sempre atualiza a UI em tempo real
-            if (listener != null) {
-                listener.onWeightUpdate(event);
-            }
+            double gross = parseWeight(event);
+            boolean stable = Boolean.TRUE.equals(event.getStable());
+            lastGrossWeightKg = gross;
+            lastGrossStable = stable;
+            context.updateScaleReading(gross, stable);
+            publishScaleReading(gross, stable);
+
             if (operatorReview.get()) {
-                double weight = parseWeight(event);
-                boolean stable = Boolean.TRUE.equals(event.getStable());
-                context.updateWeight(weight, stable);
                 return;
             }
             if (cycleInProgress.get() || waitingForNext.get() || !armed.get()) {
                 return;
             }
-            double weight = parseWeight(event);
-            boolean stable = Boolean.TRUE.equals(event.getStable());
-            context.updateWeight(weight, stable);
-            evaluateStabilization(weight, stable);
+            evaluateStabilization(context.getNetWeightKg(), stable);
         }
 
         @Override
         public void onError(Throwable error) {
             if (listener != null && error != null) {
                 listener.onError(error.getMessage(), error);
+            }
+        }
+
+        @Override
+        public void onReadingStateChanged(boolean reading) {
+        }
+    };
+
+    private final PeripheralDataListener continuousRfidListener = new PeripheralDataListener() {
+        @Override
+        public void onData(PeripheralDataEvent event) {
+            if (!running.get() || event == null) {
+                return;
+            }
+            // Antes de iniciar a pesagem ainda mostramos leituras avulsas, mas o inventário
+            // do pedido só acumula com rfidCollecting=true (após Iniciar pesagem / releitura).
+            if (!rfidCollecting.get() && !awaitingUserStart.get()) {
+                return;
+            }
+            boolean collecting = rfidCollecting.get();
+            if (!collecting && awaitingUserStart.get()) {
+                // Pré-visualização: notifica UI sem acumular no pedido.
+                if (listener != null) {
+                    listener.onTagRead(event);
+                }
+                return;
+            }
+            boolean added = context.addTag(event.getEpc(), event.getCode());
+            if (listener != null) {
+                listener.onTagRead(event);
+                if (added) {
+                    notifyTagInventory();
+                }
+            }
+        }
+
+        @Override
+        public void onError(Throwable error) {
+            if (listener != null && error != null) {
+                listener.onError("RFID: " + error.getMessage(), error);
+            }
+            if (PeripheralSafeIo.looksLikeConnectionLoss(error)) {
+                sessionManager.disconnect(PeripheralSlot.RFID_READER);
+                handleCycleFailure("Conexão com o leitor RFID foi perdida",
+                        error instanceof Exception ? (Exception) error : new PeripheralException(
+                                error != null ? error.getMessage() : "RFID desconectado", error));
             }
         }
 
@@ -447,32 +567,29 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         stabilizationTriggered.set(false);
     }
 
-    private void runCycle(double weightKg, boolean stable, WorkflowMockScenario simulation) {
+    private void runCycle(double netWeightKg, boolean stable, WorkflowMockScenario simulation) {
         if (!running.get() || !cycleInProgress.compareAndSet(false, true)) {
             return;
         }
-        context.beginCycle(weightKg, stable);
+        // Preserva tags acumuladas pelo RFID contínuo.
+        context.beginCycle(netWeightKg, stable);
         context.setNumeroPedido(pedido.getNumero());
         PedidoVolume volume = pedido.getVolume(currentVolumeIndex);
         context.setVolumeIndex(volume != null ? volume.getIndice() : currentVolumeIndex + 1);
         context.setCurrentVolume(volume);
         try {
-            if (config.isEnabled(WorkflowStep.RFID_READ)) {
-                if (simulation != null) {
-                    runSimulatedRfidBurst(simulation);
-                } else {
-                    runRfidBurst();
-                }
-            }
             if (!running.get()) {
                 return;
             }
 
-            notifyStep(WorkflowStep.VALIDATE_ORDER, "Validando peso e tags contra o pedido...");
+            Set<String> tagsSnapshot = context.snapshotTagCodes();
+            notifyStep(WorkflowStep.VALIDATE_ORDER,
+                    "Peso estável — validando " + tagsSnapshot.size()
+                            + " tag(s) e peso líquido...");
             PedidoValidationService.ValidationResult validation = validationService.validate(
                     volume,
-                    context.getTagCodes(),
-                    weightKg,
+                    tagsSnapshot,
+                    netWeightKg,
                     config.getWeightTolerancePercent(),
                     config.getWeightToleranceKg());
 
@@ -480,16 +597,18 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                 validation = new PedidoValidationService.ValidationResult(
                         false,
                         PedidoValidationService.ValidationStatus.WEIGHT_MISMATCH,
-                        java.util.Collections.singletonList("Divergência forçada (cenário demo)."),
-                        java.util.Collections.emptyList(),
+                        Collections.singletonList("Divergência forçada (cenário demo)."),
+                        Collections.emptyList(),
                         volume != null ? volume.getPesoEsperadoKg() : 0,
-                        weightKg);
+                        netWeightKg);
             }
 
             context.setValidationResult(validation);
             if (listener != null) {
                 listener.onValidationResult(validation);
             }
+
+            rfidCollecting.set(false);
 
             if (validation.isValid()) {
                 handleHappyPath();
@@ -591,8 +710,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         PedidoVolume volume = context.getCurrentVolume();
         PedidoValidationService.ValidationResult validation = validationService.validate(
                 volume,
-                context.getTagCodes(),
-                context.getWeightKg(),
+                context.snapshotTagCodes(),
+                context.getNetWeightKg(),
                 config.getWeightTolerancePercent(),
                 config.getWeightToleranceKg());
         context.setValidationResult(validation);
@@ -616,6 +735,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private void advanceVolumeOrComplete() {
         currentVolumeIndex++;
         if (currentVolumeIndex >= pedido.getVolumeCount()) {
+            context.clearTare();
+            notifyTareChanged();
             if (listener != null) {
                 listener.onOrderCompleted(pedido);
             }
@@ -627,6 +748,11 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         awaitingUserStart.set(true);
         operatorReview.set(false);
         waitingForNext.set(false);
+        rfidCollecting.set(false);
+        context.clearTags();
+        context.clearTare();
+        notifyTareChanged();
+        notifyTagInventory();
         resetStabilizationTracking();
         if (listener != null) {
             listener.onVolumeChanged(currentVolumeIndex + 1, pedido.getVolumeCount());
@@ -634,71 +760,73 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         }
     }
 
-    private void runSimulatedRfidBurst(WorkflowMockScenario scenario) throws InterruptedException {
-        notifyStep(WorkflowStep.RFID_READ, "Simulando leitura RFID...");
-        List<WorkflowMockScenario.MockTag> tags = scenario.getTags();
-        int durationMs = Math.min(config.getRfidReadDurationMs(), 400);
-        if (tags.isEmpty()) {
-            Thread.sleep(durationMs);
+    private void startContinuousRfidIfEnabled() throws PeripheralException {
+        if (config == null || !config.isEnabled(WorkflowStep.RFID_READ)) {
             return;
         }
-        long intervalMs = Math.max(80, durationMs / Math.max(1, tags.size()));
-        for (WorkflowMockScenario.MockTag tag : tags) {
+        ReadablePeripheral rfid = sessionManager.getDevice(PeripheralSlot.RFID_READER);
+        if (rfid == null || !rfid.isConnected()) {
+            throw new PeripheralException("Leitor RFID não conectado");
+        }
+        if (rfid.isReading()) {
+            PeripheralSafeIo.stopReading(rfid);
+        }
+        rfid.startContinuousReading(continuousRfidListener);
+        notifyStep(WorkflowStep.RFID_READ, "RFID monitorando continuamente...");
+    }
+
+    private void injectSimulatedTags(WorkflowMockScenario scenario) {
+        if (scenario == null) {
+            return;
+        }
+        notifyStep(WorkflowStep.RFID_READ, "Simulando detecção contínua de tags...");
+        for (WorkflowMockScenario.MockTag tag : scenario.getTags()) {
             if (!running.get()) {
                 return;
             }
-            context.addTag(tag.getEpc(), tag.getCode());
+            boolean added = context.addTag(tag.getEpc(), tag.getCode());
             if (listener != null) {
                 listener.onTagRead(PeripheralDataEvent.builder(null)
                         .code(tag.getCode())
                         .epc(tag.getEpc())
                         .build());
+                if (added) {
+                    notifyTagInventory();
+                }
             }
-            Thread.sleep(intervalMs);
         }
     }
 
-    private void runRfidBurst() throws PeripheralException, InterruptedException {
-        ReadablePeripheral rfid = sessionManager.getDevice(PeripheralSlot.RFID_READER);
-        if (rfid == null || !rfid.isConnected()) {
-            throw new PeripheralException("Leitor RFID não conectado");
+    private void publishScaleReading(double grossKg, boolean stable) {
+        if (listener == null) {
+            return;
         }
-        notifyStep(WorkflowStep.RFID_READ,
-                "Lendo tags RFID por " + (config.getRfidReadDurationMs() / 1000) + " s...");
-        PeripheralDataListener tagListener = new PeripheralDataListener() {
-            @Override
-            public void onData(PeripheralDataEvent event) {
-                if (event == null) {
-                    return;
-                }
-                context.addTag(event.getEpc(), event.getCode());
-                if (listener != null) {
-                    listener.onTagRead(event);
-                }
-            }
+        listener.onScaleReading(
+                grossKg,
+                context.getNetWeightKg(),
+                context.getTareKg(),
+                context.isTareActive(),
+                stable);
+    }
 
-            @Override
-            public void onError(Throwable error) {
-                if (listener != null && error != null) {
-                    listener.onError("RFID: " + error.getMessage(), error);
-                }
-            }
+    private void notifyTareChanged() {
+        if (listener != null) {
+            listener.onTareChanged(context.getTareKg(), context.isTareActive());
+        }
+    }
 
-            @Override
-            public void onReadingStateChanged(boolean reading) {
-            }
-        };
-            rfid.startContinuousReading(tagListener);
-        try {
-            Thread.sleep(config.getRfidReadDurationMs());
-        } finally {
-            PeripheralSafeIo.stopReading(rfid);
+    private void notifyTagInventory() {
+        if (listener != null) {
+            listener.onTagInventoryUpdated(context.listDetectedCodes(), expectedProductCount());
         }
-        if (!rfid.isConnected()) {
-            sessionManager.disconnect(PeripheralSlot.RFID_READER);
-            throw new PeripheralException(
-                    "Conexão com o leitor RFID foi perdida. Reconecte o dispositivo e tente novamente.");
+    }
+
+    private int expectedProductCount() {
+        PedidoVolume volume = pedido != null ? pedido.getVolume(currentVolumeIndex) : null;
+        if (volume == null) {
+            return 0;
         }
+        return volume.getItens().size();
     }
 
     private void capturePhotoOptional() throws IOException {

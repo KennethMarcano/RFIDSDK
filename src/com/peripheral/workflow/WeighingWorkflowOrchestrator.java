@@ -284,6 +284,7 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         if (!running.get() || !cycleInProgress.compareAndSet(false, true)) {
             return;
         }
+        context.clearTags();
         context.beginCycle(weightKg, stable);
         try {
             if (config.isEnabled(WorkflowStep.RFID_READ)) {
