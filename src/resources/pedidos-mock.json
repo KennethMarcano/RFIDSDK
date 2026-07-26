@@ -47,16 +47,26 @@
               "seriais": ["003509"]
             },
             {
-              "codigoProduto": "003511",
-              "nome": "Produto 003511",
-              "pesoUnitarioKg": 0.033,
-              "seriais": ["003511"]
-            },
-            {
               "codigoProduto": "003907",
               "nome": "Produto 003907",
               "pesoUnitarioKg": 0.011,
               "seriais": ["003907"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "numero": "3003",
+      "volumes": [
+        {
+          "indice": 1,
+          "itens": [
+            {
+              "codigoProduto": "003511",
+              "nome": "Produto 003511",
+              "pesoUnitarioKg": 0.033,
+              "seriais": ["003511"]
             },
             {
               "codigoProduto": "004077",

@@ -44,4 +44,17 @@ public interface WorkflowController {
 
     default void operatorReanalyze() throws PeripheralException {
     }
+
+    /** Tara lógica atual (kg). Reinicia a cada pedido/sessão. */
+    default double getTareKg() {
+        return 0;
+    }
+
+    /** Define a tara com o peso bruto atual da balança (caixa vazia). */
+    default void captureTare() throws PeripheralException {
+    }
+
+    /** Zera a tara lógica. */
+    default void clearTare() {
+    }
 }

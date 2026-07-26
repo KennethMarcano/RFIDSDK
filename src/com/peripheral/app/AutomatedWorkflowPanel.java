@@ -54,7 +54,7 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final JCheckBox cbAiFallback = new JCheckBox("IA fallback (análise de vídeo na divergência)", false);
     private final JCheckBox cbPedidoMock = new JCheckBox("Usar pedido mock (demo)", true);
     private final JCheckBox cbDemoDivergence = new JCheckBox("Cenário demo (forçar divergência)", false);
-    private final JTextField tfPedidoNumero = new JTextField("1001", 8);
+    private final JTextField tfPedidoNumero = new JTextField("2002", 8);
     private final JLabel lbPedidoResumo = new JLabel("Nenhum pedido carregado");
     private final JLabel lbCameraStatus = new JLabel("Câmera: verificando...");
     private final JSpinner spTolerancePercent = new JSpinner(
@@ -62,12 +62,13 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final JSpinner spToleranceKg = new JSpinner(
             new SpinnerNumberModel(WorkflowConfig.DEFAULT_WEIGHT_TOLERANCE_KG, 0.001, 10.0, 0.01));
     private final ThemedButton btnLoadPedido =
-            WorkflowUiTheme.button("Carregar", ThemedButton.Variant.SECONDARY);
+            WorkflowUiTheme.button("Carregar todos", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnRecalibrateCamera =
             WorkflowUiTheme.button("Recalibrar câmera", ThemedButton.Variant.SECONDARY);
 
     private WorkflowController orchestrator;
     private Pedido loadedPedido;
+    private java.util.List<Pedido> loadedPedidos = java.util.Collections.emptyList();
     private final ThemedButton btnStartWorkflow =
             WorkflowUiTheme.button("Iniciar fluxo", ThemedButton.Variant.PRIMARY)
                     .withSize(ThemedButton.Size.LARGE);
@@ -210,10 +211,11 @@ public class AutomatedWorkflowPanel extends JPanel {
         column.add(WorkflowUiTheme.formRow(cbAiFallback));
 
         JPanel numberRow = WorkflowUiTheme.formRow(
-                WorkflowUiTheme.formLabel("Nº pedido"),
+                WorkflowUiTheme.formLabel("Nº (API)"),
                 tfPedidoNumero,
                 btnLoadPedido);
-        JPanel numberGroup = WorkflowUiTheme.createInsetGroup("Identificação do pedido", numberRow);
+        JPanel numberGroup = WorkflowUiTheme.createInsetGroup(
+                "Pedidos (mock = carrega todos)", numberRow);
         numberGroup.setAlignmentX(Component.LEFT_ALIGNMENT);
         numberGroup.setMaximumSize(new Dimension(Integer.MAX_VALUE, 110));
         column.add(numberGroup);
@@ -334,17 +336,55 @@ public class AutomatedWorkflowPanel extends JPanel {
             if (!cbPedidoMock.isSelected()) {
                 System.setProperty("rfidsdk.pedido.mock", "false");
             }
-            loadedPedido = client.fetchPedido(tfPedidoNumero.getText().trim());
-            String resumo = formatPedidoResumo(loadedPedido);
-            lbPedidoResumo.setText(resumo);
-            lbPedidoResumo.setToolTipText(resumo);
-            appendLog("Pedido carregado: " + loadedPedido.getNumero()
-                    + " (" + formatPedidoResumo(loadedPedido) + ")");
+            if (cbPedidoMock.isSelected()) {
+                loadedPedidos = client.fetchAllPedidos();
+                loadedPedido = loadedPedidos.isEmpty() ? null : loadedPedidos.get(0);
+                String resumo = formatPedidoQueueResumo(loadedPedidos);
+                lbPedidoResumo.setText(resumo);
+                lbPedidoResumo.setToolTipText(resumo);
+                appendLog("Pedidos carregados (" + loadedPedidos.size() + "): " + resumo);
+            } else {
+                loadedPedido = client.fetchPedido(tfPedidoNumero.getText().trim());
+                loadedPedidos = java.util.Collections.singletonList(loadedPedido);
+                String resumo = formatPedidoResumo(loadedPedido);
+                lbPedidoResumo.setText(resumo);
+                lbPedidoResumo.setToolTipText(resumo);
+                appendLog("Pedido carregado: " + loadedPedido.getNumero()
+                        + " (" + formatPedidoResumo(loadedPedido) + ")");
+            }
         } catch (PedidoException e) {
             loadedPedido = null;
+            loadedPedidos = java.util.Collections.emptyList();
             lbPedidoResumo.setText("Erro: " + e.getMessage());
             showWorkflowMessage(e.getMessage(), JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private static String formatPedidoQueueResumo(java.util.List<Pedido> pedidos) {
+        if (pedidos == null || pedidos.isEmpty()) {
+            return "Nenhum pedido carregado";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(pedidos.size()).append(" pedido(s): ");
+        for (int i = 0; i < pedidos.size(); i++) {
+            if (i > 0) {
+                sb.append(" → ");
+            }
+            Pedido p = pedidos.get(i);
+            PedidoVolume vol = p.getVolume(0);
+            sb.append(p.getNumero());
+            if (vol != null && !vol.getItens().isEmpty()) {
+                sb.append(" [");
+                for (int j = 0; j < vol.getItens().size(); j++) {
+                    if (j > 0) {
+                        sb.append("+");
+                    }
+                    sb.append(vol.getItens().get(j).getCodigoProduto());
+                }
+                sb.append("]");
+            }
+        }
+        return sb.toString();
     }
 
     private static String formatPedidoResumo(Pedido pedido) {
@@ -561,10 +601,12 @@ public class AutomatedWorkflowPanel extends JPanel {
         spToleranceKg.setEnabled(!workflowRunning);
         btnRecalibrateCamera.setEnabled(!workflowRunning);
 
-        if (cbOrderValidation.isSelected() && loadedPedido == null && !workflowRunning) {
+        if (cbOrderValidation.isSelected()
+                && (loadedPedidos == null || loadedPedidos.isEmpty())
+                && !workflowRunning) {
             btnStartWorkflow.setEnabled(false);
-            btnStartWorkflow.setToolTipText("Carregue um pedido antes de iniciar.");
-            lbWorkflowStatus.setText("Carregue um pedido para iniciar validação");
+            btnStartWorkflow.setToolTipText("Carregue os pedidos antes de iniciar.");
+            lbWorkflowStatus.setText("Carregue os pedidos para iniciar validação");
             return;
         }
 
@@ -575,7 +617,11 @@ public class AutomatedWorkflowPanel extends JPanel {
         } else if (rfidNeeded && !rfidOk && !workflowRunning) {
             lbWorkflowStatus.setText("Configure o leitor RFID ou desmarque a leitura RFID");
         } else if (!workflowRunning) {
-            lbWorkflowStatus.setText("Pronto para iniciar o fluxo");
+            if (cbOrderValidation.isSelected() && loadedPedidos.size() > 1) {
+                lbWorkflowStatus.setText("Pronto — fila com " + loadedPedidos.size() + " pedidos");
+            } else {
+                lbWorkflowStatus.setText("Pronto para iniciar o fluxo");
+            }
         }
         WorkflowUiTheme.setStatusColor(lbWorkflowStatus, WorkflowUiTheme.TEXT_SECONDARY);
     }
@@ -609,8 +655,8 @@ public class AutomatedWorkflowPanel extends JPanel {
             return;
         }
 
-        if (cbOrderValidation.isSelected() && loadedPedido == null) {
-            showWorkflowMessage("Carregue um pedido antes de iniciar a validação.", JOptionPane.WARNING_MESSAGE);
+        if (cbOrderValidation.isSelected() && (loadedPedidos == null || loadedPedidos.isEmpty())) {
+            showWorkflowMessage("Carregue os pedidos antes de iniciar a validação.", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -657,7 +703,7 @@ public class AutomatedWorkflowPanel extends JPanel {
         try {
             if (cbOrderValidation.isSelected()) {
                 orchestrator = new OrderAwareWorkflowOrchestrator(
-                        sessionManager, loadedPedido, cameraClient);
+                        sessionManager, loadedPedidos, cameraClient);
             } else {
                 orchestrator = new WeighingWorkflowOrchestrator(sessionManager);
             }
@@ -946,6 +992,31 @@ public class AutomatedWorkflowPanel extends JPanel {
                 SwingUtilities.invokeLater(() -> {
                     lbWorkflowStatus.setText("Pedido " + pedido.getNumero() + " concluído");
                     appendLog("Pedido concluído: " + pedido.getNumero());
+                });
+            }
+
+            @Override
+            public void onOrderQueueUpdated(int currentIndex, int totalOrders) {
+                window.onOrderQueueUpdated(currentIndex, totalOrders);
+            }
+
+            @Override
+            public void onNextPedidoStarted(Pedido completed, Pedido next, int nextIndex, int total) {
+                window.onNextPedidoStarted(completed, next, nextIndex, total);
+                SwingUtilities.invokeLater(() -> {
+                    lbWorkflowStatus.setText("Pedido " + next.getNumero()
+                            + " (" + nextIndex + "/" + total + ")");
+                    appendLog("Próximo pedido: " + next.getNumero()
+                            + " (" + nextIndex + "/" + total + ")");
+                });
+            }
+
+            @Override
+            public void onAllOrdersCompleted() {
+                window.onAllOrdersCompleted();
+                SwingUtilities.invokeLater(() -> {
+                    lbWorkflowStatus.setText("Todos os pedidos concluídos");
+                    appendLog("Fila de pedidos concluída.");
                 });
             }
         };

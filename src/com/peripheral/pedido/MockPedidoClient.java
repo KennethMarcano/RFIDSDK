@@ -37,6 +37,47 @@ public class MockPedidoClient implements PedidoClient {
         return new Pedido(numero, volumes);
     }
 
+    @Override
+    public List<Pedido> fetchAllPedidos() throws PedidoException {
+        String json = loadJson();
+        List<String> numeros = listPedidoNumeros(json);
+        if (numeros.isEmpty()) {
+            throw new PedidoException("Nenhum pedido encontrado no mock.");
+        }
+        List<Pedido> pedidos = new ArrayList<>();
+        for (String numero : numeros) {
+            List<PedidoVolume> volumes = parseVolumes(json, numero);
+            if (!volumes.isEmpty()) {
+                pedidos.add(new Pedido(numero, volumes));
+            }
+        }
+        if (pedidos.isEmpty()) {
+            throw new PedidoException("Nenhum pedido válido no mock.");
+        }
+        return pedidos;
+    }
+
+    /** Extrai os números de pedido na ordem do JSON. */
+    static List<String> listPedidoNumeros(String json) {
+        List<String> numeros = new ArrayList<>();
+        if (json == null || json.isEmpty()) {
+            return numeros;
+        }
+        int from = 0;
+        while (true) {
+            int keyIdx = json.indexOf("\"numero\"", from);
+            if (keyIdx < 0) {
+                break;
+            }
+            String value = parseStringAfterKey(json, keyIdx);
+            if (value != null && !value.isEmpty() && !numeros.contains(value)) {
+                numeros.add(value);
+            }
+            from = keyIdx + 8;
+        }
+        return numeros;
+    }
+
     private String loadJson() throws PedidoException {
         if (jsonPath != null && Files.isRegularFile(jsonPath)) {
             try {

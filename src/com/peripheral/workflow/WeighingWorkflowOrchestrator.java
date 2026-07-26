@@ -45,6 +45,8 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
     private final AtomicBoolean rfidCollecting = new AtomicBoolean(false);
     private final AtomicLong stableSinceMs = new AtomicLong(0);
     private final AtomicBoolean stabilizationTriggered = new AtomicBoolean(false);
+    private volatile double tareKg;
+    private volatile double lastGrossKg;
 
     public WeighingWorkflowOrchestrator(PeripheralSessionManager sessionManager) {
         this.sessionManager = sessionManager;
@@ -67,6 +69,7 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         waitingForNext.set(false);
         cycleInProgress.set(false);
         rfidCollecting.set(false);
+        clearTare();
         context.clearTags();
         resetStabilizationTracking();
         resetPhaseFlags();
@@ -94,6 +97,7 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         awaitingTagStart.set(false);
         awaitingWeightStart.set(false);
         rfidCollecting.set(false);
+        clearTare();
         context.clearTags();
         resetStabilizationTracking();
         stopScaleReading();
@@ -116,6 +120,7 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         armed.set(false);
         cycleInProgress.set(false);
         rfidCollecting.set(false);
+        clearTare();
         context.clearTags();
         resetStabilizationTracking();
         stopRfidReading();
@@ -188,7 +193,9 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         resetStabilizationTracking();
         String message = config.isSimulationMode()
                 ? "Modo simulação — clique em Simular pesagem estável"
-                : "Coloque o item na balança — aguardando estabilização (1,5 s)...";
+                : (tareKg > 0.0005
+                ? "Tara ativa — coloque os produtos e aguarde estabilização (1,5 s)..."
+                : "Coloque o item (se usar caixa: Definir tara só com a caixa, depois os produtos)...");
         notifyStep(WorkflowStep.WEIGHING, message);
     }
 
@@ -289,13 +296,15 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             if (listener != null) {
                 listener.onWeightUpdate(event);
             }
+            double gross = parseWeight(event);
+            lastGrossKg = gross;
             if (cycleInProgress.get() || waitingForNext.get() || !armed.get()) {
                 return;
             }
-            double weight = parseWeight(event);
+            double net = toNetKg(gross);
             boolean stable = Boolean.TRUE.equals(event.getStable());
-            context.updateWeight(weight, stable);
-            evaluateStabilization(weight, stable);
+            context.updateWeight(net, stable);
+            evaluateStabilization(net, stable);
         }
 
         @Override
@@ -521,6 +530,34 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             return parsed.getWeightKg();
         }
         return 0;
+    }
+
+    private double toNetKg(double grossKg) {
+        return Math.max(0, grossKg - Math.max(0, tareKg));
+    }
+
+    @Override
+    public double getTareKg() {
+        return tareKg;
+    }
+
+    @Override
+    public void captureTare() throws PeripheralException {
+        if (!running.get()) {
+            throw new PeripheralException("Inicie o fluxo antes de definir a tara.");
+        }
+        double gross = Math.max(0, lastGrossKg);
+        tareKg = gross;
+        notifyStep(WorkflowStep.WEIGHING,
+                tareKg <= 0.0005
+                        ? "Tara zerada (balança vazia)."
+                        : "Tara definida: " + ScaleWeightFormat.formatGramsPlain(tareKg)
+                        + " — o peso líquido ignora a caixa.");
+    }
+
+    @Override
+    public void clearTare() {
+        tareKg = 0;
     }
 
     private void notifyStep(WorkflowStep step, String message) {

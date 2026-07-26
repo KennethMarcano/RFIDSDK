@@ -66,4 +66,20 @@ public interface WorkflowListener {
 
     default void onOrderCompleted(com.peripheral.pedido.Pedido pedido) {
     }
+
+    /** Fila: pedido atual (1-based) e total. */
+    default void onOrderQueueUpdated(int currentIndex, int totalOrders) {
+    }
+
+    /**
+     * Um pedido terminou e o próximo já vai começar do zero.
+     */
+    default void onNextPedidoStarted(com.peripheral.pedido.Pedido completed,
+                                     com.peripheral.pedido.Pedido next,
+                                     int nextIndex, int total) {
+    }
+
+    /** Todos os pedidos da fila foram concluídos. */
+    default void onAllOrdersCompleted() {
+    }
 }
