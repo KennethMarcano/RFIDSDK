@@ -780,6 +780,30 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         });
     }
 
+    @Override
+    public void onAiAnalysisResult(boolean identified, String message,
+                                   com.peripheral.workflow.WorkflowContext context) {
+        SwingUtilities.invokeLater(() -> {
+            Color color = identified ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.DANGER;
+            String prefix = identified ? "IA: produtos identificados" : "IA: divergência";
+            setStatus(prefix + " — " + (message != null ? message : ""), color, color);
+
+            StringBuilder detail = new StringBuilder();
+            if (message != null && !message.trim().isEmpty()) {
+                detail.append(message.trim());
+            }
+            if (context != null && context.getMissingProducts() != null
+                    && !context.getMissingProducts().isEmpty()) {
+                detail.append("\n\nNão identificados: ")
+                        .append(String.join(", ", context.getMissingProducts()));
+            }
+            String title = identified
+                    ? "IA: produtos confirmados"
+                    : "IA: revise manualmente";
+            WorkflowUiTheme.showValidationOutcome(this, identified, title, detail.toString());
+        });
+    }
+
     public void onOperatorReviewRequired(String message, com.peripheral.workflow.WorkflowContext context) {
         SwingUtilities.invokeLater(() -> {
             setOperatorReviewVisible(true);

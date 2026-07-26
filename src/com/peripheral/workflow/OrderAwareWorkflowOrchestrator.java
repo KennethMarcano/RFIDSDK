@@ -649,6 +649,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (cameraClient == null || !cameraClient.isAvailable()) {
             context.setAiMessage("Serviço de IA indisponível — revise manualmente.");
             notifyStep(WorkflowStep.AI_ANALYSIS, context.getAiMessage());
+            notifyAiResult(false, context.getAiMessage());
             return;
         }
         // Backend IMX500 RPK precisa da câmera livre (sem MJPEG). Mantém exclusividade
@@ -663,10 +664,13 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             context.setAiMessage(result.getMessage());
             context.setMissingProducts(result.getMissingProducts());
             notifyStep(WorkflowStep.AI_ANALYSIS, result.getMessage());
+            notifyAiResult(result.getMissingProducts() == null || result.getMissingProducts().isEmpty(),
+                    result.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             context.setAiMessage("Análise interrompida — revise manualmente.");
             notifyStep(WorkflowStep.AI_ANALYSIS, context.getAiMessage());
+            notifyAiResult(false, context.getAiMessage());
         } catch (CameraServiceException e) {
             // Retry com câmera ainda exclusiva (preview não religa).
             try {
@@ -678,12 +682,21 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                 context.setAiMessage(result.getMessage());
                 context.setMissingProducts(result.getMissingProducts());
                 notifyStep(WorkflowStep.AI_ANALYSIS, result.getMessage());
+                notifyAiResult(result.getMissingProducts() == null
+                        || result.getMissingProducts().isEmpty(), result.getMessage());
             } catch (Exception retryEx) {
                 context.setAiMessage("Erro na análise: " + e.getMessage());
                 notifyStep(WorkflowStep.AI_ANALYSIS, context.getAiMessage());
+                notifyAiResult(false, context.getAiMessage());
             }
         } finally {
             CameraHardware.endExclusiveCapture();
+        }
+    }
+
+    private void notifyAiResult(boolean identified, String message) {
+        if (listener != null) {
+            listener.onAiAnalysisResult(identified, message, context);
         }
     }
 

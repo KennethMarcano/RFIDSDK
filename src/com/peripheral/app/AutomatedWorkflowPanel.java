@@ -919,6 +919,11 @@ public class AutomatedWorkflowPanel extends JPanel {
             }
 
             @Override
+            public void onAiAnalysisResult(boolean identified, String message, WorkflowContext context) {
+                window.onAiAnalysisResult(identified, message, context);
+            }
+
+            @Override
             public void onCameraServiceStatus(boolean available, String detail) {
                 SwingUtilities.invokeLater(() -> {
                     lbCameraStatus.setText(available ? "Câmera online" : "Câmera indisponível");

@@ -51,6 +51,16 @@ public interface WorkflowListener {
     default void onOperatorReviewRequired(String message, com.peripheral.workflow.WorkflowContext context) {
     }
 
+    /**
+     * Resultado da análise de IA (fallback) pronto — para exibir pop-up ao operador.
+     *
+     * @param identified true se todos os produtos esperados foram identificados
+     * @param message    mensagem retornada pela IA
+     */
+    default void onAiAnalysisResult(boolean identified, String message,
+                                    com.peripheral.workflow.WorkflowContext context) {
+    }
+
     default void onCameraServiceStatus(boolean available, String detail) {
     }
 
