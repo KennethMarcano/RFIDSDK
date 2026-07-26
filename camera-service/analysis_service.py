@@ -12,6 +12,9 @@ logger = logging.getLogger("camera-service.analysis")
 
 _DEMO_MISSING = {"1001": {2: ["ABC123"]}}
 
+# Cena / contexto — não são produtos do pedido (caixa de conferência, operador).
+_IGNORED_SCENE_LABELS = frozenset({"CAIXA", "PESSOA"})
+
 
 def analyze(image_path: str, expected_products: list[dict]) -> dict:
     if not image_path:
@@ -88,10 +91,11 @@ def analyze(image_path: str, expected_products: list[dict]) -> dict:
             })
 
     # Produto detectado que não está no pedido = sobra / não pertence.
+    # Ignora caixa e pessoa (podem aparecer na cena sem ser item do pedido).
     unexpected: list[dict] = []
     for det in detections:
         key = _normalize(det.label)
-        if not key:
+        if not key or _is_ignored_scene_label(key):
             continue
         if _matches_expected(key, expected_by_key):
             continue
@@ -165,6 +169,18 @@ def _analyze_stub(expected_products: list[dict]) -> dict:
 
 def _normalize(value: str) -> str:
     return (value or "").strip().upper()
+
+
+def _is_ignored_scene_label(key: str) -> bool:
+    """Caixa / pessoa (e variações) não contam como produto fora do pedido."""
+    if not key:
+        return False
+    if key in _IGNORED_SCENE_LABELS:
+        return True
+    for ignored in _IGNORED_SCENE_LABELS:
+        if ignored in key or key in ignored:
+            return True
+    return False
 
 
 def _matches_expected(detected_key: str, expected_by_key: dict[str, dict]) -> bool:
