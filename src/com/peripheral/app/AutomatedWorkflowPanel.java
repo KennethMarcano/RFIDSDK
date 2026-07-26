@@ -59,8 +59,8 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final JLabel lbCameraStatus = new JLabel("Câmera: verificando...");
     private final JSpinner spTolerancePercent = new JSpinner(
             new SpinnerNumberModel(WorkflowConfig.DEFAULT_WEIGHT_TOLERANCE_PERCENT, 0.1, 50.0, 0.5));
-    private final JSpinner spToleranceKg = new JSpinner(
-            new SpinnerNumberModel(WorkflowConfig.DEFAULT_WEIGHT_TOLERANCE_KG, 0.001, 10.0, 0.01));
+    private final JSpinner spToleranceGrams = new JSpinner(
+            new SpinnerNumberModel(WorkflowConfig.DEFAULT_WEIGHT_TOLERANCE_GRAMS, 1, 10_000, 1));
     private final ThemedButton btnLoadPedido =
             WorkflowUiTheme.button("Carregar todos", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnRecalibrateCamera =
@@ -196,7 +196,7 @@ public class AutomatedWorkflowPanel extends JPanel {
         WorkflowUiTheme.styleTouchCheckBox(cbDemoDivergence);
         WorkflowUiTheme.styleCompactTextField(tfPedidoNumero, 8);
         WorkflowUiTheme.styleCompactSpinner(spTolerancePercent);
-        WorkflowUiTheme.styleCompactSpinner(spToleranceKg);
+        WorkflowUiTheme.styleCompactSpinner(spToleranceGrams);
 
         cbOrderValidation.setFont(cbOrderValidation.getFont().deriveFont(Font.BOLD, 13f));
 
@@ -223,7 +223,7 @@ public class AutomatedWorkflowPanel extends JPanel {
 
         JPanel toleranceContent = WorkflowUiTheme.formRow(
                 WorkflowUiTheme.formLabel("± %"), spTolerancePercent,
-                WorkflowUiTheme.formLabel("± kg"), spToleranceKg);
+                WorkflowUiTheme.formLabel("± g"), spToleranceGrams);
         JPanel toleranceGroup = WorkflowUiTheme.createInsetGroup("Tolerância de peso", toleranceContent);
         toleranceGroup.setAlignmentX(Component.LEFT_ALIGNMENT);
         toleranceGroup.setMaximumSize(new Dimension(Integer.MAX_VALUE, 110));
@@ -598,7 +598,7 @@ public class AutomatedWorkflowPanel extends JPanel {
         tfPedidoNumero.setEnabled(!workflowRunning);
         btnLoadPedido.setEnabled(!workflowRunning);
         spTolerancePercent.setEnabled(!workflowRunning);
-        spToleranceKg.setEnabled(!workflowRunning);
+        spToleranceGrams.setEnabled(!workflowRunning);
         btnRecalibrateCamera.setEnabled(!workflowRunning);
 
         if (cbOrderValidation.isSelected()
@@ -685,7 +685,8 @@ public class AutomatedWorkflowPanel extends JPanel {
         }
 
         double tolPercent = ((Number) spTolerancePercent.getValue()).doubleValue();
-        double tolKg = ((Number) spToleranceKg.getValue()).doubleValue();
+        int tolGrams = ((Number) spToleranceGrams.getValue()).intValue();
+        double tolKg = com.peripheral.scale.ScaleWeightFormat.toKg(Math.max(1, tolGrams));
         WorkflowConfig config = new WorkflowConfig(
                 steps,
                 WorkflowConfig.DEFAULT_RFID_READ_MS,

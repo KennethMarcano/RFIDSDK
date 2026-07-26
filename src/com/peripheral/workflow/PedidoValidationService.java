@@ -3,6 +3,7 @@ package com.peripheral.workflow;
 import com.peripheral.pedido.PedidoItem;
 import com.peripheral.pedido.PedidoSerial;
 import com.peripheral.pedido.PedidoVolume;
+import com.peripheral.scale.ScaleWeightFormat;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -202,8 +203,10 @@ public class PedidoValidationService {
         double delta = Math.abs(weightKg - expectedWeight);
         if (delta > allowedDelta) {
             messages.add(String.format(
-                    "Peso divergente (esperado %.3f kg, lido %.3f kg, tolerância ±%.3f kg)",
-                    expectedWeight, weightKg, allowedDelta));
+                    "Peso divergente (esperado %s, lido %s, tolerância ±%s)",
+                    ScaleWeightFormat.formatGramsPlain(expectedWeight),
+                    ScaleWeightFormat.formatGramsPlain(weightKg),
+                    ScaleWeightFormat.formatGramsPlain(allowedDelta)));
             return new ValidationResult(false, ValidationStatus.WEIGHT_MISMATCH, messages,
                     unknown, expectedWeight, weightKg);
         }
