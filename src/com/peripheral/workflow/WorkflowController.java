@@ -10,6 +10,11 @@ public interface WorkflowController {
 
     void restartSession() throws PeripheralException;
 
+    /** Inicia a fase de leitura RFID (antes da pesagem). */
+    default void confirmTagReadingStart() {
+    }
+
+    /** Inicia a fase de pesagem (RFID deve estar parado). */
     void confirmWeighingStart();
 
     void acknowledgeNext();

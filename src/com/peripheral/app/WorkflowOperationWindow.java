@@ -2,9 +2,6 @@ package com.peripheral.app;
 
 import com.peripheral.camera.CameraHardware;
 import com.peripheral.pedido.Pedido;
-import com.peripheral.pedido.PedidoItem;
-import com.peripheral.pedido.PedidoSerial;
-import com.peripheral.pedido.PedidoVolume;
 import com.peripheral.scale.DigitronDgnParser;
 import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.workflow.PedidoValidationService;
@@ -34,6 +31,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final boolean simulationMode;
     private final boolean orderValidationEnabled;
     private final boolean aiFallbackEnabled;
+    private final boolean rfidEnabled;
 
     private Pedido currentPedido;
     private int currentVolumeIndex = 1;
@@ -46,8 +44,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final JLabel lbLiveWeightUnit = new JLabel(ScaleWeightFormat.UNIT);
     private final JLabel lbLiveWeightStable = new JLabel("Aguardando leitura da balança", SwingConstants.CENTER);
     private final JLabel lbScaleRawLine = new JLabel(" ", SwingConstants.CENTER);
+    private final CameraLiveMonitorPanel cameraMonitor = new CameraLiveMonitorPanel();
     private final RfidTagMonitorPanel liveTagMonitor =
-            new RfidTagMonitorPanel("PRODUTOS IDENTIFICADOS", false);
+            new RfidTagMonitorPanel("TAGS LIDAS", false);
     private final JLabel lbTagProgress = new JLabel("Tags: 0", SwingConstants.LEFT);
 
     private final JPanel operatorReviewPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -69,8 +68,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final List<WorkflowReadingCard> readingCards = new ArrayList<>();
     private JPanel historyHost;
 
+    private final ThemedButton btnStartTags =
+            WorkflowUiTheme.button("Iniciar leitura tags", ThemedButton.Variant.PRIMARY)
+                    .withSize(ThemedButton.Size.LARGE);
     private final ThemedButton btnStartWeighing =
-            WorkflowUiTheme.button("Iniciar pesagem", ThemedButton.Variant.PRIMARY)
+            WorkflowUiTheme.button("Iniciar leitura peso", ThemedButton.Variant.PRIMARY)
                     .withSize(ThemedButton.Size.LARGE);
     private final ThemedButton btnNext =
             WorkflowUiTheme.button("Próximo", ThemedButton.Variant.SUCCESS)
@@ -103,12 +105,19 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         this.simulationMode = config.isSimulationMode();
         this.orderValidationEnabled = orderValidationEnabled;
         this.aiFallbackEnabled = config.isAiFallbackEnabled();
+        this.rfidEnabled = config.isEnabled(WorkflowStep.RFID_READ);
 
         buildUi();
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
+            public void windowOpened(WindowEvent e) {
+                cameraMonitor.startLivePreview();
+            }
+
+            @Override
             public void windowClosing(WindowEvent e) {
+                cameraMonitor.stopLivePreview();
                 setVisible(false);
             }
         });
@@ -238,16 +247,17 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     private JPanel buildMainCenter() {
-        liveTagMonitor.setHint("RFID contínuo — produtos em grade; o código identificado muda para OK.");
-
         JPanel monitors = new JPanel(new GridLayout(1, 2, 8, 0));
         monitors.setOpaque(false);
         monitors.add(buildScaleMonitorPanel());
-        monitors.add(liveTagMonitor);
+        monitors.add(cameraMonitor);
         monitors.setPreferredSize(new Dimension(0, MONITOR_ROW_HEIGHT));
+
+        liveTagMonitor.setHint("Aguardando iniciar leitura de tags...");
 
         JTabbedPane tabs = new JTabbedPane();
         WorkflowUiTheme.styleTabbedPane(tabs);
+        tabs.addTab("Produtos", liveTagMonitor);
         tabs.addTab("Histórico", buildHistoryPanel());
         if (simulationMode) {
             tabs.addTab("Simulação", new JScrollPane(buildSimulationPanel()));
@@ -302,10 +312,18 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     private JPanel buildFooter() {
+        btnStartTags.setVisible(rfidEnabled);
+        btnStartTags.setEnabled(false);
+        btnStartTags.addActionListener(e -> {
+            if (orchestrator != null) {
+                liveTagMonitor.reset();
+                liveTagMonitor.setHint("Lendo tags — aproxime os produtos...");
+                orchestrator.confirmTagReadingStart();
+            }
+        });
         btnStartWeighing.addActionListener(e -> {
             if (orchestrator != null) {
-                liveTagMonitor.clearDetections();
-                liveTagMonitor.setHint("Pesagem iniciada — aproxime os produtos do leitor...");
+                liveTagMonitor.setHint("Pesagem iniciada — RFID parado para medir o peso.");
                 orchestrator.confirmWeighingStart();
             }
         });
@@ -319,8 +337,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         btnEndWorkflow.addActionListener(e -> confirmEndWorkflow());
 
         btnRereadRfid.addActionListener(e -> runOperatorAction(() -> {
-            liveTagMonitor.clearDetections();
-            liveTagMonitor.setHint("Detecções limpas — releitura contínua ativa...");
+            liveTagMonitor.reset();
+            liveTagMonitor.setHint("Detecções limpas — releitura RFID ativa...");
             orchestrator.operatorRereadRfid();
         }));
         btnCapturePhoto.addActionListener(e -> runOperatorAction(() -> orchestrator.operatorCapturePhoto()));
@@ -338,6 +356,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         actions.setOpaque(false);
         actions.add(btnEndWorkflow);
         actions.add(btnRestartSession);
+        if (rfidEnabled) {
+            actions.add(btnStartTags);
+        }
         actions.add(btnStartWeighing);
         actions.add(btnNext);
 
@@ -548,25 +569,63 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         statusIndicator.setBackground(indicatorColor);
     }
 
-    private void setAwaitingStartState() {
+    private void setAwaitingTagReadingState() {
+        btnStartTags.setEnabled(rfidEnabled);
+        btnStartWeighing.setEnabled(false);
+        btnNext.setEnabled(false);
+        btnRestartSession.setEnabled(true);
+        setOperatorReviewVisible(false);
+        cameraMonitor.ensureLivePreview();
+        if (simulationMode) {
+            btnSimulate.setEnabled(false);
+            setStatus("1) Iniciar leitura tags → 2) Simular tags → 3) Iniciar leitura peso.",
+                    WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
+        } else {
+            setStatus("Toque em Iniciar leitura tags para identificar os produtos.",
+                    WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
+        }
+    }
+
+    private void setTagReadingInProgressState() {
+        btnStartTags.setEnabled(false);
         btnStartWeighing.setEnabled(true);
         btnNext.setEnabled(false);
         btnRestartSession.setEnabled(true);
         setOperatorReviewVisible(false);
+        cameraMonitor.ensureLivePreview();
+        if (simulationMode) {
+            btnSimulate.setEnabled(true);
+            setStatus("Lendo tags — Simular para injetar códigos, depois Iniciar leitura peso.",
+                    WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
+        } else {
+            setStatus("Lendo tags — quando terminar, toque em Iniciar leitura peso.",
+                    WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
+        }
+    }
+
+    private void setAwaitingStartState() {
+        btnStartTags.setEnabled(false);
+        btnStartWeighing.setEnabled(true);
+        btnNext.setEnabled(false);
+        btnRestartSession.setEnabled(true);
+        setOperatorReviewVisible(false);
+        cameraMonitor.ensureLivePreview();
         if (simulationMode) {
             btnSimulate.setEnabled(false);
-            setStatus("Toque em Iniciar pesagem e depois em Simular.",
+            setStatus("Toque em Iniciar leitura peso e depois em Simular.",
                     WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
         } else {
-            setStatus("Toque em Iniciar pesagem para começar.",
+            setStatus("Toque em Iniciar leitura peso para medir.",
                     WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
         }
     }
 
     private void setWaitingForNextState() {
+        btnStartTags.setEnabled(false);
         btnStartWeighing.setEnabled(false);
         btnNext.setEnabled(true);
         btnRestartSession.setEnabled(true);
+        cameraMonitor.ensureLivePreview();
         setStatus("Ciclo concluído — toque em Próximo para nova leitura.",
                 WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
     }
@@ -645,10 +704,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         SwingUtilities.invokeLater(() -> {
             currentPedido = pedido;
             if (pedido != null) {
-                refreshExpectedProducts();
-                int produtos = countExpectedProducts();
                 lbVolume.setText("Pedido " + pedido.getNumero()
-                        + " — " + produtos + " produto(s)");
+                        + " — validação interna após tags + peso");
             }
         });
     }
@@ -656,84 +713,17 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onVolumeChanged(int currentIndex, int totalVolumes) {
         SwingUtilities.invokeLater(() -> {
             currentVolumeIndex = Math.max(1, currentIndex);
-            refreshExpectedProducts();
             if (totalVolumes <= 1) {
-                int produtos = countExpectedProducts();
                 if (currentPedido != null) {
                     lbVolume.setText("Pedido " + currentPedido.getNumero()
-                            + " — " + produtos + " produto(s)");
+                            + " — validação interna após tags + peso");
                 } else {
                     lbVolume.setText("Validação do pedido");
                 }
-                setStatus("Aguardando início da pesagem...",
-                        WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
             } else {
                 lbVolume.setText("Volume " + currentIndex + " de " + totalVolumes);
-                setStatus("Aguardando início do volume " + currentIndex + "...",
-                        WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
             }
         });
-    }
-
-    private void refreshExpectedProducts() {
-        List<RfidTagMonitorPanel.ProductEntry> entries = buildExpectedProductEntries();
-        if (!entries.isEmpty()) {
-            liveTagMonitor.setExpectedProducts(entries);
-            liveTagMonitor.setHint("Produtos do pedido — o código identificado aparece como OK.");
-        }
-    }
-
-    private List<RfidTagMonitorPanel.ProductEntry> buildExpectedProductEntries() {
-        List<RfidTagMonitorPanel.ProductEntry> entries = new ArrayList<>();
-        PedidoVolume volume = resolveCurrentVolume();
-        if (volume == null) {
-            return entries;
-        }
-        for (PedidoItem item : volume.getItens()) {
-            if (item == null) {
-                continue;
-            }
-            String name = item.getNome() != null ? item.getNome() : "";
-            if (item.hasSeriais()) {
-                int i = 0;
-                for (PedidoSerial serial : item.getSeriais()) {
-                    String code = serial.getSerial();
-                    if (code == null || code.isEmpty()) {
-                        code = serial.getEpc();
-                    }
-                    if (code != null && !code.isEmpty()) {
-                        String rowId = code + "#" + (i++);
-                        entries.add(new RfidTagMonitorPanel.ProductEntry(rowId, code, name));
-                    }
-                }
-            } else {
-                String code = item.getCodigoProduto();
-                if (code != null && !code.isEmpty()) {
-                    int qty = Math.max(1, item.getQuantidadeEsperada());
-                    for (int i = 0; i < qty; i++) {
-                        String label = qty > 1 ? (name + " (" + (i + 1) + "/" + qty + ")") : name;
-                        String rowId = code + "#" + i;
-                        entries.add(new RfidTagMonitorPanel.ProductEntry(rowId, code, label));
-                    }
-                }
-            }
-        }
-        return entries;
-    }
-
-    private PedidoVolume resolveCurrentVolume() {
-        if (currentPedido == null || currentPedido.getVolumeCount() <= 0) {
-            return null;
-        }
-        int idx0 = Math.max(0, currentVolumeIndex - 1);
-        if (idx0 >= currentPedido.getVolumeCount()) {
-            idx0 = 0;
-        }
-        return currentPedido.getVolume(idx0);
-    }
-
-    private int countExpectedProducts() {
-        return buildExpectedProductEntries().size();
     }
 
     public void onValidationResult(PedidoValidationService.ValidationResult result) {
@@ -749,11 +739,13 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onOperatorReviewRequired(String message, com.peripheral.workflow.WorkflowContext context) {
         SwingUtilities.invokeLater(() -> {
             setOperatorReviewVisible(true);
+            btnStartTags.setEnabled(false);
             btnStartWeighing.setEnabled(false);
             btnNext.setEnabled(false);
             if (simulationMode) {
                 btnSimulate.setEnabled(true);
             }
+            cameraMonitor.ensureLivePreview();
             setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
             if (context != null && context.getAiMessage() != null && !context.getAiMessage().isEmpty()) {
                 lbStatus.setText(message + " | IA: " + context.getAiMessage());
@@ -763,7 +755,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     public void onCameraServiceStatus(boolean available, String detail) {
         SwingUtilities.invokeLater(() -> {
-            if (!available && aiFallbackEnabled) {
+            if (available) {
+                cameraMonitor.ensureLivePreview();
+            } else if (aiFallbackEnabled) {
                 setStatus("Câmera indisponível — IA de fallback pode não funcionar; revise manualmente.",
                         WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
             }
@@ -845,6 +839,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             }
             if (code != null && !code.isEmpty()) {
                 liveTagMonitor.registerTag(code);
+                lbTagProgress.setText("Códigos: " + liveTagMonitor.getUniqueTagCount());
             }
         });
     }
@@ -853,11 +848,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onTagInventoryUpdated(java.util.List<String> detectedCodes, int expectedCount) {
         SwingUtilities.invokeLater(() -> {
             int detected = detectedCodes != null ? detectedCodes.size() : 0;
-            if (expectedCount > 0) {
-                lbTagProgress.setText("Códigos: " + detected + " / " + expectedCount);
-            } else {
-                lbTagProgress.setText("Códigos: " + detected);
-            }
+            // Sempre só o total lido — sem “esperado” do pedido na UI.
+            lbTagProgress.setText("Códigos: " + detected);
             if (detectedCodes != null) {
                 liveTagMonitor.syncDetectedCodes(detectedCodes);
             }
@@ -867,14 +859,40 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     @Override
     public void onStepChanged(WorkflowStep step, String message) {
         SwingUtilities.invokeLater(() -> {
-            btnStartWeighing.setEnabled(false);
-            btnNext.setEnabled(false);
+            if (step == WorkflowStep.RFID_READ) {
+                btnStartTags.setEnabled(false);
+                btnStartWeighing.setEnabled(true);
+                btnNext.setEnabled(false);
+                if (simulationMode) {
+                    btnSimulate.setEnabled(true);
+                }
+            } else if (step == WorkflowStep.WEIGHING) {
+                btnStartTags.setEnabled(false);
+                btnStartWeighing.setEnabled(false);
+                btnNext.setEnabled(false);
+                if (simulationMode) {
+                    btnSimulate.setEnabled(true);
+                }
+            } else {
+                btnStartTags.setEnabled(false);
+                btnStartWeighing.setEnabled(false);
+                btnNext.setEnabled(false);
+            }
             setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
-
-            if (simulationMode && (step == WorkflowStep.WEIGHING || step == WorkflowStep.RFID_READ)) {
-                btnSimulate.setEnabled(true);
+            if (step != WorkflowStep.CAPTURE_PHOTO) {
+                cameraMonitor.ensureLivePreview();
             }
         });
+    }
+
+    @Override
+    public void onAwaitingTagReadingStart() {
+        SwingUtilities.invokeLater(this::setAwaitingTagReadingState);
+    }
+
+    @Override
+    public void onTagReadingInProgress() {
+        SwingUtilities.invokeLater(this::setTagReadingInProgressState);
     }
 
     @Override
@@ -885,6 +903,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     @Override
     public void onStabilizationProgress(String message) {
         SwingUtilities.invokeLater(() -> {
+            btnStartTags.setEnabled(false);
             btnStartWeighing.setEnabled(false);
             btnNext.setEnabled(false);
             btnSimulate.setEnabled(false);
@@ -898,7 +917,10 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     @Override
     public void onReadingRecorded(WorkflowReadingRecord record) {
-        SwingUtilities.invokeLater(() -> addReadingToHistory(record));
+        SwingUtilities.invokeLater(() -> {
+            addReadingToHistory(record);
+            cameraMonitor.ensureLivePreview();
+        });
     }
 
     @Override
@@ -906,8 +928,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         SwingUtilities.invokeLater(() -> {
             clearHistory();
             liveTagMonitor.reset();
-            refreshExpectedProducts();
-            liveTagMonitor.setHint("Produtos do pedido — o código identificado aparece como OK.");
+            liveTagMonitor.setHint("Aguardando iniciar leitura de tags...");
             lbTagProgress.setText("Códigos: 0");
             lbLiveWeightValue.setText(ScaleWeightFormat.PLACEHOLDER);
             lbLiveWeightUnit.setText(ScaleWeightFormat.UNIT);
@@ -915,6 +936,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             lbLiveWeightStable.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
             lbScaleRawLine.setText(" ");
             lastRawPayload = null;
+            cameraMonitor.ensureLivePreview();
         });
     }
 
@@ -927,9 +949,13 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onError(String message, Throwable cause) {
         SwingUtilities.invokeLater(() -> {
             setStatus("Erro: " + message, WorkflowUiTheme.DANGER, WorkflowUiTheme.DANGER);
-            btnStartWeighing.setEnabled(true);
-            btnNext.setEnabled(false);
+            if (rfidEnabled) {
+                setAwaitingTagReadingState();
+            } else {
+                setAwaitingStartState();
+            }
             btnRestartSession.setEnabled(true);
+            cameraMonitor.ensureLivePreview();
         });
     }
 
@@ -937,6 +963,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onStopped() {
         SwingUtilities.invokeLater(() -> {
             clearHistory();
+            cameraMonitor.stopLivePreview();
+            btnStartTags.setEnabled(false);
             btnStartWeighing.setEnabled(false);
             btnNext.setEnabled(false);
             btnRestartSession.setEnabled(false);
@@ -947,7 +975,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     @Override
     public void dispose() {
-        // Garante que qualquer preview de vídeo remanescente seja encerrado.
+        cameraMonitor.stopLivePreview();
         CameraHardware.stopPreview();
         super.dispose();
     }

@@ -271,9 +271,9 @@ public class AutomatedWorkflowPanel extends JPanel {
         checks.setMaximumSize(new Dimension(Integer.MAX_VALUE, 130));
 
         JLabel help = WorkflowUiTheme.createHintLabel(
-                "<html>RFID identifica os produtos durante a pesagem; após 1,5 s estáveis, o fluxo continua. "
-                        + "Validação do pedido (se ativa). "
-                        + "Divergência: foto + IA fallback + revisão do operador. "
+                "<html>Fluxo em fases: 1) Iniciar leitura tags → 2) Iniciar leitura peso (RFID parado). "
+                        + "UI mostra só as tags lidas; a validação compara com o pedido (se ativa). "
+                        + "Divergência: revisão do operador (+ foto/IA se fallback marcado). "
                         + "Caminho OK: etiqueta (e foto se marcada).</html>");
         help.setAlignmentX(Component.LEFT_ALIGNMENT);
         help.setBorder(WorkflowUiTheme.empty(10, 2, 0, 2));
@@ -832,6 +832,14 @@ public class AutomatedWorkflowPanel extends JPanel {
             }
 
             @Override
+            public void onAwaitingTagReadingStart() {
+                window.onAwaitingTagReadingStart();
+            }
+
+            public void onTagReadingInProgress() {
+                window.onTagReadingInProgress();
+            }
+
             public void onAwaitingWeighingStart() {
                 window.onAwaitingWeighingStart();
             }

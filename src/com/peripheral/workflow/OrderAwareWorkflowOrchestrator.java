@@ -16,7 +16,6 @@ import com.peripheral.session.PeripheralSessionManager;
 import com.peripheral.session.PeripheralSlot;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -48,7 +47,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private final AtomicBoolean cycleInProgress = new AtomicBoolean(false);
     private final AtomicBoolean armed = new AtomicBoolean(false);
     private final AtomicBoolean waitingForNext = new AtomicBoolean(false);
-    private final AtomicBoolean awaitingUserStart = new AtomicBoolean(false);
+    private final AtomicBoolean awaitingTagStart = new AtomicBoolean(false);
+    private final AtomicBoolean awaitingWeightStart = new AtomicBoolean(false);
     private final AtomicBoolean operatorReview = new AtomicBoolean(false);
     private final AtomicLong stableSinceMs = new AtomicLong(0);
     private final AtomicBoolean stabilizationTriggered = new AtomicBoolean(false);
@@ -87,8 +87,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         waitingForNext.set(false);
         operatorReview.set(false);
         cycleInProgress.set(false);
-        awaitingUserStart.set(true);
+        rfidCollecting.set(false);
+        context.clearTags();
         resetStabilizationTracking();
+        resetPhaseFlags();
 
         try {
             sessionStore.beginSession();
@@ -107,9 +109,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             // Garante que o listener do fluxo substitui o da tela de configuração.
             PeripheralSafeIo.stopReading(scale);
             scale.startContinuousReading(scaleListener);
-            startContinuousRfidIfEnabled();
+            // RFID só liga na fase de tags — evita interferência no peso.
         }
-        notifyAwaitingWeighingStart();
+        notifyPhaseStart();
     }
 
     @Override
@@ -118,7 +120,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         cycleInProgress.set(false);
         armed.set(false);
         waitingForNext.set(false);
-        awaitingUserStart.set(false);
+        awaitingTagStart.set(false);
+        awaitingWeightStart.set(false);
         operatorReview.set(false);
         resetStabilizationTracking();
         stopScaleReading();
@@ -145,10 +148,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         operatorReview.set(false);
         armed.set(false);
         cycleInProgress.set(false);
-        awaitingUserStart.set(true);
         rfidCollecting.set(false);
         context.clearTags();
         resetStabilizationTracking();
+        stopRfidReading();
         sessionStore.clearSession();
         try {
             sessionStore.beginSession();
@@ -158,9 +161,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (listener != null) {
             listener.onSessionCleared();
             listener.onVolumeChanged(currentVolumeIndex + 1, pedido.getVolumeCount());
-            listener.onAwaitingWeighingStart();
-            listener.onTagInventoryUpdated(Collections.emptyList(), expectedProductCount());
+            listener.onTagInventoryUpdated(Collections.emptyList(), 0);
         }
+        resetPhaseFlags();
+        notifyPhaseStart();
     }
 
     @Override
@@ -169,28 +173,67 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     }
 
     @Override
-    public void confirmWeighingStart() {
-        if (!running.get() || operatorReview.get()) {
+    public void confirmTagReadingStart() {
+        if (!running.get() || operatorReview.get() || !isRfidEnabled()) {
             return;
         }
-        if (!awaitingUserStart.compareAndSet(true, false)) {
+        if (!awaitingTagStart.compareAndSet(true, false)) {
             return;
         }
-        // Novo inventário do pedido: zera tags acumuladas antes da pesagem.
         context.clearTags();
         rfidCollecting.set(true);
-        notifyTagInventory();
-        armed.set(true);
+        awaitingWeightStart.set(true);
+        armed.set(false);
         resetStabilizationTracking();
         PedidoVolume volume = pedido.getVolume(currentVolumeIndex);
         context.setNumeroPedido(pedido.getNumero());
         context.setVolumeIndex(volume != null ? volume.getIndice() : currentVolumeIndex + 1);
         context.setCurrentVolume(volume);
+        notifyTagInventory();
+        try {
+            if (!config.isSimulationMode()) {
+                startContinuousRfidIfEnabled();
+            }
+        } catch (PeripheralException e) {
+            awaitingTagStart.set(true);
+            awaitingWeightStart.set(false);
+            rfidCollecting.set(false);
+            handleCycleFailure(e.getMessage(), e);
+            return;
+        }
+        notifyStep(WorkflowStep.RFID_READ, "Lendo tags — aproxime os produtos; depois inicie a pesagem");
+        if (listener != null) {
+            listener.onTagReadingInProgress();
+        }
+    }
+
+    @Override
+    public void confirmWeighingStart() {
+        if (!running.get() || operatorReview.get()) {
+            return;
+        }
+        if (isRfidEnabled()) {
+            if (!awaitingWeightStart.get() && !rfidCollecting.get()) {
+                return;
+            }
+            awaitingWeightStart.set(false);
+        } else if (!awaitingWeightStart.compareAndSet(true, false)) {
+            return;
+        }
+
+        // Para o RF antes de medir — elimina interferência na balança.
+        rfidCollecting.set(false);
+        stopRfidReading();
+        PedidoVolume volume = pedido.getVolume(currentVolumeIndex);
+        context.setNumeroPedido(pedido.getNumero());
+        context.setVolumeIndex(volume != null ? volume.getIndice() : currentVolumeIndex + 1);
+        context.setCurrentVolume(volume);
+        armed.set(true);
+        resetStabilizationTracking();
         String message = config.isSimulationMode()
                 ? "Modo simulação — clique em Simular pesagem estável"
-                : "RFID monitorando — coloque os produtos; validação após 1,5 s estáveis";
+                : "Coloque o item na balança — aguardando estabilização (1,5 s)...";
         notifyStep(WorkflowStep.WEIGHING, message);
-        notifyStep(WorkflowStep.RFID_READ, "Aguardando tags do pedido...");
     }
 
     @Override
@@ -233,6 +276,11 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             executor.submit(() -> runSimulatedOperatorRetry(scenario));
             return;
         }
+        // Fase de tags: injeta códigos sem pesar.
+        if (rfidCollecting.get() && !armed.get()) {
+            injectSimulatedTags(scenario);
+            return;
+        }
         if (!armed.get()) {
             return;
         }
@@ -263,11 +311,12 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         notifyTagInventory();
         if (config.isSimulationMode()) {
             notifyStep(WorkflowStep.RFID_READ,
-                    "Tags limpas — ajuste peso/códigos e clique em Simular pesagem estável.");
+                    "Tags limpas — ajuste peso/códigos e clique em Simular.");
             return;
         }
+        startContinuousRfidIfEnabled();
         notifyStep(WorkflowStep.RFID_READ,
-                "Tags limpas — aproxime os produtos; a leitura contínua continua ativa.");
+                "Tags limpas — aproxime os produtos; releitura RFID ativa.");
         revalidateDuringReview();
     }
 
@@ -360,9 +409,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             if (!running.get()) {
                 return;
             }
-            if (config.isEnabled(WorkflowStep.RFID_READ)) {
-                injectSimulatedTags(scenario);
-            }
             runCycle(scenario.getWeightKg(), true, scenario);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -376,10 +422,11 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         cycleInProgress.set(false);
         armed.set(false);
         operatorReview.set(false);
-        awaitingUserStart.set(true);
         rfidCollecting.set(false);
+        stopRfidReading();
         resetStabilizationTracking();
-        notifyAwaitingWeighingStart();
+        resetPhaseFlags();
+        notifyPhaseStart();
         if (listener != null) {
             listener.onError(message, cause);
         }
@@ -423,20 +470,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private final PeripheralDataListener continuousRfidListener = new PeripheralDataListener() {
         @Override
         public void onData(PeripheralDataEvent event) {
-            if (!running.get() || event == null) {
-                return;
-            }
-            // Antes de iniciar a pesagem ainda mostramos leituras avulsas, mas o inventário
-            // do pedido só acumula com rfidCollecting=true (após Iniciar pesagem / releitura).
-            if (!rfidCollecting.get() && !awaitingUserStart.get()) {
-                return;
-            }
-            boolean collecting = rfidCollecting.get();
-            if (!collecting && awaitingUserStart.get()) {
-                // Pré-visualização: notifica UI sem acumular no pedido.
-                if (listener != null) {
-                    listener.onTagRead(event);
-                }
+            if (!running.get() || event == null || !rfidCollecting.get()) {
                 return;
             }
             boolean added = context.addTag(event.getEpc(), event.getCode());
@@ -645,7 +679,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         operatorReview.set(true);
         cycleInProgress.set(false);
         armed.set(false);
-        awaitingUserStart.set(false);
+        awaitingTagStart.set(false);
+        awaitingWeightStart.set(false);
         waitingForNext.set(false);
         notifyStep(WorkflowStep.OPERATOR_REVIEW, message);
         if (listener != null) {
@@ -690,17 +725,18 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             return;
         }
         armed.set(false);
-        awaitingUserStart.set(true);
         operatorReview.set(false);
         waitingForNext.set(false);
         rfidCollecting.set(false);
         context.clearTags();
+        stopRfidReading();
         notifyTagInventory();
         resetStabilizationTracking();
+        resetPhaseFlags();
         if (listener != null) {
             listener.onVolumeChanged(currentVolumeIndex + 1, pedido.getVolumeCount());
-            listener.onAwaitingWeighingStart();
         }
+        notifyPhaseStart();
     }
 
     private void startContinuousRfidIfEnabled() throws PeripheralException {
@@ -715,7 +751,31 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             PeripheralSafeIo.stopReading(rfid);
         }
         rfid.startContinuousReading(continuousRfidListener);
-        notifyStep(WorkflowStep.RFID_READ, "RFID monitorando continuamente...");
+    }
+
+    private boolean isRfidEnabled() {
+        return config != null && config.isEnabled(WorkflowStep.RFID_READ);
+    }
+
+    private void resetPhaseFlags() {
+        if (isRfidEnabled()) {
+            awaitingTagStart.set(true);
+            awaitingWeightStart.set(false);
+        } else {
+            awaitingTagStart.set(false);
+            awaitingWeightStart.set(true);
+        }
+    }
+
+    private void notifyPhaseStart() {
+        if (listener == null) {
+            return;
+        }
+        if (awaitingTagStart.get()) {
+            listener.onAwaitingTagReadingStart();
+        } else {
+            listener.onAwaitingWeighingStart();
+        }
     }
 
     private void injectSimulatedTags(WorkflowMockScenario scenario) {
@@ -742,16 +802,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
 
     private void notifyTagInventory() {
         if (listener != null) {
-            listener.onTagInventoryUpdated(context.listDetectedCodes(), expectedProductCount());
+            // UI só mostra tags lidas — o total esperado fica só na validação interna.
+            listener.onTagInventoryUpdated(context.listDetectedCodes(), 0);
         }
-    }
-
-    private int expectedProductCount() {
-        PedidoVolume volume = pedido != null ? pedido.getVolume(currentVolumeIndex) : null;
-        if (volume == null) {
-            return 0;
-        }
-        return volume.getItens().size();
     }
 
     private void capturePhotoOptional() throws IOException {
@@ -809,12 +862,6 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private void notifyStep(WorkflowStep step, String message) {
         if (listener != null) {
             listener.onStepChanged(step, message);
-        }
-    }
-
-    private void notifyAwaitingWeighingStart() {
-        if (listener != null) {
-            listener.onAwaitingWeighingStart();
         }
     }
 

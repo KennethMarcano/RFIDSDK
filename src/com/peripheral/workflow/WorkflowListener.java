@@ -14,7 +14,16 @@ public interface WorkflowListener {
 
     void onStepChanged(WorkflowStep step, String message);
 
+    /** Aguardando o operador iniciar a leitura de tags RFID. */
+    default void onAwaitingTagReadingStart() {
+    }
+
+    /** Aguardando o operador iniciar a pesagem (tags já lidas ou RFID desligado). */
     void onAwaitingWeighingStart();
+
+    /** Fase de leitura RFID ativa — peso ainda não armado. */
+    default void onTagReadingInProgress() {
+    }
 
     void onStabilizationProgress(String message);
 

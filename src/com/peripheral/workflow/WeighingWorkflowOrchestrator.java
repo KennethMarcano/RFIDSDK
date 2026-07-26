@@ -16,6 +16,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * Fluxo em fases separadas:
+ * 1) Iniciar leitura de tags (RF ligado)
+ * 2) Iniciar leitura de peso (RF desligado → estabilização 1,5 s)
+ */
 public class WeighingWorkflowOrchestrator implements WorkflowController {
 
     private final PeripheralSessionManager sessionManager;
@@ -35,10 +40,11 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
     private final AtomicBoolean cycleInProgress = new AtomicBoolean(false);
     private final AtomicBoolean armed = new AtomicBoolean(false);
     private final AtomicBoolean waitingForNext = new AtomicBoolean(false);
-    private final AtomicBoolean awaitingUserStart = new AtomicBoolean(false);
+    private final AtomicBoolean awaitingTagStart = new AtomicBoolean(false);
+    private final AtomicBoolean awaitingWeightStart = new AtomicBoolean(false);
+    private final AtomicBoolean rfidCollecting = new AtomicBoolean(false);
     private final AtomicLong stableSinceMs = new AtomicLong(0);
     private final AtomicBoolean stabilizationTriggered = new AtomicBoolean(false);
-    private final AtomicBoolean rfidCollecting = new AtomicBoolean(false);
 
     public WeighingWorkflowOrchestrator(PeripheralSessionManager sessionManager) {
         this.sessionManager = sessionManager;
@@ -60,10 +66,10 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         armed.set(false);
         waitingForNext.set(false);
         cycleInProgress.set(false);
-        awaitingUserStart.set(true);
         rfidCollecting.set(false);
         context.clearTags();
         resetStabilizationTracking();
+        resetPhaseFlags();
 
         try {
             sessionStore.beginSession();
@@ -75,9 +81,9 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             ReadablePeripheral scale = sessionManager.getDevice(PeripheralSlot.SCALE);
             PeripheralSafeIo.stopReading(scale);
             scale.startContinuousReading(scaleListener);
-            startContinuousRfidIfEnabled();
+            // RFID só liga na fase de tags — evita interferência no peso.
         }
-        notifyAwaitingWeighingStart();
+        notifyPhaseStart();
     }
 
     public void stop() {
@@ -85,7 +91,8 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         cycleInProgress.set(false);
         armed.set(false);
         waitingForNext.set(false);
-        awaitingUserStart.set(false);
+        awaitingTagStart.set(false);
+        awaitingWeightStart.set(false);
         rfidCollecting.set(false);
         context.clearTags();
         resetStabilizationTracking();
@@ -108,10 +115,10 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         waitingForNext.set(false);
         armed.set(false);
         cycleInProgress.set(false);
-        awaitingUserStart.set(true);
         rfidCollecting.set(false);
         context.clearTags();
         resetStabilizationTracking();
+        stopRfidReading();
         sessionStore.clearSession();
         try {
             sessionStore.beginSession();
@@ -120,31 +127,69 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         }
         if (listener != null) {
             listener.onSessionCleared();
-            listener.onAwaitingWeighingStart();
         }
+        resetPhaseFlags();
+        notifyPhaseStart();
     }
 
     public WorkflowSessionStore getSessionStore() {
         return sessionStore;
     }
 
-    public void confirmWeighingStart() {
-        if (!running.get() || !awaitingUserStart.compareAndSet(true, false)) {
+    @Override
+    public void confirmTagReadingStart() {
+        if (!running.get() || !isRfidEnabled()) {
+            return;
+        }
+        if (!awaitingTagStart.compareAndSet(true, false)) {
             return;
         }
         context.clearTags();
-        rfidCollecting.set(config.isEnabled(WorkflowStep.RFID_READ));
+        rfidCollecting.set(true);
+        awaitingWeightStart.set(true);
+        armed.set(false);
+        resetStabilizationTracking();
+        try {
+            if (!config.isSimulationMode()) {
+                startContinuousRfidIfEnabled();
+            }
+        } catch (PeripheralException e) {
+            awaitingTagStart.set(true);
+            awaitingWeightStart.set(false);
+            rfidCollecting.set(false);
+            handleCycleFailure(e.getMessage(), e);
+            return;
+        }
+        notifyStep(WorkflowStep.RFID_READ, "Lendo tags — aproxime os produtos; depois inicie a pesagem");
+        if (listener != null) {
+            listener.onTagReadingInProgress();
+        }
+    }
+
+    @Override
+    public void confirmWeighingStart() {
+        if (!running.get()) {
+            return;
+        }
+        if (isRfidEnabled()) {
+            // Só pesa depois da fase de tags ter começado.
+            if (!awaitingWeightStart.get() && !rfidCollecting.get()) {
+                return;
+            }
+            awaitingWeightStart.set(false);
+        } else if (!awaitingWeightStart.compareAndSet(true, false)) {
+            return;
+        }
+
+        // Para o RF antes de medir — elimina interferência na balança.
+        rfidCollecting.set(false);
+        stopRfidReading();
         armed.set(true);
         resetStabilizationTracking();
         String message = config.isSimulationMode()
                 ? "Modo simulação — clique em Simular pesagem estável"
-                : config.isEnabled(WorkflowStep.RFID_READ)
-                        ? "RFID monitorando — coloque os produtos; fluxo após 1,5 s estáveis"
-                        : "Coloque o item na balança — aguardando estabilização (1,5 s)...";
+                : "Coloque o item na balança — aguardando estabilização (1,5 s)...";
         notifyStep(WorkflowStep.WEIGHING, message);
-        if (config.isEnabled(WorkflowStep.RFID_READ)) {
-            notifyStep(WorkflowStep.RFID_READ, "Identificando produtos durante a pesagem...");
-        }
     }
 
     public void acknowledgeNext() {
@@ -153,11 +198,12 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         }
         armed.set(false);
         cycleInProgress.set(false);
-        awaitingUserStart.set(true);
         rfidCollecting.set(false);
         context.clearTags();
         resetStabilizationTracking();
-        notifyAwaitingWeighingStart();
+        stopRfidReading();
+        resetPhaseFlags();
+        notifyPhaseStart();
     }
 
     public boolean isRunning() {
@@ -176,7 +222,15 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
         if (!running.get() || scenario == null || config == null || !config.isSimulationMode()) {
             return;
         }
-        if (cycleInProgress.get() || waitingForNext.get() || !armed.get()) {
+        if (cycleInProgress.get() || waitingForNext.get()) {
+            return;
+        }
+        // Fase de tags: injeta códigos sem pesar.
+        if (rfidCollecting.get() && !armed.get()) {
+            injectSimulatedTags(scenario);
+            return;
+        }
+        if (!armed.get()) {
             return;
         }
         armed.set(false);
@@ -203,9 +257,6 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             if (!running.get()) {
                 return;
             }
-            if (config.isEnabled(WorkflowStep.RFID_READ)) {
-                injectSimulatedTags(scenario);
-            }
             runCycle(scenario.getWeightKg(), true);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -218,11 +269,12 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
     private void handleCycleFailure(String message, Exception cause) {
         cycleInProgress.set(false);
         armed.set(false);
-        awaitingUserStart.set(true);
         rfidCollecting.set(false);
+        stopRfidReading();
         context.clearTags();
         resetStabilizationTracking();
-        notifyAwaitingWeighingStart();
+        resetPhaseFlags();
+        notifyPhaseStart();
         if (listener != null) {
             listener.onError(message, cause);
         }
@@ -234,7 +286,6 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             if (!running.get() || event == null) {
                 return;
             }
-            // Monitor da balança: sempre atualiza a UI em tempo real
             if (listener != null) {
                 listener.onWeightUpdate(event);
             }
@@ -262,16 +313,7 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
     private final PeripheralDataListener continuousRfidListener = new PeripheralDataListener() {
         @Override
         public void onData(PeripheralDataEvent event) {
-            if (!running.get() || event == null) {
-                return;
-            }
-            if (!rfidCollecting.get() && !awaitingUserStart.get()) {
-                return;
-            }
-            if (!rfidCollecting.get()) {
-                if (listener != null) {
-                    listener.onTagRead(event);
-                }
+            if (!running.get() || event == null || !rfidCollecting.get()) {
                 return;
             }
             context.addTag(event.getEpc(), event.getCode());
@@ -403,14 +445,13 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             PeripheralSafeIo.stopReading(rfid);
         }
         rfid.startContinuousReading(continuousRfidListener);
-        notifyStep(WorkflowStep.RFID_READ, "RFID monitorando continuamente...");
     }
 
     private void injectSimulatedTags(WorkflowMockScenario scenario) {
         if (scenario == null) {
             return;
         }
-        notifyStep(WorkflowStep.RFID_READ, "Simulando detecção contínua de tags...");
+        notifyStep(WorkflowStep.RFID_READ, "Simulando detecção de tags...");
         for (WorkflowMockScenario.MockTag tag : scenario.getTags()) {
             if (!running.get()) {
                 return;
@@ -422,6 +463,31 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
                         .epc(tag.getEpc())
                         .build());
             }
+        }
+    }
+
+    private boolean isRfidEnabled() {
+        return config != null && config.isEnabled(WorkflowStep.RFID_READ);
+    }
+
+    private void resetPhaseFlags() {
+        if (isRfidEnabled()) {
+            awaitingTagStart.set(true);
+            awaitingWeightStart.set(false);
+        } else {
+            awaitingTagStart.set(false);
+            awaitingWeightStart.set(true);
+        }
+    }
+
+    private void notifyPhaseStart() {
+        if (listener == null) {
+            return;
+        }
+        if (awaitingTagStart.get()) {
+            listener.onAwaitingTagReadingStart();
+        } else {
+            listener.onAwaitingWeighingStart();
         }
     }
 
@@ -454,12 +520,6 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
     private void notifyStep(WorkflowStep step, String message) {
         if (listener != null) {
             listener.onStepChanged(step, message);
-        }
-    }
-
-    private void notifyAwaitingWeighingStart() {
-        if (listener != null) {
-            listener.onAwaitingWeighingStart();
         }
     }
 
