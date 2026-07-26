@@ -794,6 +794,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         }
         int confirm = JOptionPane.showConfirmDialog(this,
                 "Revalidar tags e peso atuais?\n\n"
+                        + "O RFID será desligado para a balança ler o peso sem interferência.\n"
                         + "Só finaliza se AMBOS estiverem corretos.\n"
                         + "Se o peso ou as tags ainda divergirem, o pedido NÃO avança.",
                 "Revalidar e finalizar",

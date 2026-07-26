@@ -77,6 +77,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private final AtomicBoolean taring = new AtomicBoolean(false);
     /** Invalida uma medição de tara em andamento quando a sessão muda. */
     private final AtomicInteger tareToken = new AtomicInteger();
+    /** Revalidação de finalizar: RFID desligado aguardando peso limpo. */
+    private final AtomicBoolean confirmingWeight = new AtomicBoolean(false);
+    private final AtomicInteger confirmToken = new AtomicInteger();
 
     public OrderAwareWorkflowOrchestrator(PeripheralSessionManager sessionManager,
                                           Pedido pedido,
@@ -341,11 +344,99 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (!operatorReview.get()) {
             return;
         }
-        // Só finaliza se tags E peso líquido atuais conferirem com o pedido.
+        if (taring.get()) {
+            throw new PeripheralException("Aguarde a tara terminar antes de finalizar.");
+        }
+        if (!confirmingWeight.compareAndSet(false, true)) {
+            return;
+        }
+
+        // Se releu as tags, o RF fica ligado e distorce a balança — desliga antes de medir.
+        rfidCollecting.set(false);
+        stopRfidReading();
+
+        if (config != null && config.isSimulationMode()) {
+            try {
+                finishOperatorConfirmWithCurrentWeight();
+            } finally {
+                confirmingWeight.set(false);
+            }
+            return;
+        }
+
+        notifyStep(WorkflowStep.WEIGHING,
+                "RFID desligado — aguardando peso estável para revalidar...");
+        if (listener != null) {
+            listener.onOperatorReviewRequired(
+                    "RFID desligado — aguarde o peso estabilizar para revalidar.", context);
+        }
+        int token = confirmToken.incrementAndGet();
+        executor.submit(() -> runOperatorConfirmAfterScaleSettle(token));
+    }
+
+    private void runOperatorConfirmAfterScaleSettle(int token) {
+        double measured = 0;
+        boolean ok = false;
+        try {
+            Thread.sleep(700);
+            long deadline = System.currentTimeMillis() + TARE_TIMEOUT_MS;
+            long stableSince = 0;
+            double candidate = 0;
+            while (running.get() && operatorReview.get() && confirmingWeight.get()
+                    && confirmToken.get() == token
+                    && System.currentTimeMillis() < deadline) {
+                double gross = Math.max(0, lastGrossKg);
+                long now = System.currentTimeMillis();
+                if (lastGrossStable) {
+                    if (stableSince == 0 || Math.abs(gross - candidate) > TARE_STABLE_TOLERANCE_KG) {
+                        candidate = gross;
+                        stableSince = now;
+                    } else if (now - stableSince >= TARE_STABLE_WINDOW_MS) {
+                        measured = candidate;
+                        ok = true;
+                        break;
+                    }
+                } else {
+                    stableSince = 0;
+                }
+                Thread.sleep(80);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        if (!running.get() || confirmToken.get() != token || !operatorReview.get()) {
+            confirmingWeight.set(false);
+            return;
+        }
+
+        try {
+            if (!ok) {
+                String reason = "Peso não estabilizou com o RFID desligado. "
+                        + "Deixe a balança parada e tente novamente.";
+                notifyStep(WorkflowStep.OPERATOR_REVIEW, "Não finalizado — " + reason);
+                if (listener != null) {
+                    listener.onOperatorReviewRequired("Não finalizado: " + reason, context);
+                }
+                return;
+            }
+            lastGrossKg = measured;
+            lastGrossStable = true;
+            finishOperatorConfirmWithCurrentWeight();
+        } finally {
+            confirmingWeight.set(false);
+        }
+    }
+
+    /** Valida tags atuais + peso líquido atual; só avança se ambos conferirem. */
+    private void finishOperatorConfirmWithCurrentWeight() {
+        if (!operatorReview.get()) {
+            return;
+        }
         PedidoVolume volume = context.getCurrentVolume();
         double gross = lastGrossKg > 0 ? lastGrossKg : context.getWeightKg();
         double netKg = toNetKg(gross);
-        context.updateWeight(netKg, lastGrossStable);
+        context.updateWeight(netKg, true);
         PedidoValidationService.ValidationResult validation = validationService.validate(
                 volume,
                 context.snapshotTagCodes(),
@@ -368,7 +459,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             return;
         }
 
-        // Continua divergente: permanece na revisão (não apaga tags corretas).
+        // Continua divergente: RFID permanece desligado; tags não são apagadas.
         String reason = validation.getSummaryMessage();
         notifyStep(WorkflowStep.OPERATOR_REVIEW,
                 "Ainda divergente — " + reason
@@ -538,6 +629,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         tareToken.incrementAndGet();
         taring.set(false);
         clearTare();
+        confirmToken.incrementAndGet();
+        confirmingWeight.set(false);
     }
 
     @Override
