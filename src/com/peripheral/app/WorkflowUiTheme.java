@@ -835,4 +835,102 @@ public final class WorkflowUiTheme {
         JRootPane rootPane = ((RootPaneContainer) window).getRootPane();
         return rootPane.getClientProperty(BUSY_OVERLAY_KEY) != null;
     }
+
+    /**
+     * Pop-up grande e claro após validação (sucesso ou divergência) — fácil de ver no Pi 7".
+     */
+    public static void showValidationOutcome(Window window, boolean success,
+                                             String title, String detail) {
+        if (window == null) {
+            return;
+        }
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> showValidationOutcome(window, success, title, detail));
+            return;
+        }
+
+        String safeTitle = (title == null || title.trim().isEmpty())
+                ? (success ? "Concluído com sucesso" : "Divergência detectada")
+                : title.trim();
+        String safeDetail = detail == null ? "" : detail.trim();
+
+        final JDialog dialog = new JDialog(window instanceof Frame ? (Frame) window
+                : window instanceof Dialog ? (Dialog) window : null,
+                safeTitle, Dialog.ModalityType.APPLICATION_MODAL);
+        dialog.setUndecorated(true);
+        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+        JPanel overlay = new JPanel(new GridBagLayout());
+        overlay.setOpaque(true);
+        overlay.setBackground(new Color(37, 47, 61, 200));
+
+        JPanel card = new JPanel();
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+        card.setOpaque(true);
+        card.setBackground(BG_CARD);
+        Color accent = success ? new Color(0x2E, 0x7D, 0x32) : new Color(0xC6, 0x28, 0x28);
+        card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(accent, 3),
+                empty(20, 24, 18, 24)));
+        card.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel badge = new JLabel(success ? "✓  SUCESSO" : "!  DIVERGÊNCIA", SwingConstants.CENTER);
+        badge.setOpaque(true);
+        badge.setBackground(accent);
+        badge.setForeground(Color.WHITE);
+        badge.setFont(badge.getFont().deriveFont(Font.BOLD, 18f));
+        badge.setAlignmentX(Component.CENTER_ALIGNMENT);
+        badge.setBorder(empty(8, 16, 8, 16));
+        badge.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+
+        JLabel titleLabel = new JLabel("<html><div style='text-align:center; width:320px;'>"
+                + escapeHtml(safeTitle) + "</div></html>", SwingConstants.CENTER);
+        titleLabel.setFont(fontTitle(titleLabel).deriveFont(Font.BOLD, 16f));
+        titleLabel.setForeground(TEXT_PRIMARY);
+        titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel detailLabel = new JLabel("<html><div style='text-align:center; width:340px;'>"
+                + escapeHtml(safeDetail.isEmpty() ? (success
+                ? "Peso e tags conferem com o pedido."
+                : "Revise tags, peso ou libere o volume.") : safeDetail)
+                + "</div></html>", SwingConstants.CENTER);
+        detailLabel.setFont(fontStatus(detailLabel).deriveFont(14f));
+        detailLabel.setForeground(TEXT_SECONDARY);
+        detailLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        ThemedButton ok = button(success ? "Continuar" : "Entendi — revisar",
+                success ? ThemedButton.Variant.SUCCESS : ThemedButton.Variant.PRIMARY)
+                .withSize(ThemedButton.Size.LARGE);
+        ok.setAlignmentX(Component.CENTER_ALIGNMENT);
+        ok.addActionListener(e -> dialog.dispose());
+
+        card.add(badge);
+        card.add(Box.createVerticalStrut(14));
+        card.add(titleLabel);
+        card.add(Box.createVerticalStrut(10));
+        card.add(detailLabel);
+        card.add(Box.createVerticalStrut(18));
+        card.add(ok);
+
+        overlay.add(card);
+        dialog.setContentPane(overlay);
+        dialog.pack();
+        Dimension size = dialog.getSize();
+        int w = Math.max(size.width, 420);
+        int h = Math.max(size.height, 220);
+        dialog.setSize(w, h);
+        dialog.setLocationRelativeTo(window);
+        dialog.setVisible(true);
+    }
+
+    private static String escapeHtml(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("\n", "<br>");
+    }
 }

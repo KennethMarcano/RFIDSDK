@@ -301,7 +301,8 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
                         return;
                     }
                     List<CameraMicroserviceClient.Detection> dets =
-                            mergeDetections(result.getDetections());
+                            uniqueByCodeMaxConfidence(result.getDetections());
+                    // Sempre substitui a lista: produto removido some no próximo ciclo.
                     detections.set(dets);
                     updateDetectionsLabel(dets);
                     lbAiStatus.setText("IA: ok — "
@@ -320,7 +321,7 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
     private void updateDetectionsLabel(List<CameraMicroserviceClient.Detection> dets) {
         List<CameraMicroserviceClient.Detection> unique = uniqueByCodeMaxConfidence(dets);
         if (unique.isEmpty()) {
-            lbDetections.setText("Código: — (aponte o produto ao modelo)");
+            lbDetections.setText("Código: — (nenhum produto na cena)");
             return;
         }
         // Um código por linha — só o código e o % (sem repetir).
@@ -344,34 +345,7 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
         lbDetections.setText(sb.toString());
     }
 
-    /**
-     * Junta com o ciclo anterior: mesmo código → só atualiza o % (maior confiança).
-     */
-    private List<CameraMicroserviceClient.Detection> mergeDetections(
-            List<CameraMicroserviceClient.Detection> incoming) {
-        List<CameraMicroserviceClient.Detection> next = uniqueByCodeMaxConfidence(incoming);
-        if (next.isEmpty()) {
-            return detections.get() != null ? detections.get() : Collections.emptyList();
-        }
-        java.util.LinkedHashMap<String, CameraMicroserviceClient.Detection> byCode =
-                new java.util.LinkedHashMap<>();
-        List<CameraMicroserviceClient.Detection> prev = detections.get();
-        if (prev != null) {
-            for (CameraMicroserviceClient.Detection d : uniqueByCodeMaxConfidence(prev)) {
-                byCode.put(normalizeCode(d.getCode()), d);
-            }
-        }
-        for (CameraMicroserviceClient.Detection d : next) {
-            String key = normalizeCode(d.getCode());
-            CameraMicroserviceClient.Detection old = byCode.get(key);
-            if (old == null || d.getConfidence() >= old.getConfidence()) {
-                byCode.put(key, d);
-            }
-        }
-        return new ArrayList<>(byCode.values());
-    }
-
-    /** Um código por entrada: mantém só a maior confiança. */
+    /** Um código por entrada: mantém só a maior confiança neste ciclo. */
     private static List<CameraMicroserviceClient.Detection> uniqueByCodeMaxConfidence(
             List<CameraMicroserviceClient.Detection> dets) {
         if (dets == null || dets.isEmpty()) {

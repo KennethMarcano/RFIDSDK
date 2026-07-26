@@ -755,8 +755,28 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             if (result == null) {
                 return;
             }
-            Color color = result.isValid() ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.DANGER;
-            setStatus(result.getSummaryMessage(), color, color);
+            boolean ok = result.isValid();
+            Color color = ok ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.DANGER;
+            String summary = result.getSummaryMessage();
+            setStatus(ok ? "SUCESSO — " + summary : "DIVERGÊNCIA — " + summary, color, color);
+
+            String title = ok
+                    ? "Volume concluído com sucesso"
+                    : "Divergência após pesagem";
+            StringBuilder detail = new StringBuilder();
+            detail.append(summary);
+            if (result.getExpectedWeightKg() > 0 || result.getActualWeightKg() > 0) {
+                detail.append("\n\nPeso: ")
+                        .append(ScaleWeightFormat.formatGramsPlain(result.getActualWeightKg()))
+                        .append(" (esperado ")
+                        .append(ScaleWeightFormat.formatGramsPlain(result.getExpectedWeightKg()))
+                        .append(")");
+            }
+            if (!ok && result.getUnknownSerials() != null && !result.getUnknownSerials().isEmpty()) {
+                detail.append("\nSeriais fora do pedido: ")
+                        .append(String.join(", ", result.getUnknownSerials()));
+            }
+            WorkflowUiTheme.showValidationOutcome(this, ok, title, detail.toString());
         });
     }
 
