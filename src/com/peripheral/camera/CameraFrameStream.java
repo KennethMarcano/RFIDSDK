@@ -1,6 +1,8 @@
 package com.peripheral.camera;
 
 import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -10,11 +12,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Mini-view embutido: captura MJPEG via {@code rpicam-vid --nopreview} e entrega
- * frames {@link BufferedImage} para painéis Swing — sem abrir janela nativa.
+ * Mini-view embutido: MJPEG via {@code rpicam-vid --nopreview} (sem janela nativa).
+ * Otimizado para Raspberry Pi 7": resolução moderada, drop de frames se a UI atrasar.
  */
 public final class CameraFrameStream {
 
@@ -25,12 +28,15 @@ public final class CameraFrameStream {
     }
 
     private static final CameraFrameStream INSTANCE = new CameraFrameStream();
-    private static final int FRAME_WIDTH = 480;
-    private static final int FRAME_HEIGHT = 360;
-    private static final int FRAME_RATE = 8;
+    /** Resolução leve para UI fluida no Pi (não precisa de 1080p no monitor). */
+    private static final int FRAME_WIDTH = 320;
+    private static final int FRAME_HEIGHT = 240;
+    private static final int FRAME_RATE = 12;
 
     private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
     private final AtomicReference<Process> processRef = new AtomicReference<>();
+    private final AtomicReference<BufferedImage> latestFrame = new AtomicReference<>();
+    private final AtomicBoolean dispatchPending = new AtomicBoolean(false);
     private final Object startLock = new Object();
     private volatile Thread readerThread;
     private volatile boolean desiredRunning;
@@ -59,8 +65,15 @@ public final class CameraFrameStream {
         return desiredRunning && process != null && process.isAlive();
     }
 
+    public BufferedImage getLatestFrame() {
+        return latestFrame.get();
+    }
+
     public void start() throws CameraServiceException {
         synchronized (startLock) {
+            if (CameraHardware.isExclusiveCapture()) {
+                throw new CameraServiceException("Câmera ocupada capturando foto — aguarde.");
+            }
             desiredRunning = true;
             if (isRunning()) {
                 return;
@@ -81,6 +94,8 @@ public final class CameraFrameStream {
             }
 
             try {
+                // --timeout 0 = stream contínuo (não é “uma foto”).
+                // --nopreview evita janela nativa do rpicam.
                 List<String> command = new ArrayList<>(Arrays.asList(
                         cmd,
                         "--timeout", "0",
@@ -89,6 +104,7 @@ public final class CameraFrameStream {
                         "--width", String.valueOf(FRAME_WIDTH),
                         "--height", String.valueOf(FRAME_HEIGHT),
                         "--framerate", String.valueOf(FRAME_RATE),
+                        "--quality", "70",
                         "-o", "-"
                 ));
                 ProcessBuilder pb = new ProcessBuilder(command);
@@ -103,7 +119,7 @@ public final class CameraFrameStream {
                 reader.start();
 
                 try {
-                    TimeUnit.MILLISECONDS.sleep(400);
+                    TimeUnit.MILLISECONDS.sleep(500);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
@@ -128,6 +144,7 @@ public final class CameraFrameStream {
         synchronized (startLock) {
             desiredRunning = false;
             stopInternal();
+            latestFrame.set(null);
             notifyStatus("Vídeo parado", false);
         }
     }
@@ -153,9 +170,9 @@ public final class CameraFrameStream {
     }
 
     private void readLoop(Process process) {
-        ByteArrayOutputStream jpeg = new ByteArrayOutputStream(64 * 1024);
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream(32 * 1024);
         boolean inFrame = false;
-        byte[] buffer = new byte[16 * 1024];
+        byte[] buffer = new byte[8 * 1024];
         try (InputStream in = process.getInputStream()) {
             int prev = -1;
             while (desiredRunning && process.isAlive() && !Thread.currentThread().isInterrupted()) {
@@ -199,18 +216,39 @@ public final class CameraFrameStream {
         if (jpegBytes == null || jpegBytes.length < 4 || listeners.isEmpty()) {
             return;
         }
+        // Se a UI ainda não pintou o frame anterior, descarta — evita fila e “foto travada”.
+        if (dispatchPending.get()) {
+            return;
+        }
         try {
             BufferedImage image = ImageIO.read(new ByteArrayInputStream(jpegBytes));
             if (image == null) {
                 return;
             }
-            for (Listener listener : listeners) {
-                try {
-                    listener.onFrame(image);
-                } catch (Exception ignored) {
-                }
+            latestFrame.set(image);
+            if (!dispatchPending.compareAndSet(false, true)) {
+                return;
             }
+            // Cópia da lista: listeners podem mudar; entrega o frame mais recente no EDT.
+            final List<Listener> snapshot = new ArrayList<>(listeners);
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                try {
+                    BufferedImage frame = latestFrame.get();
+                    if (frame == null) {
+                        return;
+                    }
+                    for (Listener listener : snapshot) {
+                        try {
+                            listener.onFrame(frame);
+                        } catch (Exception ignored) {
+                        }
+                    }
+                } finally {
+                    dispatchPending.set(false);
+                }
+            });
         } catch (Exception ignored) {
+            dispatchPending.set(false);
         }
     }
 
@@ -221,6 +259,34 @@ public final class CameraFrameStream {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    /** Escala síncrona (evita getScaledInstance, que congela o primeiro frame no Pi). */
+    public static BufferedImage scaleToFit(BufferedImage source, int maxW, int maxH) {
+        if (source == null) {
+            return null;
+        }
+        int w = Math.max(1, maxW);
+        int h = Math.max(1, maxH);
+        if (w < 8 || h < 8) {
+            return source;
+        }
+        double scale = Math.min((double) w / source.getWidth(), (double) h / source.getHeight());
+        int tw = Math.max(1, (int) Math.round(source.getWidth() * scale));
+        int th = Math.max(1, (int) Math.round(source.getHeight() * scale));
+        if (tw == source.getWidth() && th == source.getHeight()) {
+            return source;
+        }
+        BufferedImage out = new BufferedImage(tw, th, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = out.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(source, 0, 0, tw, th, null);
+        } finally {
+            g.dispose();
+        }
+        return out;
     }
 
     private static String resolveVidCommand() {

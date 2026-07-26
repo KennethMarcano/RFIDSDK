@@ -224,7 +224,11 @@ public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.
             if (!liveDesired || !isShowing()) {
                 return;
             }
-            Image scaled = scaleToFit(frame, lbVideo.getWidth(), lbVideo.getHeight());
+            BufferedImage scaled = CameraFrameStream.scaleToFit(
+                    frame, lbVideo.getWidth(), lbVideo.getHeight());
+            if (scaled == null) {
+                return;
+            }
             currentIcon = new ImageIcon(scaled);
             lbVideo.setText(null);
             lbVideo.setIcon(currentIcon);
@@ -256,15 +260,4 @@ public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.
         return error.substring(0, 45) + "...";
     }
 
-    private static Image scaleToFit(BufferedImage source, int maxW, int maxH) {
-        int w = Math.max(1, maxW);
-        int h = Math.max(1, maxH);
-        if (w < 8 || h < 8) {
-            return source;
-        }
-        double scale = Math.min((double) w / source.getWidth(), (double) h / source.getHeight());
-        int tw = Math.max(1, (int) Math.round(source.getWidth() * scale));
-        int th = Math.max(1, (int) Math.round(source.getHeight() * scale));
-        return source.getScaledInstance(tw, th, Image.SCALE_FAST);
-    }
 }

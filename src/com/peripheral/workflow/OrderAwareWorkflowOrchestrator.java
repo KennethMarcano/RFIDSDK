@@ -722,11 +722,18 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private void advanceVolumeOrComplete() {
         currentVolumeIndex++;
         if (currentVolumeIndex >= pedido.getVolumeCount()) {
+            // NÃO chama stop()/dispose — a foto ou o fim do pedido não devem fechar a janela.
+            // O operador encerra com o botão Encerrar.
+            armed.set(false);
+            operatorReview.set(false);
+            waitingForNext.set(false);
+            rfidCollecting.set(false);
+            stopRfidReading();
             if (listener != null) {
                 listener.onOrderCompleted(pedido);
             }
-            notifyStep(WorkflowStep.FETCH_ORDER, "Pedido " + pedido.getNumero() + " concluído.");
-            stop();
+            notifyStep(WorkflowStep.FETCH_ORDER,
+                    "Pedido " + pedido.getNumero() + " concluído — toque em Encerrar.");
             return;
         }
         armed.set(false);

@@ -791,8 +791,15 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onOrderCompleted(Pedido pedido) {
         SwingUtilities.invokeLater(() -> {
             setOperatorReviewVisible(false);
+            setWeightLiveEnabled(false);
+            btnStartTags.setEnabled(false);
+            btnStartWeighing.setEnabled(false);
+            btnNext.setEnabled(false);
+            btnRestartSession.setEnabled(true);
             String numero = pedido != null ? pedido.getNumero() : "";
-            setStatus("Pedido " + numero + " concluído.", WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
+            setStatus("Pedido " + numero + " concluído — toque em Encerrar para sair.",
+                    WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
+            cameraMonitor.ensureLivePreview();
         });
     }
 

@@ -27,23 +27,26 @@ import java.util.function.Consumer;
  */
 public class CameraTestDialog extends JDialog implements CameraFrameStream.Listener {
 
-    private static final int AI_INTERVAL_MS = 3500;
+    /** Intervalo longo: backend IMX500 RPK precisa parar o vídeo para capturar no sensor. */
+    private static final int AI_INTERVAL_MS = 8000;
 
     private final Consumer<String> logConsumer;
     private final JLabel lbVideo = new JLabel("Abrindo câmera...", SwingConstants.CENTER);
-    private final JLabel lbAiStatus = new JLabel("IA: aguardando modelo...");
+    private final JLabel lbAiStatus = new JLabel("IA: desligada — vídeo ao vivo");
     private final JLabel lbDetections = new JLabel("Detecções: —");
     private final ThemedButton btnToggleAi =
-            WorkflowUiTheme.button("IA: ligada", ThemedButton.Variant.PRIMARY);
+            WorkflowUiTheme.button("IA: desligada", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnClose =
             WorkflowUiTheme.button("Fechar", ThemedButton.Variant.SECONDARY);
 
     private final AtomicReference<BufferedImage> latestFrame = new AtomicReference<>();
     private final AtomicReference<List<CameraMicroserviceClient.Detection>> detections =
             new AtomicReference<>(Collections.emptyList());
-    private final AtomicBoolean aiEnabled = new AtomicBoolean(true);
+    /** IA off por padrão: o vídeo fica fluido; ligar IA pausa o stream a cada ciclo (RPK). */
+    private final AtomicBoolean aiEnabled = new AtomicBoolean(false);
     private final AtomicBoolean aiBusy = new AtomicBoolean(false);
     private final AtomicBoolean dialogAlive = new AtomicBoolean(false);
+    private final AtomicBoolean paintPending = new AtomicBoolean(false);
 
     private Timer aiTimer;
     private Path tempFramePath;
@@ -238,15 +241,20 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
             return;
         }
         final BufferedImage snapshot = copyImage(frame);
+        SwingUtilities.invokeLater(() -> {
+            lbAiStatus.setText("IA: capturando no sensor (vídeo pausado)...");
+            WorkflowUiTheme.setStatusColor(lbAiStatus, WorkflowUiTheme.WARNING);
+            lbVideo.setText("Analisando com IA — aguarde");
+        });
         new SwingWorker<CameraMicroserviceClient.AnalysisResult, Void>() {
             private String error;
 
             @Override
             protected CameraMicroserviceClient.AnalysisResult doInBackground() {
+                // Backend imx500_rpk ignora o JPG e captura live no sensor — precisa exclusividade.
+                CameraHardware.beginExclusiveCapture();
                 try {
-                    // IMX500 é exclusiva: libera rpicam-vid antes da inferência on-sensor.
-                    CameraHardware.stopPreview();
-                    Thread.sleep(250);
+                    Thread.sleep(300);
                     Path path = ensureTempFramePath();
                     if (snapshot != null) {
                         ImageIO.write(snapshot, "jpg", path.toFile());
@@ -263,6 +271,7 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
                     error = e.getMessage();
                     return null;
                 } finally {
+                    CameraHardware.endExclusiveCapture();
                     try {
                         if (dialogAlive.get()) {
                             CameraHardware.startPreview();
@@ -293,8 +302,10 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
                     List<CameraMicroserviceClient.Detection> dets = result.getDetections();
                     detections.set(dets != null ? dets : Collections.emptyList());
                     updateDetectionsLabel(dets);
-                    lbAiStatus.setText("IA: modelo ativo — "
-                            + (dets == null ? 0 : dets.size()) + " detecção(ões)");
+                    lbAiStatus.setText("IA: ok — "
+                            + (dets == null ? 0 : dets.size())
+                            + " detecção(ões) · próximo ciclo em "
+                            + (AI_INTERVAL_MS / 1000) + "s");
                     WorkflowUiTheme.setStatusColor(lbAiStatus, WorkflowUiTheme.SUCCESS);
                 } catch (Exception e) {
                     lbAiStatus.setText("IA: " + e.getMessage());
@@ -362,27 +373,36 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
 
     @Override
     public void onFrame(BufferedImage frame) {
-        if (frame == null) {
+        if (frame == null || aiBusy.get()) {
             return;
         }
         latestFrame.set(frame);
-        List<CameraMicroserviceClient.Detection> dets = detections.get();
-        BufferedImage painted = dets == null || dets.isEmpty()
-                ? frame
-                : drawDetections(frame, dets);
+        if (!paintPending.compareAndSet(false, true)) {
+            return;
+        }
         SwingUtilities.invokeLater(() -> {
-            if (!isDisplayable()) {
-                return;
+            try {
+                if (!isDisplayable() || aiBusy.get()) {
+                    return;
+                }
+                BufferedImage current = latestFrame.get();
+                if (current == null) {
+                    return;
+                }
+                List<CameraMicroserviceClient.Detection> dets = detections.get();
+                BufferedImage painted = dets == null || dets.isEmpty()
+                        ? current
+                        : drawDetections(current, dets);
+                BufferedImage scaled = CameraFrameStream.scaleToFit(
+                        painted, lbVideo.getWidth(), lbVideo.getHeight());
+                if (scaled == null) {
+                    return;
+                }
+                lbVideo.setText(null);
+                lbVideo.setIcon(new ImageIcon(scaled));
+            } finally {
+                paintPending.set(false);
             }
-            int maxW = Math.max(1, lbVideo.getWidth());
-            int maxH = Math.max(1, lbVideo.getHeight());
-            double scale = Math.min((double) maxW / painted.getWidth(),
-                    (double) maxH / painted.getHeight());
-            int tw = Math.max(1, (int) Math.round(painted.getWidth() * scale));
-            int th = Math.max(1, (int) Math.round(painted.getHeight() * scale));
-            Image scaled = painted.getScaledInstance(tw, th, Image.SCALE_FAST);
-            lbVideo.setText(null);
-            lbVideo.setIcon(new ImageIcon(scaled));
         });
     }
 
