@@ -24,9 +24,15 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class OrderAwareWorkflowOrchestrator implements WorkflowController {
+
+    /** Janela de estabilidade exigida para aceitar a tara. */
+    private static final long TARE_STABLE_WINDOW_MS = 1200;
+    private static final long TARE_TIMEOUT_MS = 15_000;
+    private static final double TARE_STABLE_TOLERANCE_KG = 0.005;
 
     private final PeripheralSessionManager sessionManager;
     private final List<Pedido> pedidos;
@@ -62,6 +68,11 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     /** Tara lógica (caixa). Reinicia entre pedidos/sessões. */
     private volatile double tareKg;
     private volatile double lastGrossKg;
+    private volatile boolean lastGrossStable;
+    /** Enquanto true o RF fica desligado e nenhum ciclo dispara (medindo a caixa). */
+    private final AtomicBoolean taring = new AtomicBoolean(false);
+    /** Invalida uma medição de tara em andamento quando a sessão muda. */
+    private final AtomicInteger tareToken = new AtomicInteger();
 
     public OrderAwareWorkflowOrchestrator(PeripheralSessionManager sessionManager,
                                           Pedido pedido,
@@ -104,7 +115,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         operatorReview.set(false);
         cycleInProgress.set(false);
         rfidCollecting.set(false);
-        clearTare();
+        cancelTareMeasurement();
         context.clearTags();
         resetStabilizationTracking();
         resetPhaseFlags();
@@ -147,7 +158,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         stopScaleReading();
         stopRfidReading();
         rfidCollecting.set(false);
-        clearTare();
+        cancelTareMeasurement();
         context.clearTags();
         sessionStore.clearSession();
         if (listener != null) {
@@ -170,7 +181,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         armed.set(false);
         cycleInProgress.set(false);
         rfidCollecting.set(false);
-        clearTare();
+        cancelTareMeasurement();
         // Reinicia a fila de pedidos do zero.
         pedidoIndex = 0;
         pedido = pedidos.get(0);
@@ -238,7 +249,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
 
     @Override
     public void confirmWeighingStart() {
-        if (!running.get() || operatorReview.get()) {
+        if (!running.get() || operatorReview.get() || taring.get()) {
             return;
         }
         if (isRfidEnabled()) {
@@ -371,26 +382,133 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         return tareKg;
     }
 
+    /**
+     * Desliga o RF, espera a balança estabilizar só com a caixa, grava a tara
+     * e devolve o fluxo exatamente para a fase em que estava.
+     */
     @Override
     public void captureTare() throws PeripheralException {
         if (!running.get()) {
             throw new PeripheralException("Inicie o fluxo antes de definir a tara.");
         }
-        double gross = lastGrossKg;
-        if (gross < 0) {
-            gross = 0;
+        if (config != null && config.isSimulationMode()) {
+            throw new PeripheralException("Tara indisponível no modo simulação.");
         }
-        tareKg = gross;
+        if (cycleInProgress.get()) {
+            throw new PeripheralException("Aguarde o ciclo atual terminar para definir a tara.");
+        }
+        if (!taring.compareAndSet(false, true)) {
+            return;
+        }
+        boolean wasCollectingTags = rfidCollecting.getAndSet(false);
+        boolean wasArmed = armed.getAndSet(false);
+        // RF ligado distorce a célula de carga — desliga antes de medir a caixa.
+        stopRfidReading();
+        resetStabilizationTracking();
+        tareKg = 0;
+        if (listener != null) {
+            listener.onTareChanged(0, true,
+                    "Medindo tara — RFID desligado. Deixe só a caixa na balança...");
+        }
         notifyStep(WorkflowStep.WEIGHING,
-                tareKg <= 0.0005
-                        ? "Tara zerada (balança vazia)."
-                        : "Tara definida: " + ScaleWeightFormat.formatGramsPlain(tareKg)
-                        + " — o peso líquido ignora a caixa.");
+                "Medindo tara — RFID desligado. Deixe só a caixa na balança...");
+        int token = tareToken.incrementAndGet();
+        executor.submit(() -> runTareCapture(token, wasCollectingTags, wasArmed));
+    }
+
+    private void runTareCapture(int token, boolean wasCollectingTags, boolean wasArmed) {
+        double measured = 0;
+        boolean ok = false;
+        try {
+            // Pausa para o pipeline da balança acomodar após desligar o RF.
+            Thread.sleep(700);
+            long deadline = System.currentTimeMillis() + TARE_TIMEOUT_MS;
+            long stableSince = 0;
+            double candidate = 0;
+            while (running.get() && taring.get() && tareToken.get() == token
+                    && System.currentTimeMillis() < deadline) {
+                double gross = Math.max(0, lastGrossKg);
+                long now = System.currentTimeMillis();
+                if (lastGrossStable) {
+                    if (stableSince == 0 || Math.abs(gross - candidate) > TARE_STABLE_TOLERANCE_KG) {
+                        candidate = gross;
+                        stableSince = now;
+                    } else if (now - stableSince >= TARE_STABLE_WINDOW_MS) {
+                        measured = candidate;
+                        ok = true;
+                        break;
+                    }
+                } else {
+                    stableSince = 0;
+                }
+                Thread.sleep(80);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // Sessão reiniciada/encerrada no meio da medição: descarta o resultado.
+        if (tareToken.get() != token) {
+            return;
+        }
+        tareKg = ok ? Math.max(0, measured) : 0;
+        String message;
+        if (!ok) {
+            message = "Tara não estabilizou — mantida em 0. Tente novamente com a caixa parada.";
+        } else if (tareKg <= 0.0005) {
+            message = "Tara 0 (balança vazia) — pesagem sem caixa.";
+        } else {
+            message = "Tara definida: " + ScaleWeightFormat.formatGramsPlain(tareKg)
+                    + " — o peso líquido ignora a caixa.";
+        }
+        if (listener != null) {
+            listener.onTareChanged(tareKg, false, message);
+        }
+        taring.set(false);
+        resumeAfterTare(wasCollectingTags, wasArmed, message);
+    }
+
+    /** Volta o fluxo para a fase em que estava antes da tara. */
+    private void resumeAfterTare(boolean wasCollectingTags, boolean wasArmed, String tareMessage) {
+        if (!running.get()) {
+            return;
+        }
+        if (wasCollectingTags) {
+            rfidCollecting.set(true);
+            try {
+                startContinuousRfidIfEnabled();
+            } catch (PeripheralException e) {
+                rfidCollecting.set(false);
+                handleCycleFailure("Falha ao religar o RFID após a tara: " + e.getMessage(), e);
+                return;
+            }
+            notifyStep(WorkflowStep.RFID_READ,
+                    tareMessage + " Voltando à leitura de tags — aproxime os produtos.");
+            if (listener != null) {
+                listener.onTagReadingInProgress();
+            }
+            return;
+        }
+        if (wasArmed) {
+            armed.set(true);
+            resetStabilizationTracking();
+            notifyStep(WorkflowStep.WEIGHING,
+                    tareMessage + " Coloque os produtos na caixa — aguardando estabilização.");
+            return;
+        }
+        notifyStep(WorkflowStep.WEIGHING, tareMessage);
     }
 
     @Override
     public void clearTare() {
         tareKg = 0;
+    }
+
+    /** Aborta uma medição de tara em andamento e zera o valor. */
+    private void cancelTareMeasurement() {
+        tareToken.incrementAndGet();
+        taring.set(false);
+        clearTare();
     }
 
     @Override
@@ -533,6 +651,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             double weightKg = parseWeight(event);
             lastGrossKg = weightKg;
             boolean stable = Boolean.TRUE.equals(event.getStable());
+            lastGrossStable = stable;
             double netKg = toNetKg(weightKg);
             context.updateWeight(netKg, stable);
             // UI recebe o bruto; aplica tara na exibição.
@@ -540,7 +659,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                 listener.onWeightUpdate(event);
             }
 
-            if (operatorReview.get()) {
+            if (taring.get() || operatorReview.get()) {
                 return;
             }
             if (cycleInProgress.get() || waitingForNext.get() || !armed.get()) {
@@ -879,7 +998,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         cycleInProgress.set(false);
         rfidCollecting.set(false);
         stopRfidReading();
-        clearTare();
+        cancelTareMeasurement();
         context.clearTags();
         notifyTagInventory();
         resetStabilizationTracking();

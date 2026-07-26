@@ -239,10 +239,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
         btnCaptureTare.withSize(ThemedButton.Size.SMALL);
         btnClearTare.withSize(ThemedButton.Size.SMALL);
-        btnCaptureTare.addActionListener(e -> runOperatorAction(() -> {
-            orchestrator.captureTare();
-            refreshTareLabel();
-        }));
+        btnCaptureTare.setToolTipText(
+                "Desliga o RFID, mede a caixa vazia e volta para a etapa atual do fluxo.");
+        btnCaptureTare.addActionListener(e -> runOperatorAction(() -> orchestrator.captureTare()));
         btnClearTare.addActionListener(e -> {
             if (orchestrator != null) {
                 orchestrator.clearTare();
@@ -290,6 +289,23 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         } else {
             lbTareInfo.setText("Tara: " + ScaleWeightFormat.formatGramsPlain(tare));
         }
+        lbTareInfo.setForeground(WorkflowUiTheme.MONITOR_VALUE);
+    }
+
+    public void onTareChanged(double tareKg, boolean measuring, String message) {
+        SwingUtilities.invokeLater(() -> {
+            btnCaptureTare.setEnabled(!measuring);
+            btnClearTare.setEnabled(!measuring);
+            if (measuring) {
+                lbTareInfo.setText("Tara: medindo... (RFID desligado)");
+                lbTareInfo.setForeground(WorkflowUiTheme.WARNING);
+                setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
+                return;
+            }
+            refreshTareLabel();
+            Color color = tareKg > 0.0005 ? WorkflowUiTheme.SUCCESS : WorkflowUiTheme.TEXT_SECONDARY;
+            setStatus(message, color, color);
+        });
     }
 
     private JPanel buildMainCenter() {

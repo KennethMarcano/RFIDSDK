@@ -82,4 +82,13 @@ public interface WorkflowListener {
     /** Todos os pedidos da fila foram concluídos. */
     default void onAllOrdersCompleted() {
     }
+
+    /**
+     * Tara em medição ou concluída.
+     *
+     * @param tareKg    valor atual da tara (0 enquanto mede)
+     * @param measuring true enquanto o RFID está desligado aguardando o peso estabilizar
+     */
+    default void onTareChanged(double tareKg, boolean measuring, String message) {
+    }
 }

@@ -1019,6 +1019,12 @@ public class AutomatedWorkflowPanel extends JPanel {
                     appendLog("Fila de pedidos concluída.");
                 });
             }
+
+            @Override
+            public void onTareChanged(double tareKg, boolean measuring, String message) {
+                window.onTareChanged(tareKg, measuring, message);
+                SwingUtilities.invokeLater(() -> appendLog(message));
+            }
         };
     }
 
