@@ -45,6 +45,10 @@ public interface WorkflowController {
     default void operatorReanalyze() throws PeripheralException {
     }
 
+    /** Zera as tags lidas (mantém o fluxo na fase atual). */
+    default void clearReadTags() throws PeripheralException {
+    }
+
     /** Tara lógica atual (kg). Reinicia a cada pedido/sessão. */
     default double getTareKg() {
         return 0;

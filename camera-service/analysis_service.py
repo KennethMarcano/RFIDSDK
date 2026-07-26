@@ -64,12 +64,15 @@ def analyze(image_path: str, expected_products: list[dict]) -> dict:
             "box": list(det.box),
         })
 
+    expected_by_key: dict[str, dict] = {}
     missing: list[dict] = []
     for product in expected_products:
         code = str(product.get("code", "")).strip()
         name = str(product.get("name") or code)
         qty = max(1, int(product.get("quantity") or 1))
         key = _normalize(code)
+        if key:
+            expected_by_key[key] = {"code": code, "name": name, "quantity": qty}
         found = detected_counts.get(key, 0)
         # Também aceita match parcial (label contém código)
         if found < qty:
@@ -84,9 +87,33 @@ def analyze(image_path: str, expected_products: list[dict]) -> dict:
                 ),
             })
 
-    if missing:
+    # Produto detectado que não está no pedido = sobra / não pertence.
+    unexpected: list[dict] = []
+    for det in detections:
+        key = _normalize(det.label)
+        if not key:
+            continue
+        if _matches_expected(key, expected_by_key):
+            continue
+        unexpected.append({
+            "code": det.label,
+            "name": det.label,
+            "confidence": round(float(det.confidence), 4),
+            "reason": "Produto detectado que não pertence ao pedido.",
+        })
+
+    if missing and unexpected:
+        message = (
+            f"IA: faltando {', '.join(p['name'] for p in missing)}; "
+            f"não pertencem ao pedido: {', '.join(p['name'] for p in unexpected)}"
+            f"{backend_note}"
+        )
+    elif missing:
         names = ", ".join(p["name"] for p in missing)
         message = f"IA: não identificado — {names}{backend_note}"
+    elif unexpected:
+        names = ", ".join(p["name"] for p in unexpected)
+        message = f"IA: produto(s) fora do pedido — {names}{backend_note}"
     elif not expected_products:
         message = (
             f"IA: {len(detected_products)} detecção(ões){backend_note}"
@@ -100,6 +127,7 @@ def analyze(image_path: str, expected_products: list[dict]) -> dict:
         "success": True,
         "detected_products": detected_products,
         "missing_products": missing,
+        "unexpected_products": unexpected,
         "message": message,
         "model": {
             "backend": state.backend,
@@ -130,12 +158,24 @@ def _analyze_stub(expected_products: list[dict]) -> dict:
         "success": True,
         "detected_products": [],
         "missing_products": missing,
+        "unexpected_products": [],
         "message": message,
     }
 
 
 def _normalize(value: str) -> str:
     return (value or "").strip().upper()
+
+
+def _matches_expected(detected_key: str, expected_by_key: dict[str, dict]) -> bool:
+    if not detected_key:
+        return False
+    if detected_key in expected_by_key:
+        return True
+    for expected_key in expected_by_key:
+        if expected_key and (expected_key in detected_key or detected_key in expected_key):
+            return True
+    return False
 
 
 def _count_fuzzy(counts: Counter, code: str) -> int:
@@ -153,5 +193,6 @@ def _error(msg: str) -> dict:
         "success": False,
         "detected_products": [],
         "missing_products": [],
+        "unexpected_products": [],
         "message": msg,
     }

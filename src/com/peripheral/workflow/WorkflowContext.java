@@ -27,6 +27,7 @@ public class WorkflowContext {
     private PedidoValidationService.ValidationResult validationResult;
     private String aiMessage;
     private List<String> missingProducts;
+    private List<String> unexpectedProducts;
     private String validationStatusLabel;
     private boolean operatorConfirmed;
     private boolean operatorOverride;
@@ -45,6 +46,7 @@ public class WorkflowContext {
         this.validationResult = null;
         this.aiMessage = null;
         this.missingProducts = null;
+        this.unexpectedProducts = null;
         this.validationStatusLabel = null;
         this.operatorConfirmed = false;
         this.operatorOverride = false;
@@ -174,6 +176,14 @@ public class WorkflowContext {
 
     public void setMissingProducts(List<String> missingProducts) {
         this.missingProducts = missingProducts;
+    }
+
+    public List<String> getUnexpectedProducts() {
+        return unexpectedProducts;
+    }
+
+    public void setUnexpectedProducts(List<String> unexpectedProducts) {
+        this.unexpectedProducts = unexpectedProducts;
     }
 
     public String getValidationStatusLabel() {

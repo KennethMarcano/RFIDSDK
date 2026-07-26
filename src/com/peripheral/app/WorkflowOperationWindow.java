@@ -55,6 +55,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final RfidTagMonitorPanel liveTagMonitor =
             new RfidTagMonitorPanel("TAGS LIDAS", false);
     private final JLabel lbTagProgress = new JLabel("Tags: 0", SwingConstants.LEFT);
+    private final ThemedButton btnClearTags =
+            WorkflowUiTheme.button("Limpar tags", ThemedButton.Variant.SECONDARY);
 
     private final JPanel operatorReviewPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
     private final ThemedButton btnRereadRfid =
@@ -64,7 +66,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final ThemedButton btnReanalyze =
             WorkflowUiTheme.button("Re-analisar IA", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnConfirmOperator =
-            WorkflowUiTheme.button("Validar e finalizar", ThemedButton.Variant.SUCCESS);
+            WorkflowUiTheme.button("Revalidar e finalizar", ThemedButton.Variant.SUCCESS);
+
+    private JPanel monitorsRow;
+    private JTabbedPane contentTabs;
+    private boolean divergenceLayoutActive;
 
     private final JLabel lbStatus = new JLabel("Aguardando início do fluxo...");
     private final JPanel statusIndicator = new JPanel();
@@ -309,26 +315,26 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     private JPanel buildMainCenter() {
-        JPanel monitors = new JPanel(new GridLayout(1, 2, 8, 0));
-        monitors.setOpaque(false);
-        monitors.add(buildScaleMonitorPanel());
-        monitors.add(cameraMonitor);
-        monitors.setPreferredSize(new Dimension(0, MONITOR_ROW_HEIGHT));
+        monitorsRow = new JPanel(new GridLayout(1, 2, 8, 0));
+        monitorsRow.setOpaque(false);
+        monitorsRow.add(buildScaleMonitorPanel());
+        monitorsRow.add(cameraMonitor);
+        monitorsRow.setPreferredSize(new Dimension(0, MONITOR_ROW_HEIGHT));
 
         liveTagMonitor.setHint("Aguardando iniciar leitura de tags...");
 
-        JTabbedPane tabs = new JTabbedPane();
-        WorkflowUiTheme.styleTabbedPane(tabs);
-        tabs.addTab("Produtos", liveTagMonitor);
-        tabs.addTab("Histórico", buildHistoryPanel());
+        contentTabs = new JTabbedPane();
+        WorkflowUiTheme.styleTabbedPane(contentTabs);
+        contentTabs.addTab("Produtos", liveTagMonitor);
+        contentTabs.addTab("Histórico", buildHistoryPanel());
         if (simulationMode) {
-            tabs.addTab("Simulação", new JScrollPane(buildSimulationPanel()));
+            contentTabs.addTab("Simulação", new JScrollPane(buildSimulationPanel()));
         }
 
         JPanel center = new JPanel(new BorderLayout(0, 6));
         center.setOpaque(false);
-        center.add(monitors, BorderLayout.NORTH);
-        center.add(tabs, BorderLayout.CENTER);
+        center.add(monitorsRow, BorderLayout.NORTH);
+        center.add(contentTabs, BorderLayout.CENTER);
         return center;
     }
 
@@ -393,13 +399,24 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         btnEndWorkflow.addActionListener(e -> confirmEndWorkflow());
 
         btnRereadRfid.addActionListener(e -> runOperatorAction(() -> {
-            liveTagMonitor.reset();
+            liveTagMonitor.clearDetections();
             liveTagMonitor.setHint("Detecções limpas — releitura RFID ativa...");
             orchestrator.operatorRereadRfid();
         }));
         btnCapturePhoto.addActionListener(e -> runOperatorAction(() -> orchestrator.operatorCapturePhoto()));
         btnReanalyze.addActionListener(e -> runOperatorAction(() -> orchestrator.operatorReanalyze()));
+        btnConfirmOperator.setToolTipText(
+                "Só finaliza se as tags e o peso atuais conferirem com o pedido.");
         btnConfirmOperator.addActionListener(e -> confirmOperatorVolume());
+
+        btnClearTags.withSize(ThemedButton.Size.SMALL);
+        btnClearTags.setToolTipText("Apaga as tags lidas e permite ler de novo.");
+        btnClearTags.addActionListener(e -> runOperatorAction(() -> {
+            liveTagMonitor.clearDetections();
+            liveTagMonitor.setHint("Tags limpas — aproxime os produtos novamente...");
+            orchestrator.clearReadTags();
+            lbTagProgress.setText("Códigos: 0");
+        }));
 
         lbTagProgress.setFont(WorkflowUiTheme.fontMeta(lbTagProgress));
         lbTagProgress.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
@@ -407,6 +424,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         left.setOpaque(false);
         left.add(lbTagProgress);
+        left.add(btnClearTags);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actions.setOpaque(false);
@@ -718,6 +736,40 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         btnCapturePhoto.setEnabled(visible);
         btnReanalyze.setEnabled(visible && aiFallbackEnabled);
         btnConfirmOperator.setEnabled(visible);
+        if (!visible) {
+            setDivergenceLayout(false);
+        }
+    }
+
+    /**
+     * Em divergência: encolhe balança/câmera e amplia a grade de tags
+     * para o operador conseguir ler os códigos com clareza.
+     */
+    private void setDivergenceLayout(boolean active) {
+        if (divergenceLayoutActive == active) {
+            if (active && contentTabs != null) {
+                contentTabs.setSelectedIndex(0);
+            }
+            return;
+        }
+        divergenceLayoutActive = active;
+        liveTagMonitor.setEmphasisMode(active);
+        if (monitorsRow != null) {
+            monitorsRow.setPreferredSize(new Dimension(0,
+                    active ? Math.max(96, MONITOR_ROW_HEIGHT / 2) : MONITOR_ROW_HEIGHT));
+            monitorsRow.revalidate();
+        }
+        if (contentTabs != null) {
+            contentTabs.setSelectedIndex(0);
+            contentTabs.revalidate();
+        }
+        liveTagMonitor.setHint(active
+                ? "Divergência — confira as tags lidas abaixo (layout ampliado)"
+                : liveTagMonitor.getUniqueTagCount() > 0
+                ? "Tags detectadas"
+                : "Aguardando leitura das tags...");
+        revalidate();
+        repaint();
     }
 
     private interface OperatorAction {
@@ -756,9 +808,10 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             return;
         }
         int confirm = JOptionPane.showConfirmDialog(this,
-                "Revalidar tags e peso atuais?\n"
-                        + "Se ainda houver divergência, o ciclo reinicia.",
-                "Validar e finalizar",
+                "Revalidar tags e peso atuais?\n\n"
+                        + "Só finaliza se AMBOS estiverem corretos.\n"
+                        + "Se o peso ou as tags ainda divergirem, o pedido NÃO avança.",
+                "Revalidar e finalizar",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.QUESTION_MESSAGE);
         if (confirm != JOptionPane.YES_OPTION) {
@@ -844,6 +897,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                 detail.append("\n\nNão identificados: ")
                         .append(String.join(", ", context.getMissingProducts()));
             }
+            if (context != null && context.getUnexpectedProducts() != null
+                    && !context.getUnexpectedProducts().isEmpty()) {
+                detail.append("\n\nFora do pedido: ")
+                        .append(String.join(", ", context.getUnexpectedProducts()));
+            }
             String title = identified
                     ? "IA: produtos confirmados"
                     : "IA: revise manualmente";
@@ -854,6 +912,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onOperatorReviewRequired(String message, com.peripheral.workflow.WorkflowContext context) {
         SwingUtilities.invokeLater(() -> {
             setOperatorReviewVisible(true);
+            setDivergenceLayout(true);
+            setWeightLiveEnabled(true);
             btnStartTags.setEnabled(false);
             btnStartWeighing.setEnabled(false);
             btnNext.setEnabled(false);
@@ -1107,6 +1167,10 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     @Override
     public void onCycleCompleted(com.peripheral.workflow.WorkflowContext context) {
+        SwingUtilities.invokeLater(() -> {
+            setOperatorReviewVisible(false);
+            setDivergenceLayout(false);
+        });
     }
 
     @Override

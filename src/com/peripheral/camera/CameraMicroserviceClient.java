@@ -177,9 +177,10 @@ public class CameraMicroserviceClient {
     private static AnalysisResult parseAnalysis(String body) {
         boolean success = body.contains("\"success\":true") || body.contains("\"success\": true");
         String message = extractJsonString(body, "message");
-        List<String> missing = extractMissingProducts(body);
+        List<String> missing = extractNamedProducts(body, "missing_products");
+        List<String> unexpected = extractNamedProducts(body, "unexpected_products");
         List<Detection> detections = extractDetections(body);
-        return new AnalysisResult(success, message, missing, detections);
+        return new AnalysisResult(success, message, missing, unexpected, detections);
     }
 
     private static List<Detection> extractDetections(String body) {
@@ -314,26 +315,43 @@ public class CameraMicroserviceClient {
         return box;
     }
 
-    private static List<String> extractMissingProducts(String body) {
+    private static List<String> extractNamedProducts(String body, String arrayKey) {
         List<String> result = new ArrayList<>();
-        int idx = body.indexOf("\"missing_products\"");
+        if (body == null || arrayKey == null) {
+            return result;
+        }
+        int idx = body.indexOf("\"" + arrayKey + "\"");
         if (idx < 0) {
             return result;
         }
-        int searchFrom = idx;
+        int bracket = body.indexOf('[', idx);
+        if (bracket < 0) {
+            return result;
+        }
+        int end = findMatchingBracket(body, bracket);
+        if (end < 0) {
+            return result;
+        }
+        String arrayBody = body.substring(bracket + 1, end);
+        int searchFrom = 0;
         while (true) {
-            int nameIdx = body.indexOf("\"name\"", searchFrom);
-            if (nameIdx < 0) {
+            int objStart = arrayBody.indexOf('{', searchFrom);
+            if (objStart < 0) {
                 break;
             }
-            String name = extractJsonString(body.substring(nameIdx), "name");
+            int objEnd = findMatchingBrace(arrayBody, objStart);
+            if (objEnd < 0) {
+                break;
+            }
+            String obj = arrayBody.substring(objStart, objEnd + 1);
+            String name = extractJsonString(obj, "name");
+            if (name == null || name.isEmpty()) {
+                name = extractJsonString(obj, "code");
+            }
             if (name != null && !name.isEmpty()) {
                 result.add(name);
             }
-            searchFrom = nameIdx + 6;
-            if (searchFrom >= body.length()) {
-                break;
-            }
+            searchFrom = objEnd + 1;
         }
         return result;
     }
@@ -431,17 +449,24 @@ public class CameraMicroserviceClient {
         private final boolean success;
         private final String message;
         private final List<String> missingProducts;
+        private final List<String> unexpectedProducts;
         private final List<Detection> detections;
 
         public AnalysisResult(boolean success, String message, List<String> missingProducts) {
-            this(success, message, missingProducts, null);
+            this(success, message, missingProducts, null, null);
         }
 
         public AnalysisResult(boolean success, String message, List<String> missingProducts,
                               List<Detection> detections) {
+            this(success, message, missingProducts, null, detections);
+        }
+
+        public AnalysisResult(boolean success, String message, List<String> missingProducts,
+                              List<String> unexpectedProducts, List<Detection> detections) {
             this.success = success;
             this.message = message;
             this.missingProducts = missingProducts != null ? missingProducts : new ArrayList<>();
+            this.unexpectedProducts = unexpectedProducts != null ? unexpectedProducts : new ArrayList<>();
             this.detections = detections != null ? detections : new ArrayList<>();
         }
 
@@ -455,6 +480,15 @@ public class CameraMicroserviceClient {
 
         public List<String> getMissingProducts() {
             return missingProducts;
+        }
+
+        public List<String> getUnexpectedProducts() {
+            return unexpectedProducts;
+        }
+
+        /** true se não faltam produtos e não há sobras fora do pedido. */
+        public boolean isProductsMatch() {
+            return missingProducts.isEmpty() && unexpectedProducts.isEmpty();
         }
 
         public List<Detection> getDetections() {

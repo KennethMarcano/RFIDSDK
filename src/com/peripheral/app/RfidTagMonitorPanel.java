@@ -22,6 +22,9 @@ public class RfidTagMonitorPanel extends JPanel {
     private static final int TILE_WIDTH = 168;
     private static final int TILE_HEIGHT = 58;
     private static final int TILE_GAP = 6;
+    private static final int EMPHASIS_TILE_WIDTH = 260;
+    private static final int EMPHASIS_TILE_HEIGHT = 88;
+    private static final int EMPHASIS_TILE_GAP = 10;
 
     public static final class ProductEntry {
         private final String rowId;
@@ -82,6 +85,8 @@ public class RfidTagMonitorPanel extends JPanel {
 
     private int totalReads;
     private int expectedCount;
+    /** Layout ampliado (ex.: tela de divergência). */
+    private boolean emphasisMode;
 
     public RfidTagMonitorPanel(String caption) {
         this(caption, true);
@@ -306,6 +311,27 @@ public class RfidTagMonitorPanel extends JPanel {
         }
     }
 
+    /**
+     * Alterna entre grade compacta e grade ampliada (melhor leitura em divergência).
+     */
+    public void setEmphasisMode(boolean emphasis) {
+        if (this.emphasisMode == emphasis) {
+            return;
+        }
+        this.emphasisMode = emphasis;
+        int gap = emphasis ? EMPHASIS_TILE_GAP : TILE_GAP;
+        tiles.setLayout(new WrapLayout(FlowLayout.LEFT, gap, gap));
+        lbCaption.setFont(lbCaption.getFont().deriveFont(Font.BOLD, emphasis ? 16f : 12f));
+        lbHint.setFont(lbHint.getFont().deriveFont(Font.PLAIN, emphasis ? 13f : 11f));
+        rebuildRowsFromState();
+        revalidate();
+        repaint();
+    }
+
+    public boolean isEmphasisMode() {
+        return emphasisMode;
+    }
+
     public int getUniqueTagCount() {
         return showReadCounts ? counts.size() : detectedKeys.size();
     }
@@ -394,24 +420,31 @@ public class RfidTagMonitorPanel extends JPanel {
     }
 
     private JPanel createTagTile(String key, String code, String name, boolean detected, int count) {
+        int tileW = emphasisMode ? EMPHASIS_TILE_WIDTH : TILE_WIDTH;
+        int tileH = emphasisMode ? EMPHASIS_TILE_HEIGHT : TILE_HEIGHT;
+        float codeSize = emphasisMode ? 18f : 12f;
+        float nameSize = emphasisMode ? 13f : 10f;
+        float statusSize = emphasisMode ? 14f : 10f;
+        int pad = emphasisMode ? 10 : 5;
+
         JPanel tile = new JPanel(new BorderLayout(4, 0));
         tile.setOpaque(true);
         tile.setBackground(WorkflowUiTheme.MONITOR_ROW_BG);
         tile.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1),
-                WorkflowUiTheme.empty(5, 7, 5, 7)));
-        Dimension size = new Dimension(TILE_WIDTH, TILE_HEIGHT);
+                BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, emphasisMode ? 2 : 1),
+                WorkflowUiTheme.empty(pad, pad + 2, pad, pad + 2)));
+        Dimension size = new Dimension(tileW, tileH);
         tile.setPreferredSize(size);
         tile.setMinimumSize(size);
         tile.setMaximumSize(size);
 
-        JLabel lbCode = new JLabel(truncate(code, 14));
-        lbCode.setFont(lbCode.getFont().deriveFont(Font.BOLD, 12f));
+        JLabel lbCode = new JLabel(truncate(code, emphasisMode ? 22 : 14));
+        lbCode.setFont(lbCode.getFont().deriveFont(Font.BOLD, codeSize));
         lbCode.setForeground(WorkflowUiTheme.MONITOR_TEXT);
         lbCode.setToolTipText("Código: " + code);
 
         JLabel lbStatus = new JLabel("", SwingConstants.RIGHT);
-        lbStatus.setFont(lbStatus.getFont().deriveFont(Font.BOLD, 10f));
+        lbStatus.setFont(lbStatus.getFont().deriveFont(Font.BOLD, statusSize));
 
         JPanel top = new JPanel(new BorderLayout(4, 0));
         top.setOpaque(false);
@@ -419,8 +452,8 @@ public class RfidTagMonitorPanel extends JPanel {
         top.add(lbStatus, BorderLayout.EAST);
 
         String displayName = name != null ? name : "";
-        JLabel lbName = new JLabel(truncate(displayName, 18));
-        lbName.setFont(lbName.getFont().deriveFont(Font.PLAIN, 10f));
+        JLabel lbName = new JLabel(truncate(displayName, emphasisMode ? 28 : 18));
+        lbName.setFont(lbName.getFont().deriveFont(Font.PLAIN, nameSize));
         lbName.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
         lbName.setVisible(!displayName.isEmpty());
         if (!displayName.isEmpty()) {
@@ -434,7 +467,7 @@ public class RfidTagMonitorPanel extends JPanel {
         lbName.setAlignmentX(Component.LEFT_ALIGNMENT);
         body.add(top);
         if (lbName.isVisible()) {
-            body.add(Box.createVerticalStrut(2));
+            body.add(Box.createVerticalStrut(emphasisMode ? 4 : 2));
             body.add(lbName);
         }
 

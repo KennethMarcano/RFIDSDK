@@ -341,10 +341,11 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (!operatorReview.get()) {
             return;
         }
-        // Não força aprovação: revalida tags atuais + peso líquido atual.
+        // Só finaliza se tags E peso líquido atuais conferirem com o pedido.
         PedidoVolume volume = context.getCurrentVolume();
-        double netKg = toNetKg(lastGrossKg > 0 ? lastGrossKg : context.getWeightKg());
-        context.updateWeight(netKg, true);
+        double gross = lastGrossKg > 0 ? lastGrossKg : context.getWeightKg();
+        double netKg = toNetKg(gross);
+        context.updateWeight(netKg, lastGrossStable);
         PedidoValidationService.ValidationResult validation = validationService.validate(
                 volume,
                 context.snapshotTagCodes(),
@@ -367,20 +368,42 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             return;
         }
 
-        // Continua divergente → mensagem de erro já exibida; reinicia o ciclo.
-        notifyStep(WorkflowStep.VALIDATE_ORDER,
-                "Ainda divergente — reiniciando ciclo: releia tags e pese novamente.");
-        operatorReview.set(false);
-        waitingForNext.set(false);
-        cycleInProgress.set(false);
-        rfidCollecting.set(false);
-        armed.set(false);
+        // Continua divergente: permanece na revisão (não apaga tags corretas).
+        String reason = validation.getSummaryMessage();
+        notifyStep(WorkflowStep.OPERATOR_REVIEW,
+                "Ainda divergente — " + reason
+                        + ". Corrija tags/peso e valide de novo.");
+        if (listener != null) {
+            listener.onOperatorReviewRequired(
+                    "Não finalizado: " + reason, context);
+        }
+    }
+
+    /** Limpa as tags acumuladas e mantém a leitura RFID ativa se já estiver coletando. */
+    @Override
+    public void clearReadTags() throws PeripheralException {
+        if (!running.get()) {
+            return;
+        }
         context.clearTags();
-        stopRfidReading();
         notifyTagInventory();
-        resetStabilizationTracking();
-        resetPhaseFlags();
-        notifyPhaseStart();
+        if (operatorReview.get()) {
+            // Em revisão: liga RFID para nova coleta a partir do zero.
+            rfidCollecting.set(true);
+            if (config != null && !config.isSimulationMode()) {
+                startContinuousRfidIfEnabled();
+            }
+            notifyStep(WorkflowStep.RFID_READ,
+                    "Tags reiniciadas — aproxime os produtos para ler de novo.");
+            return;
+        }
+        if (rfidCollecting.get()) {
+            notifyStep(WorkflowStep.RFID_READ,
+                    "Tags reiniciadas — continue aproximando os produtos.");
+        } else {
+            notifyStep(WorkflowStep.RFID_READ,
+                    "Tags reiniciadas.");
+        }
     }
 
     @Override
@@ -887,9 +910,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             CameraMicroserviceClient.AnalysisResult result = cameraClient.analyze(imagePath, expected);
             context.setAiMessage(result.getMessage());
             context.setMissingProducts(result.getMissingProducts());
+            context.setUnexpectedProducts(result.getUnexpectedProducts());
             notifyStep(WorkflowStep.AI_ANALYSIS, result.getMessage());
-            notifyAiResult(result.getMissingProducts() == null || result.getMissingProducts().isEmpty(),
-                    result.getMessage());
+            notifyAiResult(result.isProductsMatch(), result.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             context.setAiMessage("Análise interrompida — revise manualmente.");
@@ -905,9 +928,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                         cameraClient.analyze(imagePath, expected);
                 context.setAiMessage(result.getMessage());
                 context.setMissingProducts(result.getMissingProducts());
+                context.setUnexpectedProducts(result.getUnexpectedProducts());
                 notifyStep(WorkflowStep.AI_ANALYSIS, result.getMessage());
-                notifyAiResult(result.getMissingProducts() == null
-                        || result.getMissingProducts().isEmpty(), result.getMessage());
+                notifyAiResult(result.isProductsMatch(), result.getMessage());
             } catch (Exception retryEx) {
                 context.setAiMessage("Erro na análise: " + e.getMessage());
                 notifyStep(WorkflowStep.AI_ANALYSIS, context.getAiMessage());
