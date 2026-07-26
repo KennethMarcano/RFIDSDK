@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Acesso à câmera Sony IMX500 via ferramentas rpicam no Raspberry Pi.
@@ -24,8 +25,28 @@ public final class CameraHardware {
     private static volatile Boolean cachedCameraPresent;
     private static volatile long cacheTimestamp;
     private static volatile String cachedDescribe;
+    /** Contador: preview bloqueado enquanto > 0 (suporta begin/end aninhados). */
+    private static final AtomicInteger exclusiveCaptureDepth = new AtomicInteger(0);
 
     private CameraHardware() {
+    }
+
+    /** True enquanto {@link #captureStill} / serviço de foto ocupa a câmera. */
+    public static boolean isExclusiveCapture() {
+        return exclusiveCaptureDepth.get() > 0;
+    }
+
+    /**
+     * Para o preview e impede o keep-alive de religá-lo até {@link #endExclusiveCapture()}.
+     */
+    public static void beginExclusiveCapture() {
+        if (exclusiveCaptureDepth.getAndIncrement() == 0) {
+            stopPreview();
+        }
+    }
+
+    public static void endExclusiveCapture() {
+        exclusiveCaptureDepth.updateAndGet(v -> Math.max(0, v - 1));
     }
 
     public static boolean isRpicamAvailable() {
@@ -105,6 +126,9 @@ public final class CameraHardware {
      * Inicia o vídeo embutido (MJPEG) para painéis Swing — sem janela nativa.
      */
     public static void startPreview() throws CameraServiceException {
+        if (isExclusiveCapture()) {
+            throw new CameraServiceException("Câmera ocupada capturando foto — aguarde.");
+        }
         CameraFrameStream.getInstance().start();
     }
 
@@ -147,6 +171,7 @@ public final class CameraHardware {
         if (outputPath == null) {
             throw new CameraServiceException("Caminho de saída da foto não informado.");
         }
+        // Caller (PhotoCaptureService) deve ter chamado beginExclusiveCapture().
         stopPreview();
         String still = resolveStillCommand();
         if (still == null) {
@@ -158,7 +183,8 @@ public final class CameraHardware {
                     ? outputPath.getParent()
                     : java.nio.file.Paths.get("."));
         } catch (Exception e) {
-            throw new CameraServiceException("Não foi possível criar pasta da foto: " + e.getMessage(), e);
+            throw new CameraServiceException(
+                    "Não foi possível criar pasta da foto: " + e.getMessage(), e);
         }
 
         String suffix = outputPath.getFileName() != null
@@ -168,6 +194,13 @@ public final class CameraHardware {
                 || suffix.endsWith(".png"))
                 ? outputPath
                 : outputPath.resolveSibling(outputPath.getFileName() + ".jpg");
+
+        // Pequena pausa para a câmera liberar o stream MJPEG antes do still.
+        try {
+            Thread.sleep(350);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
 
         List<String> command = new ArrayList<>(Arrays.asList(
                 still,

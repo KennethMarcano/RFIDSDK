@@ -32,6 +32,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final boolean orderValidationEnabled;
     private final boolean aiFallbackEnabled;
     private final boolean rfidEnabled;
+    /** Só exibe peso real na fase de pesagem (RF desligado). */
+    private volatile boolean weightLiveEnabled;
 
     private Pedido currentPedido;
     private int currentVolumeIndex = 1;
@@ -570,6 +572,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     private void setAwaitingTagReadingState() {
+        setWeightLiveEnabled(false);
         btnStartTags.setEnabled(rfidEnabled);
         btnStartWeighing.setEnabled(false);
         btnNext.setEnabled(false);
@@ -587,6 +590,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     private void setTagReadingInProgressState() {
+        setWeightLiveEnabled(false);
         btnStartTags.setEnabled(false);
         btnStartWeighing.setEnabled(true);
         btnNext.setEnabled(false);
@@ -604,6 +608,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     private void setAwaitingStartState() {
+        // Ainda não pesando: peso fica em 0 até clicar em Iniciar leitura peso.
+        setWeightLiveEnabled(false);
         btnStartTags.setEnabled(false);
         btnStartWeighing.setEnabled(true);
         btnNext.setEnabled(false);
@@ -621,6 +627,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     private void setWaitingForNextState() {
+        setWeightLiveEnabled(false);
         btnStartTags.setEnabled(false);
         btnStartWeighing.setEnabled(false);
         btnNext.setEnabled(true);
@@ -628,6 +635,23 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         cameraMonitor.ensureLivePreview();
         setStatus("Ciclo concluído — toque em Próximo para nova leitura.",
                 WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
+    }
+
+    private void setWeightLiveEnabled(boolean enabled) {
+        weightLiveEnabled = enabled;
+        if (!enabled) {
+            showZeroWeight();
+        }
+    }
+
+    private void showZeroWeight() {
+        lbLiveWeightValue.setText(ScaleWeightFormat.formatGrams(0));
+        lbLiveWeightUnit.setText(ScaleWeightFormat.UNIT);
+        lbLiveWeightValue.setForeground(Color.WHITE);
+        lbLiveWeightStable.setText("Peso oculto — aguardando fase de pesagem");
+        lbLiveWeightStable.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
+        lbScaleRawLine.setText(" ");
+        lbLiveWeightValue.setToolTipText("O peso real só aparece após Iniciar leitura peso");
     }
 
     private void buildOperatorReviewPanel() {
@@ -782,6 +806,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             if (event == null) {
                 return;
             }
+            // Durante leitura de tags o RF interfere na balança — UI fica em 0 g.
+            if (!weightLiveEnabled) {
+                showZeroWeight();
+                return;
+            }
             DigitronDgnParser.ParseResult parsed = DigitronDgnParser.parse(event.getRawPayload());
             double kg;
             boolean stable;
@@ -860,28 +889,36 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onStepChanged(WorkflowStep step, String message) {
         SwingUtilities.invokeLater(() -> {
             if (step == WorkflowStep.RFID_READ) {
+                setWeightLiveEnabled(false);
                 btnStartTags.setEnabled(false);
                 btnStartWeighing.setEnabled(true);
                 btnNext.setEnabled(false);
                 if (simulationMode) {
                     btnSimulate.setEnabled(true);
                 }
+                cameraMonitor.ensureLivePreview();
             } else if (step == WorkflowStep.WEIGHING) {
+                setWeightLiveEnabled(true);
                 btnStartTags.setEnabled(false);
                 btnStartWeighing.setEnabled(false);
                 btnNext.setEnabled(false);
                 if (simulationMode) {
                     btnSimulate.setEnabled(true);
                 }
+                cameraMonitor.ensureLivePreview();
+            } else if (step == WorkflowStep.CAPTURE_PHOTO) {
+                btnStartTags.setEnabled(false);
+                btnStartWeighing.setEnabled(false);
+                btnNext.setEnabled(false);
+                // Preview deve ficar parado — keep-alive respeita exclusiveCapture.
+                cameraMonitor.showCapturingPlaceholder();
             } else {
                 btnStartTags.setEnabled(false);
                 btnStartWeighing.setEnabled(false);
                 btnNext.setEnabled(false);
-            }
-            setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
-            if (step != WorkflowStep.CAPTURE_PHOTO) {
                 cameraMonitor.ensureLivePreview();
             }
+            setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
         });
     }
 
@@ -930,11 +967,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             liveTagMonitor.reset();
             liveTagMonitor.setHint("Aguardando iniciar leitura de tags...");
             lbTagProgress.setText("Códigos: 0");
-            lbLiveWeightValue.setText(ScaleWeightFormat.PLACEHOLDER);
-            lbLiveWeightUnit.setText(ScaleWeightFormat.UNIT);
-            lbLiveWeightStable.setText("Aguardando leitura da balança");
-            lbLiveWeightStable.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
-            lbScaleRawLine.setText(" ");
+            setWeightLiveEnabled(false);
             lastRawPayload = null;
             cameraMonitor.ensureLivePreview();
         });

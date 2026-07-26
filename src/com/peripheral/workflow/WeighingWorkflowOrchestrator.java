@@ -395,16 +395,22 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
                 return;
             }
             if (config.isEnabled(WorkflowStep.CAPTURE_PHOTO)) {
-                notifyStep(WorkflowStep.CAPTURE_PHOTO, "Capturando foto...");
+                com.peripheral.camera.CameraHardware.beginExclusiveCapture();
                 try {
+                    notifyStep(WorkflowStep.CAPTURE_PHOTO, "Capturando foto...");
                     photoCapture().capturePhoto(
                             context,
                             sessionStore.getSessionDirectory(),
                             sessionStore.getNextPhotoIndex());
                     notifyStep(WorkflowStep.CAPTURE_PHOTO, "Foto salva: " + context.getPhotoPath());
-                } catch (IOException photoEx) {
+                } catch (Throwable photoEx) {
+                    // Falha de câmera não encerra o fluxo nem a janela de operação.
                     notifyStep(WorkflowStep.CAPTURE_PHOTO,
-                            "Foto não capturada: " + photoEx.getMessage());
+                            "Foto não capturada: " + (photoEx.getMessage() != null
+                                    ? photoEx.getMessage()
+                                    : photoEx.getClass().getSimpleName()));
+                } finally {
+                    com.peripheral.camera.CameraHardware.endExclusiveCapture();
                 }
             }
             if (!running.get()) {

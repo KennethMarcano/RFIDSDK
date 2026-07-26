@@ -74,6 +74,10 @@ public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.
             if (!liveDesired || starting || !isShowing()) {
                 return;
             }
+            // Não disputa a câmera durante captura de still.
+            if (CameraHardware.isExclusiveCapture()) {
+                return;
+            }
             if (!CameraHardware.isPreviewRunning()) {
                 startLivePreview();
             }
@@ -85,6 +89,10 @@ public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.
         liveDesired = true;
         if (!keepAliveTimer.isRunning()) {
             keepAliveTimer.start();
+        }
+        if (CameraHardware.isExclusiveCapture()) {
+            setPlaceholder("Aguardando liberar câmera...");
+            return;
         }
         if (!isShowing() || starting) {
             setPlaceholder("Iniciando vídeo...");
@@ -102,6 +110,9 @@ public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.
             @Override
             protected String doInBackground() {
                 try {
+                    if (CameraHardware.isExclusiveCapture()) {
+                        return "Câmera ocupada capturando foto";
+                    }
                     CameraHardware.startPreview();
                     return null;
                 } catch (CameraServiceException e) {
@@ -135,11 +146,20 @@ public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.
     }
 
     public void ensureLivePreview() {
+        if (CameraHardware.isExclusiveCapture()) {
+            setPlaceholder("Capturando foto...");
+            return;
+        }
         if (!liveDesired || !CameraHardware.isPreviewRunning()) {
             startLivePreview();
         } else {
             CameraFrameStream.getInstance().addListener(this);
         }
+    }
+
+    /** UI: mostra que a still está em andamento (keep-alive já bloqueado por exclusiveCapture). */
+    public void showCapturingPlaceholder() {
+        setPlaceholder("Capturando foto...");
     }
 
     private void detachStream(boolean stopProcess) {

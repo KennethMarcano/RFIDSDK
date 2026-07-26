@@ -1,5 +1,6 @@
 package com.peripheral.workflow;
 
+import com.peripheral.camera.CameraHardware;
 import com.peripheral.camera.CameraMicroserviceClient;
 import com.peripheral.camera.CameraServiceException;
 import com.peripheral.core.PeripheralDataEvent;
@@ -587,8 +588,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             } else {
                 handleDivergencePath(validation);
             }
-        } catch (Exception e) {
-            handleCycleFailure(e.getMessage() != null ? e.getMessage() : "Erro no fluxo", e);
+        } catch (Throwable e) {
+            handleCycleFailure(e.getMessage() != null ? e.getMessage() : "Erro no fluxo",
+                    e instanceof Exception ? (Exception) e : new PeripheralException(
+                            e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName(), e));
         }
     }
 
@@ -614,9 +617,11 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (config.isAiFallbackEnabled()) {
             try {
                 capturePhotoMandatory();
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                // Nunca derruba o fluxo / fecha a janela por falha de câmera.
                 notifyStep(WorkflowStep.CAPTURE_PHOTO,
-                        "Foto indisponível: " + e.getMessage() + " — continue com revisão manual.");
+                        "Foto indisponível: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
+                                + " — continue com revisão manual.");
             }
         }
 
@@ -807,22 +812,31 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         }
     }
 
-    private void capturePhotoOptional() throws IOException {
-        notifyStep(WorkflowStep.CAPTURE_PHOTO, "Capturando foto (opcional)...");
+    private void capturePhotoOptional() {
+        CameraHardware.beginExclusiveCapture();
         try {
+            notifyStep(WorkflowStep.CAPTURE_PHOTO, "Capturando foto (opcional)...");
             photoCapture().capturePhoto(context, sessionStore.getSessionDirectory(),
                     sessionStore.getNextPhotoIndex(), false);
             notifyStep(WorkflowStep.CAPTURE_PHOTO, "Foto salva: " + context.getPhotoPath());
-        } catch (IOException e) {
-            notifyStep(WorkflowStep.CAPTURE_PHOTO, "Foto não capturada: " + e.getMessage());
+        } catch (Throwable e) {
+            notifyStep(WorkflowStep.CAPTURE_PHOTO,
+                    "Foto não capturada: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        } finally {
+            CameraHardware.endExclusiveCapture();
         }
     }
 
     private void capturePhotoMandatory() throws IOException {
-        notifyStep(WorkflowStep.CAPTURE_PHOTO, "Capturando foto (divergência)...");
-        photoCapture().capturePhoto(context, sessionStore.getSessionDirectory(),
-                sessionStore.getNextPhotoIndex(), true);
-        notifyStep(WorkflowStep.CAPTURE_PHOTO, "Foto salva: " + context.getPhotoPath());
+        CameraHardware.beginExclusiveCapture();
+        try {
+            notifyStep(WorkflowStep.CAPTURE_PHOTO, "Capturando foto (divergência)...");
+            photoCapture().capturePhoto(context, sessionStore.getSessionDirectory(),
+                    sessionStore.getNextPhotoIndex(), true);
+            notifyStep(WorkflowStep.CAPTURE_PHOTO, "Foto salva: " + context.getPhotoPath());
+        } finally {
+            CameraHardware.endExclusiveCapture();
+        }
     }
 
     private void printLabel() throws IOException, PeripheralException {
