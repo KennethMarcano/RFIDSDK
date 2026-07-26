@@ -314,15 +314,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     private JPanel buildFooter() {
-        btnStartTags.setVisible(rfidEnabled);
+        // RFID inicia automaticamente ao abrir a janela — sem botão de tags.
+        btnStartTags.setVisible(false);
         btnStartTags.setEnabled(false);
-        btnStartTags.addActionListener(e -> {
-            if (orchestrator != null) {
-                liveTagMonitor.reset();
-                liveTagMonitor.setHint("Lendo tags — aproxime os produtos...");
-                orchestrator.confirmTagReadingStart();
-            }
-        });
         btnStartWeighing.addActionListener(e -> {
             if (orchestrator != null) {
                 liveTagMonitor.setHint("Pesagem iniciada — RFID parado para medir o peso.");
@@ -358,9 +352,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         actions.setOpaque(false);
         actions.add(btnEndWorkflow);
         actions.add(btnRestartSession);
-        if (rfidEnabled) {
-            actions.add(btnStartTags);
-        }
         actions.add(btnStartWeighing);
         actions.add(btnNext);
 
@@ -572,21 +563,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     private void setAwaitingTagReadingState() {
-        setWeightLiveEnabled(false);
-        btnStartTags.setEnabled(rfidEnabled);
-        btnStartWeighing.setEnabled(false);
-        btnNext.setEnabled(false);
-        btnRestartSession.setEnabled(true);
-        setOperatorReviewVisible(false);
-        cameraMonitor.ensureLivePreview();
-        if (simulationMode) {
-            btnSimulate.setEnabled(false);
-            setStatus("1) Iniciar leitura tags → 2) Simular tags → 3) Iniciar leitura peso.",
-                    WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
-        } else {
-            setStatus("Toque em Iniciar leitura tags para identificar os produtos.",
-                    WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
-        }
+        // Fallback legado — RFID agora inicia sozinho; mostra estado de leitura.
+        setTagReadingInProgressState();
     }
 
     private void setTagReadingInProgressState() {
@@ -597,12 +575,14 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         btnRestartSession.setEnabled(true);
         setOperatorReviewVisible(false);
         cameraMonitor.ensureLivePreview();
+        liveTagMonitor.reset();
+        liveTagMonitor.setHint("Lendo tags — aproxime os produtos...");
         if (simulationMode) {
             btnSimulate.setEnabled(true);
-            setStatus("Lendo tags — Simular para injetar códigos, depois Iniciar leitura peso.",
+            setStatus("Lendo tags automaticamente — Simular para injetar códigos, depois Iniciar leitura peso.",
                     WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
         } else {
-            setStatus("Lendo tags — quando terminar, toque em Iniciar leitura peso.",
+            setStatus("Lendo tags automaticamente — quando terminar, toque em Iniciar leitura peso.",
                     WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
         }
     }
@@ -621,7 +601,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             setStatus("Toque em Iniciar leitura peso e depois em Simular.",
                     WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
         } else {
-            setStatus("Toque em Iniciar leitura peso para medir.",
+            setStatus(rfidEnabled
+                    ? "Toque em Iniciar leitura peso para medir (RFID já está lendo)."
+                    : "Toque em Iniciar leitura peso para medir.",
                     WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
         }
     }

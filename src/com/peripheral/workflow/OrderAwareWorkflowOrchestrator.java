@@ -817,12 +817,12 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     }
 
     private void notifyPhaseStart() {
-        if (listener == null) {
+        if (isRfidEnabled()) {
+            // RFID começa sozinho ao abrir/avançar — operador só clica para pesar.
+            confirmTagReadingStart();
             return;
         }
-        if (awaitingTagStart.get()) {
-            listener.onAwaitingTagReadingStart();
-        } else {
+        if (listener != null) {
             listener.onAwaitingWeighingStart();
         }
     }
