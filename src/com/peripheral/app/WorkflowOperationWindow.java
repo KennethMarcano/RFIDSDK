@@ -54,7 +54,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     private final CameraLiveMonitorPanel cameraMonitor = new CameraLiveMonitorPanel();
     private final RfidTagMonitorPanel liveTagMonitor =
             new RfidTagMonitorPanel("TAGS LIDAS", false);
-    private final JLabel lbTagProgress = new JLabel("Tags: 0", SwingConstants.LEFT);
     private final ThemedButton btnClearTags =
             WorkflowUiTheme.button("Limpar tags", ThemedButton.Variant.SECONDARY);
 
@@ -86,9 +85,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                     .withSize(ThemedButton.Size.LARGE);
     private final ThemedButton btnStartWeighing =
             WorkflowUiTheme.button("Iniciar leitura peso", ThemedButton.Variant.PRIMARY)
-                    .withSize(ThemedButton.Size.LARGE);
-    private final ThemedButton btnNext =
-            WorkflowUiTheme.button("Próximo", ThemedButton.Variant.SUCCESS)
                     .withSize(ThemedButton.Size.LARGE);
     private final ThemedButton btnRestartSession =
             WorkflowUiTheme.button("Reiniciar", ThemedButton.Variant.SECONDARY);
@@ -389,12 +385,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                 orchestrator.confirmWeighingStart();
             }
         });
-        btnNext.setEnabled(false);
-        btnNext.addActionListener(e -> {
-            if (orchestrator != null) {
-                orchestrator.acknowledgeNext();
-            }
-        });
         btnRestartSession.addActionListener(e -> restartSession());
         btnEndWorkflow.addActionListener(e -> confirmEndWorkflow());
 
@@ -415,15 +405,10 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             liveTagMonitor.clearDetections();
             liveTagMonitor.setHint("Tags limpas — aproxime os produtos novamente...");
             orchestrator.clearReadTags();
-            lbTagProgress.setText("Códigos: 0");
         }));
-
-        lbTagProgress.setFont(WorkflowUiTheme.fontMeta(lbTagProgress));
-        lbTagProgress.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
 
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         left.setOpaque(false);
-        left.add(lbTagProgress);
         left.add(btnClearTags);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
@@ -431,7 +416,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         actions.add(btnEndWorkflow);
         actions.add(btnRestartSession);
         actions.add(btnStartWeighing);
-        actions.add(btnNext);
 
         JPanel southActions = new JPanel(new BorderLayout());
         southActions.setOpaque(false);
@@ -649,7 +633,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         setWeightLiveEnabled(false);
         btnStartTags.setEnabled(false);
         btnStartWeighing.setEnabled(true);
-        btnNext.setEnabled(false);
         btnRestartSession.setEnabled(true);
         setOperatorReviewVisible(false);
         cameraMonitor.ensureLivePreview();
@@ -670,7 +653,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         setWeightLiveEnabled(false);
         btnStartTags.setEnabled(false);
         btnStartWeighing.setEnabled(true);
-        btnNext.setEnabled(false);
         btnRestartSession.setEnabled(true);
         setOperatorReviewVisible(false);
         cameraMonitor.ensureLivePreview();
@@ -690,11 +672,14 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         setWeightLiveEnabled(false);
         btnStartTags.setEnabled(false);
         btnStartWeighing.setEnabled(false);
-        btnNext.setEnabled(true);
         btnRestartSession.setEnabled(true);
         cameraMonitor.ensureLivePreview();
-        setStatus("Ciclo concluído — toque em Próximo para nova leitura.",
+        setStatus("Ciclo concluído — iniciando próxima leitura...",
                 WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
+        // Sem botão Próximo: avança sozinho (fluxo só de pesagem).
+        if (orchestrator != null) {
+            orchestrator.acknowledgeNext();
+        }
     }
 
     private void setWeightLiveEnabled(boolean enabled) {
@@ -916,7 +901,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             setWeightLiveEnabled(true);
             btnStartTags.setEnabled(false);
             btnStartWeighing.setEnabled(false);
-            btnNext.setEnabled(false);
             if (simulationMode) {
                 btnSimulate.setEnabled(true);
             }
@@ -967,7 +951,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             setWeightLiveEnabled(false);
             btnStartTags.setEnabled(false);
             btnStartWeighing.setEnabled(false);
-            btnNext.setEnabled(false);
             btnRestartSession.setEnabled(true);
             refreshTareLabel();
             liveTagMonitor.reset();
@@ -994,7 +977,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             setWeightLiveEnabled(false);
             btnStartTags.setEnabled(false);
             btnStartWeighing.setEnabled(false);
-            btnNext.setEnabled(false);
             btnRestartSession.setEnabled(true);
             refreshTareLabel();
             cameraMonitor.ensureLivePreview();
@@ -1085,7 +1067,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             }
             if (code != null && !code.isEmpty()) {
                 liveTagMonitor.registerTag(code);
-                lbTagProgress.setText("Códigos: " + liveTagMonitor.getUniqueTagCount());
             }
         });
     }
@@ -1093,9 +1074,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     @Override
     public void onTagInventoryUpdated(java.util.List<String> detectedCodes, int expectedCount) {
         SwingUtilities.invokeLater(() -> {
-            int detected = detectedCodes != null ? detectedCodes.size() : 0;
-            // Sempre só o total lido — sem “esperado” do pedido na UI.
-            lbTagProgress.setText("Códigos: " + detected);
             if (detectedCodes != null) {
                 liveTagMonitor.syncDetectedCodes(detectedCodes);
             }
@@ -1109,7 +1087,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                 setWeightLiveEnabled(false);
                 btnStartTags.setEnabled(false);
                 btnStartWeighing.setEnabled(true);
-                btnNext.setEnabled(false);
                 if (simulationMode) {
                     btnSimulate.setEnabled(true);
                 }
@@ -1118,7 +1095,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                 setWeightLiveEnabled(true);
                 btnStartTags.setEnabled(false);
                 btnStartWeighing.setEnabled(false);
-                btnNext.setEnabled(false);
                 if (simulationMode) {
                     btnSimulate.setEnabled(true);
                 }
@@ -1126,13 +1102,11 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             } else if (step == WorkflowStep.CAPTURE_PHOTO) {
                 btnStartTags.setEnabled(false);
                 btnStartWeighing.setEnabled(false);
-                btnNext.setEnabled(false);
                 // Preview deve ficar parado — keep-alive respeita exclusiveCapture.
                 cameraMonitor.showCapturingPlaceholder();
             } else {
                 btnStartTags.setEnabled(false);
                 btnStartWeighing.setEnabled(false);
-                btnNext.setEnabled(false);
                 cameraMonitor.ensureLivePreview();
             }
             setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
@@ -1159,7 +1133,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         SwingUtilities.invokeLater(() -> {
             btnStartTags.setEnabled(false);
             btnStartWeighing.setEnabled(false);
-            btnNext.setEnabled(false);
             btnSimulate.setEnabled(false);
             setStatus(message, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
         });
@@ -1187,7 +1160,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             clearHistory();
             liveTagMonitor.reset();
             liveTagMonitor.setHint("Aguardando iniciar leitura de tags...");
-            lbTagProgress.setText("Códigos: 0");
             setWeightLiveEnabled(false);
             lastRawPayload = null;
             cameraMonitor.ensureLivePreview();
@@ -1220,7 +1192,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             cameraMonitor.stopLivePreview();
             btnStartTags.setEnabled(false);
             btnStartWeighing.setEnabled(false);
-            btnNext.setEnabled(false);
             btnRestartSession.setEnabled(false);
             setStatus("Fluxo parado.", WorkflowUiTheme.TEXT_MUTED, WorkflowUiTheme.TEXT_SECONDARY);
             dispose();
