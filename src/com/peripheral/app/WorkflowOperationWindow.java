@@ -906,23 +906,24 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             setOperatorReviewVisible(false);
             setWeightLiveEnabled(false);
             btnStartTags.setEnabled(false);
-            btnStartWeighing.setEnabled(true);
+            btnStartWeighing.setEnabled(false);
             btnNext.setEnabled(false);
             btnRestartSession.setEnabled(true);
             refreshTareLabel();
             liveTagMonitor.reset();
-            liveTagMonitor.setHint("Novo pedido — lendo tags...");
+            liveTagMonitor.setHint("Retire os produtos anteriores — aguardando campo RFID vazio...");
             cameraMonitor.ensureLivePreview();
 
             String completedNum = completed != null ? completed.getNumero() : "?";
             String nextNum = next != null ? next.getNumero() : "?";
             String detail = "Pedido " + completedNum + " finalizado.\n"
-                    + "Iniciando " + nextNum + " (" + nextIndex + "/" + total + ")\n"
+                    + "Próximo: " + nextNum + " (" + nextIndex + "/" + total + ")\n"
+                    + "Retire os produtos anteriores. As tags serão apagadas antes da nova leitura.\n"
                     + "Tara reiniciada — processo do zero.";
             WorkflowUiTheme.showValidationOutcome(this, true,
                     "Próximo pedido da fila", detail);
             setStatus("Pedido " + nextNum + " (" + nextIndex + "/" + total
-                            + ") — lendo tags automaticamente...",
+                            + ") — retire os produtos anteriores...",
                     WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
         });
     }

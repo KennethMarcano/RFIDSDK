@@ -33,6 +33,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private static final long TARE_STABLE_WINDOW_MS = 1200;
     private static final long TARE_TIMEOUT_MS = 15_000;
     private static final double TARE_STABLE_TOLERANCE_KG = 0.005;
+    /** Tempo sem nenhuma tag antes de liberar a leitura do próximo pedido. */
+    private static final long RFID_FIELD_CLEAR_WINDOW_MS = 1500;
 
     private final PeripheralSessionManager sessionManager;
     private final List<Pedido> pedidos;
@@ -65,6 +67,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private int currentVolumeIndex;
     private double lastStableWeight;
     private final AtomicBoolean rfidCollecting = new AtomicBoolean(false);
+    private final AtomicLong lastRfidSignalMs = new AtomicLong(0);
+    private final AtomicInteger rfidTransitionToken = new AtomicInteger();
     /** Tara lógica (caixa). Reinicia entre pedidos/sessões. */
     private volatile double tareKg;
     private volatile double lastGrossKg;
@@ -148,6 +152,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     @Override
     public void stop() {
         running.set(false);
+        rfidTransitionToken.incrementAndGet();
         cycleInProgress.set(false);
         armed.set(false);
         waitingForNext.set(false);
@@ -175,6 +180,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (cycleInProgress.get()) {
             throw new PeripheralException("Aguarde o ciclo atual terminar para reiniciar a sessão.");
         }
+        rfidTransitionToken.incrementAndGet();
         currentVolumeIndex = 0;
         waitingForNext.set(false);
         operatorReview.set(false);
@@ -683,7 +689,13 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private final PeripheralDataListener continuousRfidListener = new PeripheralDataListener() {
         @Override
         public void onData(PeripheralDataEvent event) {
-            if (!running.get() || event == null || !rfidCollecting.get()) {
+            if (!running.get() || event == null) {
+                return;
+            }
+            if (hasTagIdentity(event)) {
+                lastRfidSignalMs.set(System.currentTimeMillis());
+            }
+            if (!rfidCollecting.get()) {
                 return;
             }
             boolean added = context.addTag(event.getEpc(), event.getCode());
@@ -1030,7 +1042,60 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         notifyStep(WorkflowStep.FETCH_ORDER,
                 "Pedido " + finished.getNumero() + " OK — iniciando "
                         + pedido.getNumero() + " (" + (pedidoIndex + 1) + "/" + pedidos.size() + ")");
+        if (isRfidEnabled() && !config.isSimulationMode()) {
+            awaitRfidFieldClearAndStartNextOrder();
+        } else {
+            notifyPhaseStart();
+        }
+    }
+
+    /**
+     * Mantém a coleta desativada enquanto os produtos do pedido anterior ainda
+     * respondem. Após 1,5 s sem tags, limpa novamente o inventário e inicia o
+     * próximo pedido. Assim, tags lidas durante a retirada nunca são atribuídas
+     * ao novo pedido.
+     */
+    private void awaitRfidFieldClearAndStartNextOrder() {
+        int token = rfidTransitionToken.incrementAndGet();
+        rfidCollecting.set(false);
+        lastRfidSignalMs.set(System.currentTimeMillis());
+        context.clearTags();
+        notifyTagInventory();
+        notifyStep(WorkflowStep.FETCH_ORDER,
+                "Retire os produtos do pedido anterior — aguardando o campo RFID ficar vazio...");
+        try {
+            startContinuousRfidIfEnabled();
+            while (running.get() && rfidTransitionToken.get() == token) {
+                long quietForMs = System.currentTimeMillis() - lastRfidSignalMs.get();
+                if (quietForMs >= RFID_FIELD_CLEAR_WINDOW_MS) {
+                    break;
+                }
+                Thread.sleep(100);
+            }
+        } catch (PeripheralException e) {
+            handleCycleFailure("Falha ao verificar a retirada das tags: " + e.getMessage(), e);
+            return;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        } finally {
+            stopRfidReading();
+        }
+        if (!running.get() || rfidTransitionToken.get() != token) {
+            return;
+        }
+        context.clearTags();
+        notifyTagInventory();
+        resetPhaseFlags();
+        notifyStep(WorkflowStep.FETCH_ORDER,
+                "Campo RFID vazio — iniciando a leitura do novo pedido.");
         notifyPhaseStart();
+    }
+
+    private static boolean hasTagIdentity(PeripheralDataEvent event) {
+        return event != null
+                && ((event.getEpc() != null && !event.getEpc().trim().isEmpty())
+                || (event.getCode() != null && !event.getCode().trim().isEmpty()));
     }
 
     private void startContinuousRfidIfEnabled() throws PeripheralException {
