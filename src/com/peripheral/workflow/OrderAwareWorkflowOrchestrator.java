@@ -455,6 +455,24 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             cycleInProgress.set(false);
             rfidCollecting.set(false);
             stopRfidReading();
+            // Descarta dados da divergência: foto/IA antigos não vão para o histórico.
+            context.setAiMessage(null);
+            context.setMissingProducts(null);
+            context.setUnexpectedProducts(null);
+            context.setPhotoPath(null);
+            // Foto e etiqueta só agora, com a conferência aprovada e o peso correto.
+            try {
+                if (config.isEnabled(WorkflowStep.PRINT_LABEL)) {
+                    printLabel();
+                }
+            } catch (Exception e) {
+                notifyStep(WorkflowStep.PRINT_LABEL,
+                        "Etiqueta não gerada: "
+                                + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+            }
+            if (config.isEnabled(WorkflowStep.CAPTURE_PHOTO)) {
+                capturePhotoOptional();
+            }
             recordAndAdvance("APROVADO_OPERADOR");
             return;
         }
@@ -953,9 +971,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         context.setValidationStatusLabel("DIVERGENCIA");
         notifyStep(WorkflowStep.VALIDATE_ORDER, validation.getSummaryMessage());
 
-        // Sem IA de fallback: sem foto/análise de vídeo — revisão 100% do operador.
+        // Divergência: foto/etiqueta NÃO são geradas agora — só quando a conferência
+        // for aprovada. A foto aqui (se houver IA) serve apenas para a análise de vídeo.
         if (config.isAiFallbackEnabled()) {
-            // Foto + IA na mesma janela exclusiva (preview não pode religar no meio).
+            // Foto temporária + IA na mesma janela exclusiva (preview não pode religar no meio).
             CameraHardware.beginExclusiveCapture();
             try {
                 try {
@@ -966,17 +985,11 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                                     + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
                                     + " — continue com revisão manual.");
                 }
-                if (config.isEnabled(WorkflowStep.PRINT_LABEL)) {
-                    printLabel();
-                }
                 runAiAnalysis();
             } finally {
                 CameraHardware.endExclusiveCapture();
             }
         } else {
-            if (config.isEnabled(WorkflowStep.PRINT_LABEL)) {
-                printLabel();
-            }
             context.setAiMessage(null);
             notifyStep(WorkflowStep.OPERATOR_REVIEW,
                     "Divergência — revise manualmente: reler tags, liberar volume ou reiniciar.");
