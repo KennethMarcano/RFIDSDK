@@ -41,6 +41,17 @@ def analyze(image_path: str, expected_products: list[dict]) -> dict:
     if state.backend == "imx500_rpk":
         backend_note = " (IMX500 on-sensor)"
 
+    # Um código por produto: mantém só a maior confiança.
+    unique: dict[str, model_manager.Detection] = {}
+    for det in detections:
+        key = _normalize(det.label)
+        if not key:
+            continue
+        prev = unique.get(key)
+        if prev is None or float(det.confidence) > float(prev.confidence):
+            unique[key] = det
+    detections = list(unique.values())
+
     detected_labels = [d.label for d in detections]
     detected_counts = Counter(_normalize(label) for label in detected_labels)
 

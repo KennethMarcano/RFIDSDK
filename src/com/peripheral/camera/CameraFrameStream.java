@@ -159,8 +159,9 @@ public final class CameraFrameStream {
         if (process != null) {
             process.destroy();
             try {
-                if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                if (!process.waitFor(3, TimeUnit.SECONDS)) {
                     process.destroyForcibly();
+                    process.waitFor(2, TimeUnit.SECONDS);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

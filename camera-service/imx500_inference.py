@@ -1,12 +1,10 @@
 """
 Inferência on-sensor Sony IMX500 via rpicam-apps (sem Picamera2).
 
-Alinha com o comando que funciona no terminal, mas usa uma janela finita:
-  rpicam-still --nopreview -t 8000 --post-process-file ... -o /tmp/ai.jpg -v
+Usa janela finita (default 8 s):
+  rpicam-still --nopreview -t 8000 --post-process-file ... -o /tmp/ai.jpg -vv
 
-Diferenças que quebravam a app:
-- --immediate + timeout curto → captura antes do tensor da IMX500
-- parser não lia o formato real do log: "[0] : nome[cat] (conf) @ x,y wxh"
+Importante: a câmera deve estar livre (sem rpicam-vid) antes do still com post-process.
 """
 
 from __future__ import annotations
@@ -19,6 +17,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -62,7 +61,35 @@ def detect_live(
         )
 
     with _lock:
-        return _detect_with_rpicam(still, rpk_path, labels, threshold)
+        last_error: Optional[Exception] = None
+        for attempt in range(2):
+            try:
+                _release_preview_streams()
+                # Sensor / pipeline precisam liberar após rpicam-vid.
+                time.sleep(0.9 if attempt == 0 else 1.6)
+                return _detect_with_rpicam(still, rpk_path, labels, threshold)
+            except Exception as exc:
+                last_error = exc
+                msg = str(exc).lower()
+                retryable = (
+                    "busy" in msg
+                    or "in use" in msg
+                    or "device" in msg
+                    or "post-process" in msg
+                    or "pipeline" in msg
+                    or "failed to" in msg
+                )
+                logger.warning(
+                    "rpicam IA tentativa %s falhou (%s)%s",
+                    attempt + 1,
+                    exc,
+                    " — retry" if retryable and attempt == 0 else "",
+                )
+                if not retryable or attempt > 0:
+                    raise
+        if last_error:
+            raise last_error
+        return []
 
 
 def _resolve_still() -> Optional[str]:
@@ -71,6 +98,21 @@ def _resolve_still() -> Optional[str]:
         if path:
             return path
     return None
+
+
+def _release_preview_streams() -> None:
+    """Encerra streams de preview que bloqueiam o post-process IMX500."""
+    for pattern in ("rpicam-vid", "libcamera-vid"):
+        try:
+            subprocess.run(
+                ["pkill", "-f", pattern],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+        except Exception:
+            pass
 
 
 def _detect_with_rpicam(
@@ -82,9 +124,6 @@ def _detect_with_rpicam(
     post_json = _write_post_process_json(rpk_path, labels, threshold)
     out_jpg = Path(tempfile.gettempdir()) / "rfidsdk_imx500_detect.jpg"
     log_path = config.MODEL_DIR / "last_rpicam_ai.log"
-    # -t 0 nunca termina e fazia a chamada HTTP aguardar até 180 s.
-    # O sensor recebe alguns segundos para aquecer e produzir várias inferências.
-    # -vv faz LOG(2) imprimir "[i] : name[cat] (conf) @ ..."
     capture_ms = max(
         2500,
         int(float(os.environ.get("CAMERA_IMX500_CAPTURE_MS", "8000"))),
@@ -132,14 +171,7 @@ def _detect_with_rpicam(
 
     if completed.returncode != 0 and not detections:
         err = combined.strip() or f"exit={completed.returncode}"
-        lower = err.lower()
-        if "post" in lower and ("process" in lower or "stage" in lower):
-            raise RuntimeError(
-                "Post-process IMX500 indisponível no rpicam-apps. "
-                "Instale: sudo apt install -y imx500-all rpicam-apps\n"
-                f"Detalhe: {err[:400]}"
-            )
-        raise RuntimeError(f"rpicam-still IA falhou: {err[:500]}")
+        raise RuntimeError(_classify_rpicam_error(err))
 
     if not detections:
         logger.warning(
@@ -148,8 +180,32 @@ def _detect_with_rpicam(
             log_path,
         )
     else:
-        logger.info("rpicam IA: %d detecção(ões)", len(detections))
+        logger.info("rpicam IA: %d código(s) único(s)", len(detections))
     return detections
+
+
+def _classify_rpicam_error(err: str) -> str:
+    lower = (err or "").lower()
+    # Logs verbose sempre citam "post-process"; só trate falha real.
+    hard_fail = (
+        "failed to create" in lower
+        or "failed to configure" in lower
+        or "no such file" in lower
+        or "not found" in lower
+        or "unavailable" in lower
+        or "device or resource busy" in lower
+        or "device busy" in lower
+        or "already in use" in lower
+        or "could not" in lower and "post" in lower
+    )
+    if hard_fail and ("post" in lower or "imx500" in lower or "busy" in lower):
+        return (
+            "Câmera ocupada ou post-process IMX500 indisponível. "
+            "Pare o vídeo ao vivo e tente de novo. "
+            "Se persistir: sudo apt install -y imx500-all rpicam-apps\n"
+            f"Detalhe: {err[:400]}"
+        )
+    return f"rpicam-still IA falhou: {err[:500]}"
 
 
 def _write_post_process_json(
@@ -163,8 +219,6 @@ def _write_post_process_json(
     if not classes:
         classes = ["object"]
 
-    # threshold um pouco mais baixo que o default 0.6 do exemplo oficial,
-    # alinhado ao config.DETECTION_THRESHOLD da app.
     payload = {
         "imx500_object_detection": {
             "max_detections": 10,
@@ -181,8 +235,8 @@ def _write_post_process_json(
 
 
 def _parse_detection_log(text: str, labels: list[str]) -> list[Detection]:
-    found: list[Detection] = []
-    seen = set()
+    """Uma entrada por código/label — mantém a maior confiança."""
+    best: dict[str, Detection] = {}
     for raw in (text or "").splitlines():
         line = raw.strip()
         if "@" not in line or "[" not in line or "(" not in line:
@@ -193,20 +247,15 @@ def _parse_detection_log(text: str, labels: list[str]) -> list[Detection]:
         if not m:
             continue
         name = m.group("name").strip()
-        # Prefixo residual tipo "0] : 003509" no fallback plain
         if ":" in name:
             name = name.split(":")[-1].strip()
-        if name.endswith("]"):
-            continue
-        if not name:
+        if name.endswith("]") or not name:
             continue
         conf = float(m.group("conf"))
         x = int(m.group("x"))
         y = int(m.group("y"))
         w = int(m.group("w"))
         h = int(m.group("h"))
-        # Still sem --width/--height fixos: coords já vêm no espaço ISP.
-        # Normaliza com heurística; se > 1.5 trata como pixels em 640x480.
         if max(x + w, y + h) > 2:
             nw, nh = 640.0, 480.0
             box = (
@@ -217,10 +266,6 @@ def _parse_detection_log(text: str, labels: list[str]) -> list[Detection]:
             )
         else:
             box = (float(x), float(y), float(x + w), float(y + h))
-        key = (name, round(conf, 3), round(box[0], 3), round(box[1], 3))
-        if key in seen:
-            continue
-        seen.add(key)
         label = name
         try:
             cat = int(m.group("cat"))
@@ -228,5 +273,10 @@ def _parse_detection_log(text: str, labels: list[str]) -> list[Detection]:
                 label = labels[cat]
         except Exception:
             pass
-        found.append(Detection(label=label, confidence=conf, box=box))
-    return found
+        key = (label or "").strip().upper()
+        if not key:
+            continue
+        prev = best.get(key)
+        if prev is None or conf > prev.confidence:
+            best[key] = Detection(label=label, confidence=conf, box=box)
+    return list(best.values())

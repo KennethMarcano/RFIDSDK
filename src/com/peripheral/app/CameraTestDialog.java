@@ -15,6 +15,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -299,12 +300,13 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
                         WorkflowUiTheme.setStatusColor(lbAiStatus, WorkflowUiTheme.WARNING);
                         return;
                     }
-                    List<CameraMicroserviceClient.Detection> dets = result.getDetections();
-                    detections.set(dets != null ? dets : Collections.emptyList());
+                    List<CameraMicroserviceClient.Detection> dets =
+                            mergeDetections(result.getDetections());
+                    detections.set(dets);
                     updateDetectionsLabel(dets);
                     lbAiStatus.setText("IA: ok — "
-                            + (dets == null ? 0 : dets.size())
-                            + " detecção(ões) · próximo ciclo em "
+                            + dets.size()
+                            + " código(s) · próximo ciclo em "
                             + (AI_INTERVAL_MS / 1000) + "s");
                     WorkflowUiTheme.setStatusColor(lbAiStatus, WorkflowUiTheme.SUCCESS);
                 } catch (Exception e) {
@@ -316,26 +318,112 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
     }
 
     private void updateDetectionsLabel(List<CameraMicroserviceClient.Detection> dets) {
-        if (dets == null || dets.isEmpty()) {
-            lbDetections.setText("Detecções: nenhuma (aponte produtos ao modelo)");
+        List<CameraMicroserviceClient.Detection> unique = uniqueByCodeMaxConfidence(dets);
+        if (unique.isEmpty()) {
+            lbDetections.setText("Código: — (aponte o produto ao modelo)");
             return;
         }
-        StringBuilder sb = new StringBuilder("Detecções: ");
-        for (int i = 0; i < dets.size(); i++) {
+        // Um código por linha — só o código e o % (sem repetir).
+        StringBuilder sb = new StringBuilder("<html>");
+        for (int i = 0; i < unique.size(); i++) {
             if (i > 0) {
-                sb.append(" · ");
+                sb.append("<br>");
             }
-            CameraMicroserviceClient.Detection d = dets.get(i);
-            sb.append(d.getCode())
-                    .append(" (")
-                    .append(String.format(java.util.Locale.US, "%.0f%%", d.getConfidence() * 100.0))
-                    .append(')');
-            if (i >= 5) {
-                sb.append(" …");
+            CameraMicroserviceClient.Detection d = unique.get(i);
+            sb.append("Código: <b>")
+                    .append(escapeHtml(d.getCode()))
+                    .append("</b> — ")
+                    .append(String.format(java.util.Locale.US, "%.0f%%",
+                            confidencePercent(d.getConfidence())));
+            if (i >= 4) {
+                sb.append("<br>…");
                 break;
             }
         }
+        sb.append("</html>");
         lbDetections.setText(sb.toString());
+    }
+
+    /**
+     * Junta com o ciclo anterior: mesmo código → só atualiza o % (maior confiança).
+     */
+    private List<CameraMicroserviceClient.Detection> mergeDetections(
+            List<CameraMicroserviceClient.Detection> incoming) {
+        List<CameraMicroserviceClient.Detection> next = uniqueByCodeMaxConfidence(incoming);
+        if (next.isEmpty()) {
+            return detections.get() != null ? detections.get() : Collections.emptyList();
+        }
+        java.util.LinkedHashMap<String, CameraMicroserviceClient.Detection> byCode =
+                new java.util.LinkedHashMap<>();
+        List<CameraMicroserviceClient.Detection> prev = detections.get();
+        if (prev != null) {
+            for (CameraMicroserviceClient.Detection d : uniqueByCodeMaxConfidence(prev)) {
+                byCode.put(normalizeCode(d.getCode()), d);
+            }
+        }
+        for (CameraMicroserviceClient.Detection d : next) {
+            String key = normalizeCode(d.getCode());
+            CameraMicroserviceClient.Detection old = byCode.get(key);
+            if (old == null || d.getConfidence() >= old.getConfidence()) {
+                byCode.put(key, d);
+            }
+        }
+        return new ArrayList<>(byCode.values());
+    }
+
+    /** Um código por entrada: mantém só a maior confiança. */
+    private static List<CameraMicroserviceClient.Detection> uniqueByCodeMaxConfidence(
+            List<CameraMicroserviceClient.Detection> dets) {
+        if (dets == null || dets.isEmpty()) {
+            return Collections.emptyList();
+        }
+        java.util.LinkedHashMap<String, CameraMicroserviceClient.Detection> byCode =
+                new java.util.LinkedHashMap<>();
+        for (CameraMicroserviceClient.Detection d : dets) {
+            if (d == null) {
+                continue;
+            }
+            String key = normalizeCode(d.getCode());
+            if (key.isEmpty()) {
+                continue;
+            }
+            CameraMicroserviceClient.Detection prev = byCode.get(key);
+            if (prev == null || d.getConfidence() > prev.getConfidence()) {
+                byCode.put(key, d);
+            }
+        }
+        return new ArrayList<>(byCode.values());
+    }
+
+    private static String normalizeCode(String code) {
+        if (code == null) {
+            return "";
+        }
+        String s = code.trim();
+        // Remove sufixo de categoria do log rpicam: "003509[0]" → "003509"
+        int bracket = s.indexOf('[');
+        if (bracket > 0) {
+            s = s.substring(0, bracket).trim();
+        }
+        return s.toUpperCase(java.util.Locale.ROOT);
+    }
+
+    /** Aceita confiança 0–1 ou já em percentual 0–100. */
+    private static double confidencePercent(double confidence) {
+        if (confidence < 0) {
+            return 0;
+        }
+        if (confidence <= 1.0) {
+            return confidence * 100.0;
+        }
+        return Math.min(100.0, confidence);
+    }
+
+    private static String escapeHtml(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private Path ensureTempFramePath() throws IOException {
@@ -414,7 +502,8 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             int w = out.getWidth();
             int h = out.getHeight();
-            for (CameraMicroserviceClient.Detection d : dets) {
+            List<CameraMicroserviceClient.Detection> unique = uniqueByCodeMaxConfidence(dets);
+            for (CameraMicroserviceClient.Detection d : unique) {
                 double[] box = d.getBox();
                 int x1 = toPx(box[0], w);
                 int y1 = toPx(box[1], h);
@@ -438,7 +527,8 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
                 g.setStroke(new BasicStroke(2.5f));
                 g.drawRect(x1, y1, Math.max(1, x2 - x1), Math.max(1, y2 - y1));
                 String label = d.getCode() + " "
-                        + String.format(java.util.Locale.US, "%.0f%%", d.getConfidence() * 100.0);
+                        + String.format(java.util.Locale.US, "%.0f%%",
+                        confidencePercent(d.getConfidence()));
                 g.setFont(g.getFont().deriveFont(Font.BOLD, 14f));
                 FontMetrics fm = g.getFontMetrics();
                 int tw = fm.stringWidth(label) + 8;
@@ -451,19 +541,20 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
             }
             // Lista compacta no topo se houver detecções sem bbox útil
             boolean anyBox = false;
-            for (CameraMicroserviceClient.Detection d : dets) {
+            for (CameraMicroserviceClient.Detection d : unique) {
                 double[] b = d.getBox();
                 if (toPx(b[2], w) - toPx(b[0], w) >= 4) {
                     anyBox = true;
                     break;
                 }
             }
-            if (!anyBox && !dets.isEmpty()) {
+            if (!anyBox && !unique.isEmpty()) {
                 int y = 18;
                 g.setFont(g.getFont().deriveFont(Font.BOLD, 13f));
-                for (CameraMicroserviceClient.Detection d : dets) {
+                for (CameraMicroserviceClient.Detection d : unique) {
                     String label = "● " + d.getCode() + " "
-                            + String.format(java.util.Locale.US, "%.0f%%", d.getConfidence() * 100.0);
+                            + String.format(java.util.Locale.US, "%.0f%%",
+                            confidencePercent(d.getConfidence()));
                     g.setColor(new Color(0x25, 0x2F, 0x3D, 200));
                     FontMetrics fm = g.getFontMetrics();
                     g.fillRect(8, y - fm.getAscent(), fm.stringWidth(label) + 10, fm.getHeight());

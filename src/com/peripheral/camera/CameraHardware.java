@@ -42,6 +42,12 @@ public final class CameraHardware {
     public static void beginExclusiveCapture() {
         if (exclusiveCaptureDepth.getAndIncrement() == 0) {
             stopPreview();
+            // Libera o pipeline CSI antes de still/IA (evita post-process IMX500 busy).
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 

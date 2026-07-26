@@ -615,23 +615,28 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
 
         // Sem IA de fallback: sem foto/análise de vídeo — revisão 100% do operador.
         if (config.isAiFallbackEnabled()) {
+            // Foto + IA na mesma janela exclusiva (preview não pode religar no meio).
+            CameraHardware.beginExclusiveCapture();
             try {
-                capturePhotoMandatory();
-            } catch (Throwable e) {
-                // Nunca derruba o fluxo / fecha a janela por falha de câmera.
-                notifyStep(WorkflowStep.CAPTURE_PHOTO,
-                        "Foto indisponível: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
-                                + " — continue com revisão manual.");
+                try {
+                    capturePhotoMandatory();
+                } catch (Throwable e) {
+                    notifyStep(WorkflowStep.CAPTURE_PHOTO,
+                            "Foto indisponível: "
+                                    + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
+                                    + " — continue com revisão manual.");
+                }
+                if (config.isEnabled(WorkflowStep.PRINT_LABEL)) {
+                    printLabel();
+                }
+                runAiAnalysis();
+            } finally {
+                CameraHardware.endExclusiveCapture();
             }
-        }
-
-        if (config.isEnabled(WorkflowStep.PRINT_LABEL)) {
-            printLabel();
-        }
-
-        if (config.isAiFallbackEnabled()) {
-            runAiAnalysis();
         } else {
+            if (config.isEnabled(WorkflowStep.PRINT_LABEL)) {
+                printLabel();
+            }
             context.setAiMessage(null);
             notifyStep(WorkflowStep.OPERATOR_REVIEW,
                     "Divergência — revise manualmente: reler tags, liberar volume ou reiniciar.");
@@ -646,20 +651,39 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             notifyStep(WorkflowStep.AI_ANALYSIS, context.getAiMessage());
             return;
         }
-        if (context.getPhotoPath() == null || context.getPhotoPath().isEmpty()) {
-            context.setAiMessage("Sem foto para análise — revise manualmente.");
-            return;
-        }
+        // Backend IMX500 RPK precisa da câmera livre (sem MJPEG). Mantém exclusividade
+        // durante toda a análise — evita "Post-process IMX500 indisponível".
+        // Preview já deve estar parado (exclusive do caller ou daqui).
+        CameraHardware.beginExclusiveCapture();
         try {
+            Thread.sleep(1200);
+            String imagePath = context.getPhotoPath() != null ? context.getPhotoPath() : "";
             List<CameraMicroserviceClient.ExpectedProductPayload> expected = buildExpectedProducts();
-            CameraMicroserviceClient.AnalysisResult result = cameraClient.analyze(
-                    context.getPhotoPath(), expected);
+            CameraMicroserviceClient.AnalysisResult result = cameraClient.analyze(imagePath, expected);
             context.setAiMessage(result.getMessage());
             context.setMissingProducts(result.getMissingProducts());
             notifyStep(WorkflowStep.AI_ANALYSIS, result.getMessage());
-        } catch (CameraServiceException e) {
-            context.setAiMessage("Erro na análise: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            context.setAiMessage("Análise interrompida — revise manualmente.");
             notifyStep(WorkflowStep.AI_ANALYSIS, context.getAiMessage());
+        } catch (CameraServiceException e) {
+            // Retry com câmera ainda exclusiva (preview não religa).
+            try {
+                Thread.sleep(1800);
+                List<CameraMicroserviceClient.ExpectedProductPayload> expected = buildExpectedProducts();
+                String imagePath = context.getPhotoPath() != null ? context.getPhotoPath() : "";
+                CameraMicroserviceClient.AnalysisResult result =
+                        cameraClient.analyze(imagePath, expected);
+                context.setAiMessage(result.getMessage());
+                context.setMissingProducts(result.getMissingProducts());
+                notifyStep(WorkflowStep.AI_ANALYSIS, result.getMessage());
+            } catch (Exception retryEx) {
+                context.setAiMessage("Erro na análise: " + e.getMessage());
+                notifyStep(WorkflowStep.AI_ANALYSIS, context.getAiMessage());
+            }
+        } finally {
+            CameraHardware.endExclusiveCapture();
         }
     }
 
