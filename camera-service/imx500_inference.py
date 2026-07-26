@@ -1,8 +1,8 @@
 """
 Inferência on-sensor Sony IMX500 via rpicam-apps (sem Picamera2).
 
-Alinha com o comando que funciona no terminal:
-  rpicam-still --nopreview -t 0 --post-process-file ... -o /tmp/ai.jpg -v
+Alinha com o comando que funciona no terminal, mas usa uma janela finita:
+  rpicam-still --nopreview -t 8000 --post-process-file ... -o /tmp/ai.jpg -v
 
 Diferenças que quebravam a app:
 - --immediate + timeout curto → captura antes do tensor da IMX500
@@ -82,16 +82,23 @@ def _detect_with_rpicam(
     post_json = _write_post_process_json(rpk_path, labels, threshold)
     out_jpg = Path(tempfile.gettempdir()) / "rfidsdk_imx500_detect.jpg"
     log_path = config.MODEL_DIR / "last_rpicam_ai.log"
-    # Igual ao comando manual que funciona: -t 0, sem --immediate.
-    # -vv para LOG(2) imprimir "[i] : name[cat] (conf) @ ..."
-    timeout_s = int(float(os.environ.get("CAMERA_IMX500_TIMEOUT_S", "180")))
-    shutter_ms = os.environ.get("CAMERA_IMX500_STILL_TIMEOUT_MS", "0")
+    # -t 0 nunca termina e fazia a chamada HTTP aguardar até 180 s.
+    # O sensor recebe alguns segundos para aquecer e produzir várias inferências.
+    # -vv faz LOG(2) imprimir "[i] : name[cat] (conf) @ ..."
+    capture_ms = max(
+        2500,
+        int(float(os.environ.get("CAMERA_IMX500_CAPTURE_MS", "8000"))),
+    )
+    timeout_s = max(
+        10,
+        int(float(os.environ.get("CAMERA_IMX500_TIMEOUT_S", "25"))),
+    )
 
     cmd = [
         still_cmd,
         "--nopreview",
         "-t",
-        str(shutter_ms),
+        str(capture_ms),
         "--post-process-file",
         str(post_json),
         "-o",
@@ -111,7 +118,7 @@ def _detect_with_rpicam(
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
             f"Timeout ({timeout_s}s) no rpicam-still com IMX500. "
-            "Na 1ª vez o firmware pode demorar; tente de novo."
+            f"A captura deveria terminar em {capture_ms}ms."
         ) from exc
 
     combined = (completed.stdout or "") + "\n" + (completed.stderr or "")
