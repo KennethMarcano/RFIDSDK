@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Reset seletivo de conversores USB-serial (RFID/balança) no Linux.
-# NÃO desliga touch, teclado, mouse nem storage.
+# NÃO desliga touch, teclado, mouse nem storage — na prática, em alguns hubs
+# USB o reset ainda derrubava o touch da tela 7". Por isso NÃO é mais chamado
+# automaticamente (iniciar.sh / Java / systemd). Use só manualmente se a porta
+# serial do RFID/balança ficar morta após reboot a quente.
 #
 # Faz um reset REAL (equivalente a desconectar/reconectar o cabo), pois num
 # reboot "a quente" o VBUS dos USB do Raspberry não é cortado e o chip

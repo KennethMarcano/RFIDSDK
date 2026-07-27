@@ -55,13 +55,9 @@ if java --help 2>&1 | grep -q 'enable-native-access'; then
   JAVA_OPTS=(--enable-native-access=ALL-UNNAMED "${JAVA_OPTS[@]}")
 fi
 
-# Reset seletivo de USB-serial (RFID/balança) antes do Java — evita cabo "morto"
-# quando o periférico ligou antes do Raspberry no mesmo filtro de energia.
-if [[ "$(uname -s)" == "Linux" ]]; then
-  echo "Reescaneando conversores USB-serial (RFID/balança)..."
-  bash "${ROOT}/scripts/usb-serial-reset.sh" || true
-  export RFIDSDK_USB_WARMUP_DONE=1
-fi
+# Reset USB-serial desativado: o USBDEVFS_RESET/unbind afetava o touch USB da tela.
+# Se RFID/balança ficarem "mortos" após reboot a quente, reconecte o cabo ou rode
+# manualmente:  bash scripts/usb-serial-reset.sh
 
 # Dependências do fallback IA em venv (evita externally-managed-environment no Bookworm+)
 export CAMERA_MODEL_DIR="${ROOT}/camera-service/modelCamera"
