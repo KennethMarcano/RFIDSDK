@@ -37,10 +37,12 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private static final long TARE_STABLE_WINDOW_MS = 1200;
     private static final long TARE_TIMEOUT_MS = 15_000;
     private static final double TARE_STABLE_TOLERANCE_KG = 0.005;
-    /** Tempo de exibição do pop-up de sucesso/divergência (sem botão). */
+    /** Tempo de exibição do pop-up de sucesso (sem botão). */
     private static final long OUTCOME_MESSAGE_MS = 2000;
+    /** Tempo de exibição do pop-up de divergência (sem botão). */
+    private static final long DIVERGENCE_OUTCOME_MESSAGE_MS = 10_000;
     /** Delay após sucesso antes de iniciar o próximo pedido (retirar produtos). */
-    private static final long NEXT_PEDIDO_DELAY_MS = 5000;
+    private static final long NEXT_PEDIDO_DELAY_MS = 7000;
 
     private final PeripheralSessionManager sessionManager;
     private final List<Pedido> pedidos;
@@ -1047,7 +1049,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             listener.onDivergenceOutcome(detail, context);
         }
 
-        sleepQuietly(OUTCOME_MESSAGE_MS);
+        sleepQuietly(DIVERGENCE_OUTCOME_MESSAGE_MS);
         if (!running.get()) {
             return;
         }

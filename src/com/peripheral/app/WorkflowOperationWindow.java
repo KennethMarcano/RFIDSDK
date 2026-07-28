@@ -1021,7 +1021,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                     + "\nPróximo: " + nextNum + " (" + nextIndex + "/" + total + ")"
                     + "\nRetire os produtos já conferidos da balança.";
             WorkflowUiTheme.showInfoOutcome(this,
-                    "Carregando próximo pedido", detail, 5000);
+                    "Carregando próximo pedido", detail, 7000);
             setStatus("Carregando pedido " + nextNum + " — retire os produtos conferidos...",
                     WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
         });
