@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MercuryRfidReader extends AbstractRfidReader {
 
-    private static final long STOP_TIMEOUT_MS = 2500L;
+    private static final long STOP_TIMEOUT_MS = 3500L;
 
     /** Preferência de região para LatAm / maior faixa RF (OPEN/NA antes de regiões restritas). */
     private static final Reader.Region[] REGION_PREFERENCE = {
@@ -140,12 +140,14 @@ public class MercuryRfidReader extends AbstractRfidReader {
 
     @Override
     public void disconnect() {
-        stopContinuousReading();
+        // Hard teardown: para inventário e destrói a sessão (saída do fluxo / reconectar).
+        continuousReading = false;
         destroyReaderQuietly();
         connected = false;
         tearingDown.set(false);
         portName = null;
         lastRfDiagnostics = "";
+        notifyReadingState(false);
     }
 
     @Override
@@ -207,6 +209,8 @@ public class MercuryRfidReader extends AbstractRfidReader {
         }
         tagListener = listener;
         try {
+            // Garante que um soft-stop pendente terminou antes de religar o inventário.
+            stopReaderQuietly(reader);
             reader.addReadExceptionListener(mercuryExceptionListener);
             reader.addReadListener(mercuryReadListener);
             reader.startReading();
@@ -217,11 +221,15 @@ public class MercuryRfidReader extends AbstractRfidReader {
         }
     }
 
+    /**
+     * Soft-stop: apenas para o inventário RF (necessário para a balança ler sem interferência).
+     * Nunca destrói a sessão serial — destroy no timeout derrubava o RFID no 2º pedido do fluxo.
+     */
     @Override
     public void stopContinuousReading() {
         continuousReading = false;
         final Reader r = reader;
-        if (r == null) {
+        if (r == null || !connected) {
             notifyReadingState(false);
             return;
         }
@@ -229,18 +237,11 @@ public class MercuryRfidReader extends AbstractRfidReader {
         try {
             future.get(STOP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
-            future.cancel(true);
-            // Cabo/USB morto: stopReading pode bloquear — força destroy.
-            connected = false;
-            if (reader == r) {
-                reader = null;
-            }
-            try {
-                r.destroy();
-            } catch (Throwable ignored) {
-            }
-        } catch (Exception e) {
-            future.cancel(true);
+            // stopReading lento é comum no ThingMagic — deixa terminar em background.
+            // Sessão permanece conectada para o próximo pedido religar o inventário.
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception ignored) {
         }
         notifyReadingState(false);
     }

@@ -3,16 +3,20 @@ package com.peripheral.workflow;
 import com.peripheral.camera.CameraHardware;
 import com.peripheral.camera.CameraMicroserviceClient;
 import com.peripheral.camera.CameraServiceException;
+import com.peripheral.core.DeviceModelEntry;
 import com.peripheral.core.PeripheralDataEvent;
 import com.peripheral.core.PeripheralDataListener;
 import com.peripheral.core.PeripheralException;
 import com.peripheral.core.PeripheralSafeIo;
 import com.peripheral.core.ReadablePeripheral;
+import com.peripheral.core.RfidConfigurable;
+import com.peripheral.core.SerialConnectionConfig;
 import com.peripheral.pedido.Pedido;
 import com.peripheral.pedido.PedidoItem;
 import com.peripheral.pedido.PedidoVolume;
 import com.peripheral.scale.DigitronDgnParser;
 import com.peripheral.scale.ScaleWeightFormat;
+import com.peripheral.session.PeripheralConnectionHandle;
 import com.peripheral.session.PeripheralSessionManager;
 import com.peripheral.session.PeripheralSlot;
 
@@ -249,7 +253,13 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             awaitingTagStart.set(true);
             awaitingWeightStart.set(false);
             rfidCollecting.set(false);
-            handleCycleFailure(e.getMessage(), e);
+            // Não usa handleCycleFailure aqui — ele chama notifyPhaseStart de novo e
+            // recursa em confirmTagReadingStart se o RFID estiver offline.
+            if (listener != null) {
+                listener.onError(e.getMessage(), e);
+            }
+            notifyStep(WorkflowStep.RFID_READ,
+                    "RFID indisponível: " + e.getMessage());
             return;
         }
         notifyStep(WorkflowStep.RFID_READ,
@@ -1387,6 +1397,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (config == null || !config.isEnabled(WorkflowStep.RFID_READ)) {
             return;
         }
+        ensureRfidConnected();
         ReadablePeripheral rfid = sessionManager.getDevice(PeripheralSlot.RFID_READER);
         if (rfid == null || !rfid.isConnected()) {
             throw new PeripheralException("Leitor RFID não conectado");
@@ -1396,6 +1407,40 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             return;
         }
         rfid.startContinuousReading(continuousRfidListener);
+    }
+
+    /**
+     * Soft-stop do inventário (pesagem) nunca deveria derrubar a sessão; se ainda assim
+     * a conexão caiu, reconecta com a mesma porta/modelo da tela de configuração.
+     */
+    private void ensureRfidConnected() throws PeripheralException {
+        if (sessionManager.isConnected(PeripheralSlot.RFID_READER)) {
+            return;
+        }
+        PeripheralConnectionHandle handle = sessionManager.getHandle(PeripheralSlot.RFID_READER);
+        DeviceModelEntry model = handle != null ? handle.getModel() : null;
+        SerialConnectionConfig cfg = handle != null ? handle.getSerialConfig() : null;
+        if (model == null || cfg == null
+                || cfg.getPortName() == null || cfg.getPortName().trim().isEmpty()) {
+            throw new PeripheralException("Leitor RFID não conectado");
+        }
+        int power = 100;
+        int[] antennas = new int[]{1};
+        ReadablePeripheral existing = handle.getDevice();
+        if (existing instanceof RfidConfigurable) {
+            RfidConfigurable rc = (RfidConfigurable) existing;
+            int p = rc.getPowerPercent();
+            if (p > 0) {
+                power = p;
+            }
+            int[] ids = rc.getAntennaIds();
+            if (ids != null && ids.length > 0) {
+                antennas = ids;
+            }
+        }
+        notifyStep(WorkflowStep.RFID_READ,
+                "Reconectando RFID em " + cfg.getPortName().trim() + "...");
+        sessionManager.connect(PeripheralSlot.RFID_READER, model, cfg, power, antennas);
     }
 
     private boolean isRfidEnabled() {
@@ -1497,8 +1542,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
 
     private void stopRfidReading() {
         ReadablePeripheral rfid = sessionManager.getDevice(PeripheralSlot.RFID_READER);
+        // Soft-stop: só inventário. Timeout um pouco maior que o Mercury (não faz destroy).
         if (rfid != null && rfid.isReading()) {
-            PeripheralSafeIo.stopReading(rfid);
+            PeripheralSafeIo.stopReading(rfid, 4_000L);
         }
     }
 
