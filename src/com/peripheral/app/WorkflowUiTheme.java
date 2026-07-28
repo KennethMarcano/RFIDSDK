@@ -837,28 +837,58 @@ public final class WorkflowUiTheme {
     }
 
     /**
-     * Pop-up grande e claro após validação (sucesso ou divergência) — fácil de ver no Pi 7".
+     * Pop-up grande após validação (sucesso ou divergência). Sem botão —
+     * fecha sozinho após {@code durationMs}. Cada chamada tem timer próprio
+     * (mensagens independentes; não sincronizam o fechamento).
      */
     public static void showValidationOutcome(Window window, boolean success,
                                              String title, String detail) {
+        showTimedOutcome(window, success ? OutcomeStyle.SUCCESS : OutcomeStyle.ERROR,
+                title, detail, 2000);
+    }
+
+    /**
+     * Mensagem temporária sem botão (ex.: carregando próximo pedido).
+     */
+    public static void showTimedOutcome(Window window, boolean success,
+                                        String title, String detail, int durationMs) {
+        showTimedOutcome(window, success ? OutcomeStyle.SUCCESS : OutcomeStyle.ERROR,
+                title, detail, durationMs);
+    }
+
+    public static void showInfoOutcome(Window window, String title, String detail, int durationMs) {
+        showTimedOutcome(window, OutcomeStyle.INFO, title, detail, durationMs);
+    }
+
+    private enum OutcomeStyle {
+        SUCCESS, ERROR, INFO
+    }
+
+    private static void showTimedOutcome(Window window, OutcomeStyle style,
+                                         String title, String detail, int durationMs) {
         if (window == null) {
             return;
         }
         if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(() -> showValidationOutcome(window, success, title, detail));
+            SwingUtilities.invokeLater(
+                    () -> showTimedOutcome(window, style, title, detail, durationMs));
             return;
         }
 
         String safeTitle = (title == null || title.trim().isEmpty())
-                ? (success ? "Concluído com sucesso" : "Divergência detectada")
+                ? (style == OutcomeStyle.SUCCESS ? "Concluído com sucesso"
+                : style == OutcomeStyle.ERROR ? "Divergência detectada"
+                : "Aguarde")
                 : title.trim();
         String safeDetail = detail == null ? "" : detail.trim();
+        int safeDuration = Math.max(500, durationMs);
 
         final JDialog dialog = new JDialog(window instanceof Frame ? (Frame) window
                 : window instanceof Dialog ? (Dialog) window : null,
-                safeTitle, Dialog.ModalityType.APPLICATION_MODAL);
+                safeTitle, Dialog.ModalityType.MODELESS);
         dialog.setUndecorated(true);
         dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        dialog.setAlwaysOnTop(true);
 
         JPanel overlay = new JPanel(new GridBagLayout());
         overlay.setOpaque(true);
@@ -868,13 +898,18 @@ public final class WorkflowUiTheme {
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
         card.setOpaque(true);
         card.setBackground(BG_CARD);
-        Color accent = success ? new Color(0x2E, 0x7D, 0x32) : new Color(0xC6, 0x28, 0x28);
+        Color accent = style == OutcomeStyle.SUCCESS ? new Color(0x2E, 0x7D, 0x32)
+                : style == OutcomeStyle.ERROR ? new Color(0xC6, 0x28, 0x28)
+                : new Color(0x15, 0x65, 0xC0);
+        String badgeText = style == OutcomeStyle.SUCCESS ? "✓  SUCESSO"
+                : style == OutcomeStyle.ERROR ? "!  DIVERGÊNCIA"
+                : "…  AGUARDE";
         card.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(accent, 3),
                 empty(20, 24, 18, 24)));
         card.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel badge = new JLabel(success ? "✓  SUCESSO" : "!  DIVERGÊNCIA", SwingConstants.CENTER);
+        JLabel badge = new JLabel(badgeText, SwingConstants.CENTER);
         badge.setOpaque(true);
         badge.setBackground(accent);
         badge.setForeground(Color.WHITE);
@@ -889,38 +924,41 @@ public final class WorkflowUiTheme {
         titleLabel.setForeground(TEXT_PRIMARY);
         titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel detailLabel = new JLabel("<html><div style='text-align:center; width:340px;'>"
-                + escapeHtml(safeDetail.isEmpty() ? (success
+        String defaultDetail = style == OutcomeStyle.SUCCESS
                 ? "Peso e tags conferem com o pedido."
-                : "Revise tags, peso ou libere o volume.") : safeDetail)
+                : style == OutcomeStyle.ERROR
+                ? "Reiniciando a leitura das tags."
+                : "Aguarde o próximo passo.";
+        JLabel detailLabel = new JLabel("<html><div style='text-align:center; width:340px;'>"
+                + escapeHtml(safeDetail.isEmpty() ? defaultDetail : safeDetail)
                 + "</div></html>", SwingConstants.CENTER);
         detailLabel.setFont(fontStatus(detailLabel).deriveFont(14f));
         detailLabel.setForeground(TEXT_SECONDARY);
         detailLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        ThemedButton ok = button(success ? "Continuar" : "Entendi — revisar",
-                success ? ThemedButton.Variant.SUCCESS : ThemedButton.Variant.PRIMARY)
-                .withSize(ThemedButton.Size.LARGE);
-        ok.setAlignmentX(Component.CENTER_ALIGNMENT);
-        ok.addActionListener(e -> dialog.dispose());
 
         card.add(badge);
         card.add(Box.createVerticalStrut(14));
         card.add(titleLabel);
         card.add(Box.createVerticalStrut(10));
         card.add(detailLabel);
-        card.add(Box.createVerticalStrut(18));
-        card.add(ok);
 
         overlay.add(card);
         dialog.setContentPane(overlay);
         dialog.pack();
         Dimension size = dialog.getSize();
         int w = Math.max(size.width, 420);
-        int h = Math.max(size.height, 220);
+        int h = Math.max(size.height, 200);
         dialog.setSize(w, h);
         dialog.setLocationRelativeTo(window);
         dialog.setVisible(true);
+
+        javax.swing.Timer autoClose = new javax.swing.Timer(safeDuration, e -> {
+            if (dialog.isDisplayable()) {
+                dialog.dispose();
+            }
+        });
+        autoClose.setRepeats(false);
+        autoClose.start();
     }
 
     private static String escapeHtml(String s) {

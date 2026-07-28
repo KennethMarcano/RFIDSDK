@@ -919,7 +919,7 @@ public class AutomatedWorkflowPanel extends JPanel {
             public void onWaitingForNext() {
                 window.onWaitingForNext();
                 SwingUtilities.invokeLater(() ->
-                        lbWorkflowStatus.setText("Ciclo concluído — aguardando Próximo na janela de operação"));
+                        lbWorkflowStatus.setText("Ciclo concluído — carregando próximo automaticamente"));
             }
 
             @Override
@@ -971,6 +971,32 @@ public class AutomatedWorkflowPanel extends JPanel {
             }
 
             @Override
+            public void onAiAnalysisStarted(String message) {
+                window.onAiAnalysisStarted(message);
+                SwingUtilities.invokeLater(() -> appendLog(message != null ? message : "Analisando pedido..."));
+            }
+
+            @Override
+            public void onAiAnalysisFinished() {
+                window.onAiAnalysisFinished();
+            }
+
+            @Override
+            public void onDivergenceOutcome(String detail, WorkflowContext context) {
+                window.onDivergenceOutcome(detail, context);
+                SwingUtilities.invokeLater(() -> {
+                    lbWorkflowStatus.setText("Divergência detectada");
+                    if (detail != null) {
+                        for (String line : detail.split("\n")) {
+                            if (!line.trim().isEmpty()) {
+                                appendLog("Divergência: " + line.trim());
+                            }
+                        }
+                    }
+                });
+            }
+
+            @Override
             public void onCameraServiceStatus(boolean available, String detail) {
                 SwingUtilities.invokeLater(() -> {
                     lbCameraStatus.setText(available ? "Câmera online" : "Câmera indisponível");
@@ -1013,11 +1039,31 @@ public class AutomatedWorkflowPanel extends JPanel {
             }
 
             @Override
+            public void onPreparingNextPedido(Pedido completed, Pedido next, int nextIndex, int total,
+                                              String message) {
+                window.onPreparingNextPedido(completed, next, nextIndex, total, message);
+                SwingUtilities.invokeLater(() -> {
+                    lbWorkflowStatus.setText("Carregando próximo pedido...");
+                    appendLog(message != null ? message : "Carregando próximo pedido");
+                });
+            }
+
+            @Override
+            public void onDivergenceRestart(String message, WorkflowContext context) {
+                window.onDivergenceRestart(message, context);
+                SwingUtilities.invokeLater(() -> {
+                    lbWorkflowStatus.setText("Divergência — reiniciando pedido");
+                    appendLog("Divergência — reinício: "
+                            + (message != null ? message : ""));
+                });
+            }
+
+            @Override
             public void onAllOrdersCompleted() {
                 window.onAllOrdersCompleted();
                 SwingUtilities.invokeLater(() -> {
-                    lbWorkflowStatus.setText("Todos os pedidos concluídos");
-                    appendLog("Fila de pedidos concluída.");
+                    lbWorkflowStatus.setText("Fila concluída — reiniciando do primeiro pedido");
+                    appendLog("Fila concluída — ciclo reinicia do primeiro pedido.");
                 });
             }
 

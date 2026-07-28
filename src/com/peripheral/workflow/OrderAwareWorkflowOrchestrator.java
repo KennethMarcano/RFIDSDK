@@ -33,8 +33,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private static final long TARE_STABLE_WINDOW_MS = 1200;
     private static final long TARE_TIMEOUT_MS = 15_000;
     private static final double TARE_STABLE_TOLERANCE_KG = 0.005;
-    /** Tempo sem nenhuma tag antes de liberar a leitura do próximo pedido. */
-    private static final long RFID_FIELD_CLEAR_WINDOW_MS = 1500;
+    /** Tempo de exibição do pop-up de sucesso/divergência (sem botão). */
+    private static final long OUTCOME_MESSAGE_MS = 2000;
+    /** Delay após sucesso antes de iniciar o próximo pedido (retirar produtos). */
+    private static final long NEXT_PEDIDO_DELAY_MS = 5000;
 
     private final PeripheralSessionManager sessionManager;
     private final List<Pedido> pedidos;
@@ -250,10 +252,12 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             handleCycleFailure(e.getMessage(), e);
             return;
         }
-        notifyStep(WorkflowStep.RFID_READ, "Lendo tags — aproxime os produtos; depois inicie a pesagem");
+        notifyStep(WorkflowStep.RFID_READ,
+                "Lendo tags — a pesagem inicia automaticamente quando todas as tags do pedido forem identificadas");
         if (listener != null) {
             listener.onTagReadingInProgress();
         }
+        maybeAutoStartWeighingIfTagsComplete();
     }
 
     @Override
@@ -281,9 +285,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         resetStabilizationTracking();
         String message = config.isSimulationMode()
                 ? "Modo simulação — clique em Simular pesagem estável"
-                : (tareKg > 0.0005
-                ? "Tara ativa — coloque os produtos e aguarde estabilização (1,5 s)..."
-                : "Coloque o item (se usar caixa: Definir tara só com a caixa, depois os produtos)...");
+                : "Todas as tags OK — RFID desligado. Aguarde estabilização do peso...";
         notifyStep(WorkflowStep.WEIGHING, message);
     }
 
@@ -839,6 +841,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                     notifyTagInventory();
                 }
             }
+            if (added) {
+                maybeAutoStartWeighingIfTagsComplete();
+            }
         }
 
         @Override
@@ -935,13 +940,12 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             }
 
             context.setValidationResult(validation);
-            if (listener != null) {
-                listener.onValidationResult(validation);
-            }
-
             rfidCollecting.set(false);
 
             if (validation.isValid()) {
+                if (listener != null) {
+                    listener.onValidationResult(validation);
+                }
                 handleHappyPath();
             } else {
                 handleDivergencePath(validation);
@@ -966,49 +970,147 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         recordAndAdvance("APROVADO_AUTOMATICO");
     }
 
-    private void handleDivergencePath(PedidoValidationService.ValidationResult validation)
-            throws IOException, PeripheralException {
+    private void handleDivergencePath(PedidoValidationService.ValidationResult validation) {
         context.setValidationStatusLabel("DIVERGENCIA");
-        notifyStep(WorkflowStep.VALIDATE_ORDER, validation.getSummaryMessage());
-
-        // Divergência: foto/etiqueta NÃO são geradas agora — só quando a conferência
-        // for aprovada. A foto aqui (se houver IA) serve apenas para a análise de vídeo.
-        if (config.isAiFallbackEnabled()) {
-            // Foto temporária + IA na mesma janela exclusiva (preview não pode religar no meio).
-            CameraHardware.beginExclusiveCapture();
-            try {
-                try {
-                    capturePhotoMandatory();
-                } catch (Throwable e) {
-                    notifyStep(WorkflowStep.CAPTURE_PHOTO,
-                            "Foto indisponível: "
-                                    + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
-                                    + " — continue com revisão manual.");
-                }
-                runAiAnalysis();
-            } finally {
-                CameraHardware.endExclusiveCapture();
-            }
-        } else {
-            context.setAiMessage(null);
-            notifyStep(WorkflowStep.OPERATOR_REVIEW,
-                    "Divergência — revise manualmente: reler tags, liberar volume ou reiniciar.");
+        List<String> lines = new ArrayList<>(validation.getMessages());
+        if (lines.isEmpty()) {
+            lines.add("Divergência detectada");
         }
-        enterOperatorReview(validation.getSummaryMessage());
+
+        cycleInProgress.set(false);
+        armed.set(false);
+        operatorReview.set(false);
+        waitingForNext.set(false);
+        rfidCollecting.set(false);
+        stopRfidReading();
+
+        context.setAiMessage(null);
+        context.setMissingProducts(null);
+        context.setUnexpectedProducts(null);
+        context.setPhotoPath(null);
+
+        // IA só entra se o fallback estiver configurado — e só após já haver divergência.
+        if (config != null && config.isAiFallbackEnabled()) {
+            if (listener != null) {
+                listener.onAiAnalysisStarted("Analisando pedido...");
+            }
+            notifyStep(WorkflowStep.AI_ANALYSIS, "Analisando pedido...");
+            try {
+                CameraHardware.beginExclusiveCapture();
+                try {
+                    try {
+                        capturePhotoMandatory();
+                    } catch (Throwable e) {
+                        lines.add("IA — foto indisponível: "
+                                + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+                    }
+                    runAiAnalysis(false);
+                    appendAiDivergenceLines(lines);
+                } finally {
+                    CameraHardware.endExclusiveCapture();
+                }
+            } finally {
+                if (listener != null) {
+                    listener.onAiAnalysisFinished();
+                }
+            }
+        }
+
+        String detail = String.join("\n", lines);
+        notifyStep(WorkflowStep.VALIDATE_ORDER, detail.replace("\n", " | "));
+        if (listener != null) {
+            listener.onDivergenceOutcome(detail, context);
+        }
+
+        sleepQuietly(OUTCOME_MESSAGE_MS);
+        if (!running.get()) {
+            return;
+        }
+        restartCurrentVolumeFromScratch(
+                "Divergência — reiniciando o pedido. Aproxime os produtos novamente.");
+    }
+
+    private void appendAiDivergenceLines(List<String> lines) {
+        List<String> missing = context.getMissingProducts();
+        List<String> unexpected = context.getUnexpectedProducts();
+        boolean addedStructured = false;
+        if (missing != null && !missing.isEmpty()) {
+            lines.add("IA — produtos faltando / não identificados: " + String.join(", ", missing));
+            addedStructured = true;
+        }
+        if (unexpected != null && !unexpected.isEmpty()) {
+            lines.add("IA — produtos fora do pedido: " + String.join(", ", unexpected));
+            addedStructured = true;
+        }
+        if (addedStructured) {
+            return;
+        }
+        // Sem listas estruturadas: só inclui se for falha de serviço/análise (não sucesso da IA).
+        String aiMsg = context.getAiMessage();
+        if (aiMsg != null && !aiMsg.trim().isEmpty() && looksLikeAiFailure(aiMsg)) {
+            lines.add("IA — " + aiMsg.trim());
+        }
+    }
+
+    private static boolean looksLikeAiFailure(String message) {
+        String m = message.toLowerCase();
+        return m.contains("indispon")
+                || m.contains("erro")
+                || m.contains("interrompid")
+                || m.contains("falha")
+                || m.contains("unavailable")
+                || m.contains("falhou");
+    }
+
+    /**
+     * Reinicia o ciclo do volume/pedido atual: limpa tags e volta à leitura RFID.
+     * O gatilho de pesagem continua sendo “todas as tags do pedido identificadas”.
+     */
+    private void restartCurrentVolumeFromScratch(String message) {
+        if (!running.get()) {
+            return;
+        }
+        rfidTransitionToken.incrementAndGet();
+        cycleInProgress.set(false);
+        armed.set(false);
+        operatorReview.set(false);
+        waitingForNext.set(false);
+        confirmingWeight.set(false);
+        rfidCollecting.set(false);
+        stopRfidReading();
+        context.clearTags();
+        notifyTagInventory();
+        resetStabilizationTracking();
+        resetPhaseFlags();
+        notifyStep(WorkflowStep.RFID_READ, message != null ? message
+                : "Reiniciando leitura de tags do pedido...");
+        notifyPhaseStart();
     }
 
     private void runAiAnalysis() {
+        runAiAnalysis(true);
+    }
+
+    /**
+     * @param notifyUiPopup false no fluxo automático (resultado entra no pop-up unificado)
+     */
+    private void runAiAnalysis(boolean notifyUiPopup) {
         notifyStep(WorkflowStep.AI_ANALYSIS, "Analisando imagem (fallback)...");
         if (cameraClient == null || !cameraClient.isAvailable()) {
-            context.setAiMessage("Serviço de IA indisponível — revise manualmente.");
+            context.setAiMessage("Serviço de IA indisponível.");
             notifyStep(WorkflowStep.AI_ANALYSIS, context.getAiMessage());
-            notifyAiResult(false, context.getAiMessage());
+            if (notifyUiPopup) {
+                notifyAiResult(false, context.getAiMessage());
+            }
             return;
         }
         // Backend IMX500 RPK precisa da câmera livre (sem MJPEG). Mantém exclusividade
         // durante toda a análise — evita "Post-process IMX500 indisponível".
         // Preview já deve estar parado (exclusive do caller ou daqui).
-        CameraHardware.beginExclusiveCapture();
+        boolean exclusiveOwnedHere = !CameraHardware.isExclusiveCapture();
+        if (exclusiveOwnedHere) {
+            CameraHardware.beginExclusiveCapture();
+        }
         try {
             Thread.sleep(1200);
             String imagePath = context.getPhotoPath() != null ? context.getPhotoPath() : "";
@@ -1018,12 +1120,16 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             context.setMissingProducts(result.getMissingProducts());
             context.setUnexpectedProducts(result.getUnexpectedProducts());
             notifyStep(WorkflowStep.AI_ANALYSIS, result.getMessage());
-            notifyAiResult(result.isProductsMatch(), result.getMessage());
+            if (notifyUiPopup) {
+                notifyAiResult(result.isProductsMatch(), result.getMessage());
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            context.setAiMessage("Análise interrompida — revise manualmente.");
+            context.setAiMessage("Análise interrompida.");
             notifyStep(WorkflowStep.AI_ANALYSIS, context.getAiMessage());
-            notifyAiResult(false, context.getAiMessage());
+            if (notifyUiPopup) {
+                notifyAiResult(false, context.getAiMessage());
+            }
         } catch (CameraServiceException e) {
             // Retry com câmera ainda exclusiva (preview não religa).
             try {
@@ -1036,14 +1142,20 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                 context.setMissingProducts(result.getMissingProducts());
                 context.setUnexpectedProducts(result.getUnexpectedProducts());
                 notifyStep(WorkflowStep.AI_ANALYSIS, result.getMessage());
-                notifyAiResult(result.isProductsMatch(), result.getMessage());
+                if (notifyUiPopup) {
+                    notifyAiResult(result.isProductsMatch(), result.getMessage());
+                }
             } catch (Exception retryEx) {
                 context.setAiMessage("Erro na análise: " + e.getMessage());
                 notifyStep(WorkflowStep.AI_ANALYSIS, context.getAiMessage());
-                notifyAiResult(false, context.getAiMessage());
+                if (notifyUiPopup) {
+                    notifyAiResult(false, context.getAiMessage());
+                }
             }
         } finally {
-            CameraHardware.endExclusiveCapture();
+            if (exclusiveOwnedHere) {
+                CameraHardware.endExclusiveCapture();
+            }
         }
     }
 
@@ -1106,6 +1218,11 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             listener.onReadingRecorded(record);
             listener.onCycleCompleted(context);
         }
+        // Tempo do pop-up de sucesso antes de avançar / carregar o próximo.
+        sleepQuietly(OUTCOME_MESSAGE_MS);
+        if (!running.get()) {
+            return;
+        }
         advanceVolumeOrComplete();
     }
 
@@ -1113,6 +1230,16 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         currentVolumeIndex++;
         if (currentVolumeIndex >= pedido.getVolumeCount()) {
             finishCurrentPedidoAndAdvance();
+            return;
+        }
+        String prepareMsg = "Retire os produtos já conferidos. Carregando próximo volume...";
+        if (listener != null) {
+            listener.onPreparingNextPedido(pedido, pedido,
+                    pedidoIndex + 1, pedidos.size(), prepareMsg);
+        }
+        notifyStep(WorkflowStep.FETCH_ORDER, prepareMsg);
+        sleepQuietly(NEXT_PEDIDO_DELAY_MS);
+        if (!running.get()) {
             return;
         }
         armed.set(false);
@@ -1127,10 +1254,12 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (listener != null) {
             listener.onVolumeChanged(currentVolumeIndex + 1, pedido.getVolumeCount());
         }
+        notifyStep(WorkflowStep.FETCH_ORDER,
+                "Volume " + (currentVolumeIndex + 1) + " — tags limpas. Aproxime os produtos.");
         notifyPhaseStart();
     }
 
-    /** Pedido atual concluído → próximo da fila (do zero) ou fim da fila. */
+    /** Pedido atual concluído → próximo da fila (do zero) ou volta ao primeiro (ciclo contínuo). */
     private void finishCurrentPedidoAndAdvance() {
         Pedido finished = pedido;
         armed.set(false);
@@ -1140,28 +1269,41 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         rfidCollecting.set(false);
         stopRfidReading();
         cancelTareMeasurement();
-        context.clearTags();
-        notifyTagInventory();
-        resetStabilizationTracking();
 
         if (listener != null) {
             listener.onOrderCompleted(finished);
         }
 
         pedidoIndex++;
+        boolean wrapped = false;
         if (pedidoIndex >= pedidos.size()) {
-            notifyStep(WorkflowStep.FETCH_ORDER,
-                    "Todos os pedidos concluídos (" + pedidos.size() + ") — toque em Encerrar.");
-            if (listener != null) {
-                listener.onAllOrdersCompleted();
-            }
+            // Fila completa: reinicia do primeiro pedido e espera o mesmo gatilho de tags.
+            pedidoIndex = 0;
+            wrapped = true;
+        }
+        pedido = pedidos.get(pedidoIndex);
+        currentVolumeIndex = 0;
+
+        String prepareMsg = wrapped
+                ? "Fila concluída — reiniciando do primeiro pedido. Retire os produtos já conferidos."
+                : "Retire os produtos já conferidos. Carregando próximo pedido...";
+        if (listener != null) {
+            listener.onPreparingNextPedido(finished, pedido,
+                    pedidoIndex + 1, pedidos.size(), prepareMsg);
+        }
+        notifyStep(WorkflowStep.FETCH_ORDER, prepareMsg);
+
+        sleepQuietly(NEXT_PEDIDO_DELAY_MS);
+        if (!running.get()) {
             return;
         }
 
-        // Próximo pedido: reinicia processo do zero (tags + tara + pesagem).
-        pedido = pedidos.get(pedidoIndex);
-        currentVolumeIndex = 0;
+        // Limpa tags literalmente antes de começar o novo ciclo.
+        context.clearTags();
+        notifyTagInventory();
+        resetStabilizationTracking();
         resetPhaseFlags();
+
         if (listener != null) {
             listener.onOrderLoaded(pedido);
             listener.onVolumeChanged(1, pedido.getVolumeCount());
@@ -1170,55 +1312,47 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         }
         notifyStep(WorkflowStep.FETCH_ORDER,
                 "Pedido " + finished.getNumero() + " OK — iniciando "
-                        + pedido.getNumero() + " (" + (pedidoIndex + 1) + "/" + pedidos.size() + ")");
-        if (isRfidEnabled() && !config.isSimulationMode()) {
-            awaitRfidFieldClearAndStartNextOrder();
-        } else {
-            notifyPhaseStart();
-        }
+                        + pedido.getNumero() + " (" + (pedidoIndex + 1) + "/" + pedidos.size()
+                        + "). Tags limpas — aproxime os produtos.");
+        notifyPhaseStart();
     }
 
     /**
-     * Mantém a coleta desativada enquanto os produtos do pedido anterior ainda
-     * respondem. Após 1,5 s sem tags, limpa novamente o inventário e inicia o
-     * próximo pedido. Assim, tags lidas durante a retirada nunca são atribuídas
-     * ao novo pedido.
+     * Quando todas as tags esperadas do pedido/volume atual estão presentes,
+     * desliga o RFID e arma a estabilização do peso automaticamente.
      */
-    private void awaitRfidFieldClearAndStartNextOrder() {
-        int token = rfidTransitionToken.incrementAndGet();
-        rfidCollecting.set(false);
-        lastRfidSignalMs.set(System.currentTimeMillis());
-        context.clearTags();
-        notifyTagInventory();
-        notifyStep(WorkflowStep.FETCH_ORDER,
-                "Retire os produtos do pedido anterior — aguardando o campo RFID ficar vazio...");
-        try {
-            startContinuousRfidIfEnabled();
-            while (running.get() && rfidTransitionToken.get() == token) {
-                long quietForMs = System.currentTimeMillis() - lastRfidSignalMs.get();
-                if (quietForMs >= RFID_FIELD_CLEAR_WINDOW_MS) {
-                    break;
-                }
-                Thread.sleep(100);
-            }
-        } catch (PeripheralException e) {
-            handleCycleFailure("Falha ao verificar a retirada das tags: " + e.getMessage(), e);
+    private void maybeAutoStartWeighingIfTagsComplete() {
+        if (!running.get() || !rfidCollecting.get() || armed.get() || cycleInProgress.get()
+                || operatorReview.get() || taring.get() || waitingForNext.get()
+                || confirmingWeight.get()) {
             return;
+        }
+        PedidoVolume volume = pedido != null ? pedido.getVolume(currentVolumeIndex) : null;
+        if (volume == null) {
+            return;
+        }
+        if (!validationService.areExpectedTagsComplete(volume, context.snapshotTagCodes())) {
+            return;
+        }
+        notifyStep(WorkflowStep.RFID_READ,
+                "Todas as tags do pedido identificadas — iniciando pesagem...");
+        confirmWeighingStart();
+    }
+
+    private void sleepQuietly(long ms) {
+        if (ms <= 0) {
+            return;
+        }
+        try {
+            long remaining = ms;
+            while (remaining > 0 && running.get()) {
+                long slice = Math.min(200, remaining);
+                Thread.sleep(slice);
+                remaining -= slice;
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return;
-        } finally {
-            stopRfidReading();
         }
-        if (!running.get() || rfidTransitionToken.get() != token) {
-            return;
-        }
-        context.clearTags();
-        notifyTagInventory();
-        resetPhaseFlags();
-        notifyStep(WorkflowStep.FETCH_ORDER,
-                "Campo RFID vazio — iniciando a leitura do novo pedido.");
-        notifyPhaseStart();
     }
 
     private static boolean hasTagIdentity(PeripheralDataEvent event) {
@@ -1286,6 +1420,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                 }
             }
         }
+        maybeAutoStartWeighingIfTagsComplete();
     }
 
     private void notifyTagInventory() {

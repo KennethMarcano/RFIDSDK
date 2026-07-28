@@ -61,6 +61,22 @@ public interface WorkflowListener {
                                     com.peripheral.workflow.WorkflowContext context) {
     }
 
+    /** Overlay de progresso enquanto a IA analisa o pedido (fallback). */
+    default void onAiAnalysisStarted(String message) {
+    }
+
+    /** Encerra o overlay de progresso da IA. */
+    default void onAiAnalysisFinished() {
+    }
+
+    /**
+     * Divergência final (tags/peso + IA se habilitada), pronta para exibir de uma vez.
+     * {@code detail} traz uma linha por erro.
+     */
+    default void onDivergenceOutcome(String detail,
+                                     com.peripheral.workflow.WorkflowContext context) {
+    }
+
     default void onCameraServiceStatus(boolean available, String detail) {
     }
 
@@ -77,6 +93,22 @@ public interface WorkflowListener {
     default void onNextPedidoStarted(com.peripheral.pedido.Pedido completed,
                                      com.peripheral.pedido.Pedido next,
                                      int nextIndex, int total) {
+    }
+
+    /**
+     * Pedido OK — aguarde retirada dos produtos e carregamento do próximo
+     * (mensagem temporária, sem botão).
+     */
+    default void onPreparingNextPedido(com.peripheral.pedido.Pedido completed,
+                                       com.peripheral.pedido.Pedido next,
+                                       int nextIndex, int total, String message) {
+    }
+
+    /**
+     * Divergência: ciclo do pedido reinicia do zero (releitura de tags).
+     */
+    default void onDivergenceRestart(String message,
+                                     com.peripheral.workflow.WorkflowContext context) {
     }
 
     /** Todos os pedidos da fila foram concluídos. */

@@ -70,12 +70,90 @@ public class PedidoValidationService {
             return actualWeightKg;
         }
 
+        /** Uma linha por divergência (peso, tags, etc.). */
         public String getSummaryMessage() {
             if (messages.isEmpty()) {
                 return valid ? "Validação OK" : "Divergência detectada";
             }
-            return String.join("; ", messages);
+            return String.join("\n", messages);
         }
+    }
+
+    /**
+     * True quando todas as tags esperadas do volume já foram lidas
+     * (sem validar peso). Usado como gatilho para iniciar a pesagem.
+     */
+    public boolean areExpectedTagsComplete(PedidoVolume volume, Set<String> readSerials) {
+        if (volume == null) {
+            return false;
+        }
+        Set<String> expectedSerials = collectExpectedSerials(volume);
+        if (!expectedSerials.isEmpty()) {
+            Set<String> readSet = normalizeReadSet(readSerials);
+            for (String expected : expectedSerials) {
+                if (!readSet.contains(expected)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return areLegacyProductCodesComplete(volume, readSerials);
+    }
+
+    private static Set<String> collectExpectedSerials(PedidoVolume volume) {
+        Set<String> expectedSerials = new LinkedHashSet<>();
+        for (PedidoItem item : volume.getItens()) {
+            if (item.hasSeriais()) {
+                for (PedidoSerial serial : item.getSeriais()) {
+                    if (serial.getSerial() != null && !serial.getSerial().trim().isEmpty()) {
+                        expectedSerials.add(serial.getSerial().trim());
+                    }
+                }
+            }
+        }
+        return expectedSerials;
+    }
+
+    private static Set<String> normalizeReadSet(Set<String> readSerials) {
+        Set<String> readSet = new HashSet<>();
+        if (readSerials == null) {
+            return readSet;
+        }
+        for (String serial : readSerials) {
+            if (serial != null && !serial.trim().isEmpty()) {
+                readSet.add(serial.trim());
+            }
+        }
+        return readSet;
+    }
+
+    private boolean areLegacyProductCodesComplete(PedidoVolume volume, Set<String> tagCodes) {
+        java.util.Map<String, Integer> expectedCounts = new java.util.LinkedHashMap<>();
+        for (PedidoItem item : volume.getItens()) {
+            expectedCounts.put(item.getCodigoProduto(), item.getQuantidadeEsperada());
+        }
+        if (expectedCounts.isEmpty()) {
+            return false;
+        }
+        java.util.Map<String, Integer> actualCounts = new java.util.HashMap<>();
+        if (tagCodes != null) {
+            for (String tag : tagCodes) {
+                if (tag == null || tag.trim().isEmpty()) {
+                    continue;
+                }
+                String code = tag.trim();
+                if (expectedCounts.containsKey(code)) {
+                    actualCounts.merge(code, 1, Integer::sum);
+                }
+            }
+        }
+        for (java.util.Map.Entry<String, Integer> entry : expectedCounts.entrySet()) {
+            int actual = actualCounts.getOrDefault(entry.getKey(), 0);
+            if (actual < entry.getValue()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public ValidationResult validate(PedidoVolume volume, Set<String> readSerials, double weightKg,
@@ -112,10 +190,10 @@ public class PedidoValidationService {
             }
         }
 
+        ValidationStatus primary = null;
         if (!unknownSerials.isEmpty()) {
-            messages.add("Seriais não pertencem ao pedido: " + String.join(", ", unknownSerials));
-            return new ValidationResult(false, ValidationStatus.UNKNOWN_SERIALS, messages,
-                    unknownSerials, expectedWeight, weightKg);
+            messages.add("Produtos lidos que não são do pedido: " + String.join(", ", unknownSerials));
+            primary = ValidationStatus.UNKNOWN_SERIALS;
         }
 
         List<String> missing = new ArrayList<>();
@@ -125,20 +203,35 @@ public class PedidoValidationService {
             }
         }
         if (!missing.isEmpty()) {
-            messages.add("Seriais faltantes: " + String.join(", ", missing));
-            return new ValidationResult(false, ValidationStatus.MISSING_SERIALS, messages,
-                    unknownSerials, expectedWeight, weightKg);
+            messages.add("Tags faltantes do pedido: " + String.join(", ", missing));
+            if (primary == null) {
+                primary = ValidationStatus.MISSING_SERIALS;
+            }
         }
 
-        if (readSet.size() != expectedSerials.size()) {
-            messages.add(String.format("Quantidade de seriais divergente (esperado %d, lido %d)",
+        if (unknownSerials.isEmpty() && missing.isEmpty()
+                && readSet.size() != expectedSerials.size()) {
+            messages.add(String.format("Quantidade de tags divergente (esperado %d, lido %d)",
                     expectedSerials.size(), readSet.size()));
-            return new ValidationResult(false, ValidationStatus.QUANTITY_MISMATCH, messages,
-                    unknownSerials, expectedWeight, weightKg);
+            if (primary == null) {
+                primary = ValidationStatus.QUANTITY_MISMATCH;
+            }
         }
 
-        return finishWeightCheck(messages, unknownSerials, expectedWeight, weightKg,
-                tolerancePercent, toleranceKg);
+        if (!appendWeightMismatchIfAny(messages, expectedWeight, weightKg, tolerancePercent, toleranceKg)
+                && primary == null) {
+            primary = ValidationStatus.WEIGHT_MISMATCH;
+        }
+
+        if (!messages.isEmpty()) {
+            return new ValidationResult(false,
+                    primary != null ? primary : ValidationStatus.QUANTITY_MISMATCH,
+                    messages, unknownSerials, expectedWeight, weightKg);
+        }
+
+        return new ValidationResult(true, ValidationStatus.OK,
+                Collections.singletonList("Peso e códigos conferem com o pedido."),
+                unknownSerials, expectedWeight, weightKg);
     }
 
     private ValidationResult validateLegacyByProductCode(PedidoVolume volume, Set<String> tagCodes,
@@ -171,10 +264,10 @@ public class PedidoValidationService {
             actualCounts.merge(code, 1, Integer::sum);
         }
 
+        ValidationStatus primary = null;
         if (!unknown.isEmpty()) {
-            messages.add("Tags não pertencem ao pedido: " + String.join(", ", unknown));
-            return new ValidationResult(false, ValidationStatus.UNKNOWN_SERIALS, messages,
-                    unknown, expectedWeight, weightKg);
+            messages.add("Produtos lidos que não são do pedido: " + String.join(", ", unknown));
+            primary = ValidationStatus.UNKNOWN_SERIALS;
         }
 
         for (java.util.Map.Entry<String, Integer> entry : expectedCounts.entrySet()) {
@@ -183,21 +276,33 @@ public class PedidoValidationService {
             if (actual != expected) {
                 messages.add("Quantidade divergente para " + entry.getKey()
                         + " (esperado " + expected + ", lido " + actual + ")");
+                if (primary == null) {
+                    primary = ValidationStatus.QUANTITY_MISMATCH;
+                }
             }
         }
 
-        if (!messages.isEmpty()) {
-            return new ValidationResult(false, ValidationStatus.QUANTITY_MISMATCH, messages,
-                    unknown, expectedWeight, weightKg);
+        if (!appendWeightMismatchIfAny(messages, expectedWeight, weightKg, tolerancePercent, toleranceKg)
+                && primary == null) {
+            primary = ValidationStatus.WEIGHT_MISMATCH;
         }
 
-        return finishWeightCheck(messages, unknown, expectedWeight, weightKg,
-                tolerancePercent, toleranceKg);
+        if (!messages.isEmpty()) {
+            return new ValidationResult(false,
+                    primary != null ? primary : ValidationStatus.QUANTITY_MISMATCH,
+                    messages, unknown, expectedWeight, weightKg);
+        }
+
+        return new ValidationResult(true, ValidationStatus.OK,
+                Collections.singletonList("Peso e códigos conferem com o pedido."),
+                unknown, expectedWeight, weightKg);
     }
 
-    private ValidationResult finishWeightCheck(List<String> messages, List<String> unknown,
-                                               double expectedWeight, double weightKg,
-                                               double tolerancePercent, double toleranceKg) {
+    /**
+     * @return true se o peso está dentro da tolerância
+     */
+    private boolean appendWeightMismatchIfAny(List<String> messages, double expectedWeight, double weightKg,
+                                              double tolerancePercent, double toleranceKg) {
         double percentTol = expectedWeight * (tolerancePercent / 100.0);
         double allowedDelta = Math.max(toleranceKg, percentTol);
         double delta = Math.abs(weightKg - expectedWeight);
@@ -207,12 +312,8 @@ public class PedidoValidationService {
                     ScaleWeightFormat.formatGramsPlain(expectedWeight),
                     ScaleWeightFormat.formatGramsPlain(weightKg),
                     ScaleWeightFormat.formatGramsPlain(allowedDelta)));
-            return new ValidationResult(false, ValidationStatus.WEIGHT_MISMATCH, messages,
-                    unknown, expectedWeight, weightKg);
+            return false;
         }
-
-        return new ValidationResult(true, ValidationStatus.OK,
-                Collections.singletonList("Peso e códigos conferem com o pedido."),
-                unknown, expectedWeight, weightKg);
+        return true;
     }
 }
