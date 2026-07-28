@@ -4,16 +4,17 @@ import com.peripheral.rfid.MercuryRfidAdapter;
 import com.peripheral.rfid.PayneRfidAdapter;
 
 public enum RfidDeviceModel implements DeviceModelEntry {
-    PAYNE_UHF(
-            "Payne",
-            "Módulo UHF",
-            SdkType.PAYNE,
-            SerialConnectionConfig.rfidDefault()
-    ),
+    /** Padrão do dispositivo de campo. */
     MERCURY_M6E(
             "ThingMagic",
             "Mercury API",
             SdkType.THINGMAGIC_MERCURY,
+            SerialConnectionConfig.rfidDefault()
+    ),
+    PAYNE_UHF(
+            "Payne",
+            "Módulo UHF",
+            SdkType.PAYNE,
             SerialConnectionConfig.rfidDefault()
     );
 

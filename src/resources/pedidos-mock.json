@@ -9,25 +9,25 @@
             {
               "codigoProduto": "003509",
               "nome": "Produto 003509",
-              "pesoUnitarioKg": 0.073,
+              "pesoUnitarioKg": 0.085,
               "seriais": ["003509"]
             },
             {
               "codigoProduto": "003511",
               "nome": "Produto 003511",
-              "pesoUnitarioKg": 0.033,
+              "pesoUnitarioKg": 0.046,
               "seriais": ["003511"]
             },
             {
               "codigoProduto": "003907",
               "nome": "Produto 003907",
-              "pesoUnitarioKg": 0.011,
+              "pesoUnitarioKg": 0.027,
               "seriais": ["003907"]
             },
             {
               "codigoProduto": "004077",
               "nome": "Produto 004077",
-              "pesoUnitarioKg": 0.349,
+              "pesoUnitarioKg": 0.346,
               "seriais": ["004077"]
             }
           ]
@@ -43,13 +43,13 @@
             {
               "codigoProduto": "003509",
               "nome": "Produto 003509",
-              "pesoUnitarioKg": 0.073,
+              "pesoUnitarioKg": 0.085,
               "seriais": ["003509"]
             },
             {
               "codigoProduto": "003907",
               "nome": "Produto 003907",
-              "pesoUnitarioKg": 0.011,
+              "pesoUnitarioKg": 0.027,
               "seriais": ["003907"]
             }
           ]
@@ -65,13 +65,13 @@
             {
               "codigoProduto": "003511",
               "nome": "Produto 003511",
-              "pesoUnitarioKg": 0.033,
+              "pesoUnitarioKg": 0.046,
               "seriais": ["003511"]
             },
             {
               "codigoProduto": "004077",
               "nome": "Produto 004077",
-              "pesoUnitarioKg": 0.349,
+              "pesoUnitarioKg": 0.346,
               "seriais": ["004077"]
             }
           ]

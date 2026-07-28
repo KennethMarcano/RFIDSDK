@@ -11,7 +11,7 @@ public class WorkflowConfig {
     public static final double MIN_WEIGHT_KG = 0.001;
     public static final double DEFAULT_WEIGHT_TOLERANCE_PERCENT = 2.0;
     /** Padrão: 50 g (0,05 kg). */
-    public static final int DEFAULT_WEIGHT_TOLERANCE_GRAMS = 50;
+    public static final int DEFAULT_WEIGHT_TOLERANCE_GRAMS = 10;
     public static final double DEFAULT_WEIGHT_TOLERANCE_KG = DEFAULT_WEIGHT_TOLERANCE_GRAMS / 1000.0;
 
     private final Set<WorkflowStep> enabledSteps;

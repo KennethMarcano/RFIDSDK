@@ -46,12 +46,12 @@ public class AutomatedWorkflowPanel extends JPanel {
             WorkflowUiTheme.button("Testar", ThemedButton.Variant.SECONDARY);
 
     private final JCheckBox cbRfid = new JCheckBox("Leitura RFID contínua durante a pesagem", true);
-    private final JCheckBox cbPhoto = new JCheckBox("Capturar foto", false);
-    private final JCheckBox cbLabel = new JCheckBox("Imprimir etiqueta", false);
+    private final JCheckBox cbPhoto = new JCheckBox("Capturar foto", true);
+    private final JCheckBox cbLabel = new JCheckBox("Imprimir etiqueta", true);
     private final JCheckBox cbWeighing = new JCheckBox("Pesagem (obrigatório)", true);
     private final JCheckBox cbSimulation = new JCheckBox("Modo simulação (sem hardware)", false);
-    private final JCheckBox cbOrderValidation = new JCheckBox("Validar pedido (peso + RFID)", false);
-    private final JCheckBox cbAiFallback = new JCheckBox("IA fallback (análise de vídeo na divergência)", false);
+    private final JCheckBox cbOrderValidation = new JCheckBox("Validar pedido (peso + RFID)", true);
+    private final JCheckBox cbAiFallback = new JCheckBox("IA fallback (análise de vídeo na divergência)", true);
     private final JCheckBox cbPedidoMock = new JCheckBox("Usar pedido mock (demo)", true);
     private final JCheckBox cbDemoDivergence = new JCheckBox("Cenário demo (forçar divergência)", false);
     private final JTextField tfPedidoNumero = new JTextField("2002", 8);
@@ -91,6 +91,8 @@ public class AutomatedWorkflowPanel extends JPanel {
         buildUi();
         refreshPeripheralSummaries();
         refreshCameraStatus();
+        // Acelera o setup de campo: pedidos mock já carregados com validação + IA ligadas.
+        loadPedido();
         updateWorkflowControls();
     }
 
