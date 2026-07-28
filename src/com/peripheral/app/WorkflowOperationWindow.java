@@ -91,6 +91,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     /** Em tela cheia não há barra de título: esta é a saída visível do fluxo. */
     private final ThemedButton btnEndWorkflow =
             WorkflowUiTheme.button("Encerrar", ThemedButton.Variant.DANGER);
+    private final ThemedButton btnUpdateApp =
+            WorkflowUiTheme.button("Atualizar", ThemedButton.Variant.SECONDARY);
 
     private final JPanel simulationPanel = new JPanel(new GridBagLayout());
     private final JSpinner spMockWeight =
@@ -381,8 +383,18 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         btnStartTags.setEnabled(false);
         btnStartWeighing.setVisible(false);
         btnStartWeighing.setEnabled(false);
-        btnRestartSession.addActionListener(e -> restartSession());
-        btnEndWorkflow.addActionListener(e -> confirmEndWorkflow());
+        btnRestartSession.addActionListener(e -> {
+            forceUiInteractive();
+            restartSession();
+        });
+        btnEndWorkflow.addActionListener(e -> {
+            forceUiInteractive();
+            endWorkflowNow();
+        });
+        btnUpdateApp.addActionListener(e -> {
+            forceUiInteractive();
+            confirmUpdateApp();
+        });
 
         btnRereadRfid.addActionListener(e -> runOperatorAction(() -> {
             liveTagMonitor.clearDetections();
@@ -404,6 +416,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actions.setOpaque(false);
+        actions.add(btnUpdateApp);
         actions.add(btnEndWorkflow);
         actions.add(btnRestartSession);
 
@@ -754,20 +767,56 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         }
     }
 
-    private void confirmEndWorkflow() {
-        if (orchestrator == null) {
-            setVisible(false);
-            return;
+    /**
+     * Remove overlay/pop-ups que possam ter travado os cliques (ex.: busy da IA).
+     */
+    private void forceUiInteractive() {
+        WorkflowUiTheme.hideBusy(this);
+        for (Window w : Window.getWindows()) {
+            if (w != null && w != this && w.isDisplayable()
+                    && w.getType() == Window.Type.NORMAL
+                    && w instanceof JDialog
+                    && ((JDialog) w).getModalityType() == Dialog.ModalityType.MODELESS
+                    && w.isAlwaysOnTop()) {
+                // Pop-ups de resultado auto-dismiss — fecha para liberar a tela.
+                w.dispose();
+            }
         }
-        int confirm = JOptionPane.showConfirmDialog(this,
-                "Encerrar o fluxo e voltar para a tela de configuração?",
-                "Encerrar fluxo",
+        btnEndWorkflow.setEnabled(true);
+        btnRestartSession.setEnabled(true);
+        setCursor(Cursor.getDefaultCursor());
+    }
+
+    private void confirmUpdateApp() {
+        int choice = JOptionPane.showConfirmDialog(this,
+                "Baixar a versão mais recente, recompilar e reiniciar?\n"
+                        + "O fluxo atual será parado.",
+                "Atualizar",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.QUESTION_MESSAGE);
-        if (confirm != JOptionPane.YES_OPTION) {
+        if (choice != JOptionPane.YES_OPTION) {
             return;
         }
+        if (orchestrator != null && orchestrator.isRunning()) {
+            orchestrator.stop();
+        }
+        Window owner = getOwner() != null ? getOwner() : this;
+        AppUpdater.runUpdateAsync(owner, null);
+    }
+
+    private void endWorkflowNow() {
+        forceUiInteractive();
+        if (orchestrator == null) {
+            setVisible(false);
+            dispose();
+            return;
+        }
+        // Sem confirmação: tela sem touch confiável — Encerrar deve funcionar sempre.
         orchestrator.stop();
+    }
+
+    private void confirmEndWorkflow() {
+        endWorkflowNow();
     }
 
     private void confirmOperatorVolume() {
@@ -852,17 +901,21 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     @Override
     public void onAiAnalysisStarted(String message) {
         SwingUtilities.invokeLater(() -> {
+            // Só status — NÃO usar glass pane (bloqueava Encerrar/Reiniciar).
             String text = (message == null || message.trim().isEmpty())
                     ? "Analisando pedido..."
                     : message.trim();
             setStatus(text, WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
-            WorkflowUiTheme.showBusy(this, text);
+            liveTagMonitor.setHint(text);
         });
     }
 
     @Override
     public void onAiAnalysisFinished() {
-        SwingUtilities.invokeLater(() -> WorkflowUiTheme.hideBusy(this));
+        SwingUtilities.invokeLater(() -> {
+            WorkflowUiTheme.hideBusy(this);
+            forceUiInteractive();
+        });
     }
 
     @Override
@@ -870,6 +923,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
                                     com.peripheral.workflow.WorkflowContext context) {
         SwingUtilities.invokeLater(() -> {
             WorkflowUiTheme.hideBusy(this);
+            forceUiInteractive();
             setOperatorReviewVisible(false);
             setDivergenceLayout(false);
             setWeightLiveEnabled(false);
@@ -1208,6 +1262,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
     @Override
     public void dispose() {
+        WorkflowUiTheme.hideBusy(this);
         cameraMonitor.stopLivePreview();
         CameraHardware.stopPreview();
         super.dispose();

@@ -67,12 +67,18 @@ public class MainFrame extends JFrame {
                 .withSize(ThemedButton.Size.SMALL);
         btnLog.addActionListener(e -> showLogDialog());
 
+        ThemedButton btnUpdate = WorkflowUiTheme.button("Atualizar", ThemedButton.Variant.SECONDARY)
+                .withSize(ThemedButton.Size.SMALL);
+        btnUpdate.setToolTipText("Baixa a versão mais recente (git), recompila e reinicia a app.");
+        btnUpdate.addActionListener(e -> confirmAndUpdate());
+
         ThemedButton btnExit = WorkflowUiTheme.button("Sair", ThemedButton.Variant.DANGER)
                 .withSize(ThemedButton.Size.SMALL);
         btnExit.addActionListener(e -> confirmExit());
 
         JPanel headerActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         headerActions.setOpaque(false);
+        headerActions.add(btnUpdate);
         headerActions.add(btnLog);
         headerActions.add(btnExit);
 
@@ -112,6 +118,22 @@ public class MainFrame extends JFrame {
         dialog.pack();
         dialog.setLocationRelativeTo(this);
         dialog.setVisible(true);
+    }
+
+    private void confirmAndUpdate() {
+        int choice = JOptionPane.showConfirmDialog(this,
+                "Baixar a versão mais recente, recompilar e reiniciar a aplicação?\n\n"
+                        + "A janela vai fechar e reabrir sozinha em alguns segundos.",
+                "Atualizar",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+        if (choice != JOptionPane.YES_OPTION) {
+            return;
+        }
+        if (workflowPanel != null) {
+            workflowPanel.stopWorkflowIfRunning();
+        }
+        AppUpdater.runUpdateAsync(this, this::appendLog);
     }
 
     private void confirmExit() {
