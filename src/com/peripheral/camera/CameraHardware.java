@@ -172,72 +172,77 @@ public final class CameraHardware {
      *
      * @return caminho absoluto do arquivo gerado
      */
-    public static synchronized String captureStill(java.nio.file.Path outputPath)
+    public static String captureStill(java.nio.file.Path outputPath)
             throws CameraServiceException {
         if (outputPath == null) {
             throw new CameraServiceException("Caminho de saída da foto não informado.");
         }
         // Caller (PhotoCaptureService) deve ter chamado beginExclusiveCapture().
+        // Para o preview FORA de qualquer lock de CameraHardware — evita deadlock com
+        // CameraFrameStream.startLock (start() pode chamar isCameraPresent sob startLock).
         stopPreview();
-        String still = resolveStillCommand();
-        if (still == null) {
-            throw new CameraServiceException(
-                    "rpicam-still não encontrado. Instale rpicam-apps no Raspberry Pi.");
-        }
-        try {
-            java.nio.file.Files.createDirectories(outputPath.getParent() != null
-                    ? outputPath.getParent()
-                    : java.nio.file.Paths.get("."));
-        } catch (Exception e) {
-            throw new CameraServiceException(
-                    "Não foi possível criar pasta da foto: " + e.getMessage(), e);
-        }
 
-        String suffix = outputPath.getFileName() != null
-                ? outputPath.getFileName().toString().toLowerCase()
-                : "";
-        java.nio.file.Path target = (suffix.endsWith(".jpg") || suffix.endsWith(".jpeg")
-                || suffix.endsWith(".png"))
-                ? outputPath
-                : outputPath.resolveSibling(outputPath.getFileName() + ".jpg");
-
-        // Pequena pausa para a câmera liberar o stream MJPEG antes do still.
-        try {
-            Thread.sleep(350);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        List<String> command = new ArrayList<>(Arrays.asList(
-                still,
-                "--nopreview",
-                "--immediate",
-                "--timeout", "2000",
-                "-o", target.toAbsolutePath().toString()
-        ));
-        try {
-            ProcessBuilder pb = new ProcessBuilder(command);
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-            String output = readProcessOutput(process, 30_000);
-            boolean finished = process.waitFor(30, TimeUnit.SECONDS);
-            if (!finished) {
-                process.destroyForcibly();
-                throw new CameraServiceException("Timeout na captura rpicam-still.");
-            }
-            if (process.exitValue() != 0
-                    || !java.nio.file.Files.isRegularFile(target)
-                    || java.nio.file.Files.size(target) == 0) {
-                String detail = output != null ? output.trim() : "";
+        synchronized (CameraHardware.class) {
+            String still = resolveStillCommand();
+            if (still == null) {
                 throw new CameraServiceException(
-                        "Falha na captura rpicam-still"
-                                + (detail.isEmpty() ? "." : ": " + detail));
+                        "rpicam-still não encontrado. Instale rpicam-apps no Raspberry Pi.");
             }
-            return target.toAbsolutePath().toString();
-        } catch (CameraServiceException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new CameraServiceException("Erro ao capturar foto: " + e.getMessage(), e);
+            try {
+                java.nio.file.Files.createDirectories(outputPath.getParent() != null
+                        ? outputPath.getParent()
+                        : java.nio.file.Paths.get("."));
+            } catch (Exception e) {
+                throw new CameraServiceException(
+                        "Não foi possível criar pasta da foto: " + e.getMessage(), e);
+            }
+
+            String suffix = outputPath.getFileName() != null
+                    ? outputPath.getFileName().toString().toLowerCase()
+                    : "";
+            java.nio.file.Path target = (suffix.endsWith(".jpg") || suffix.endsWith(".jpeg")
+                    || suffix.endsWith(".png"))
+                    ? outputPath
+                    : outputPath.resolveSibling(outputPath.getFileName() + ".jpg");
+
+            // Pequena pausa para a câmera liberar o stream MJPEG antes do still.
+            try {
+                Thread.sleep(350);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            List<String> command = new ArrayList<>(Arrays.asList(
+                    still,
+                    "--nopreview",
+                    "--immediate",
+                    "--timeout", "2000",
+                    "-o", target.toAbsolutePath().toString()
+            ));
+            try {
+                ProcessBuilder pb = new ProcessBuilder(command);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                String output = readProcessOutput(process, 30_000);
+                boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+                if (!finished) {
+                    process.destroyForcibly();
+                    throw new CameraServiceException("Timeout na captura rpicam-still.");
+                }
+                if (process.exitValue() != 0
+                        || !java.nio.file.Files.isRegularFile(target)
+                        || java.nio.file.Files.size(target) == 0) {
+                    String detail = output != null ? output.trim() : "";
+                    throw new CameraServiceException(
+                            "Falha na captura rpicam-still"
+                                    + (detail.isEmpty() ? "." : ": " + detail));
+                }
+                return target.toAbsolutePath().toString();
+            } catch (CameraServiceException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new CameraServiceException("Erro ao capturar foto: " + e.getMessage(), e);
+            }
         }
     }
 

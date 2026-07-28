@@ -140,9 +140,16 @@ public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.
         liveDesired = false;
         keepAliveTimer.stop();
         starting = false;
-        detachStream(true);
+        CameraFrameStream.getInstance().removeListener(this);
+        currentIcon = null;
+        lbVideo.setIcon(null);
         setPlaceholder("Vídeo parado");
         btnRecalibrate.setEnabled(true);
+        // Para o processo em background — stopPreview pode esperar o startLock e
+        // congelaria Encerrar/dispose se rodasse na EDT.
+        Thread stopper = new Thread(CameraHardware::stopPreview, "camera-stop-preview");
+        stopper.setDaemon(true);
+        stopper.start();
     }
 
     public void ensureLivePreview() {

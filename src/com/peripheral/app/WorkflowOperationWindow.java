@@ -1,6 +1,5 @@
 package com.peripheral.app;
 
-import com.peripheral.camera.CameraHardware;
 import com.peripheral.pedido.Pedido;
 import com.peripheral.scale.DigitronDgnParser;
 import com.peripheral.scale.ScaleWeightFormat;
@@ -148,12 +147,32 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         if (confirm != JOptionPane.YES_OPTION) {
             return;
         }
-        try {
-            orchestrator.restartSession();
-        } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Reiniciar sessão",
-                    JOptionPane.ERROR_MESSAGE);
-        }
+        forceUiInteractive();
+        btnRestartSession.setEnabled(false);
+        btnEndWorkflow.setEnabled(false);
+        setStatus("Reiniciando sessão...", WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
+        // I/O de periféricos fora da EDT — evita congelar Encerrar/Reiniciar.
+        Thread worker = new Thread(() -> {
+            try {
+                orchestrator.restartSession();
+                SwingUtilities.invokeLater(() -> {
+                    forceUiInteractive();
+                    btnRestartSession.setEnabled(true);
+                    btnEndWorkflow.setEnabled(true);
+                    setStatus("Sessão reiniciada.", WorkflowUiTheme.SUCCESS, WorkflowUiTheme.SUCCESS);
+                });
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> {
+                    forceUiInteractive();
+                    btnRestartSession.setEnabled(true);
+                    btnEndWorkflow.setEnabled(true);
+                    JOptionPane.showMessageDialog(this, ex.getMessage(), "Reiniciar sessão",
+                            JOptionPane.ERROR_MESSAGE);
+                });
+            }
+        }, "workflow-restart-session");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private void buildUi() {
@@ -797,10 +816,19 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         if (choice != JOptionPane.YES_OPTION) {
             return;
         }
-        if (orchestrator != null && orchestrator.isRunning()) {
-            orchestrator.stop();
-        }
         Window owner = getOwner() != null ? getOwner() : this;
+        if (orchestrator != null && orchestrator.isRunning()) {
+            Thread worker = new Thread(() -> {
+                try {
+                    orchestrator.stop();
+                } finally {
+                    SwingUtilities.invokeLater(() -> AppUpdater.runUpdateAsync(owner, null));
+                }
+            }, "workflow-stop-before-update");
+            worker.setDaemon(true);
+            worker.start();
+            return;
+        }
         AppUpdater.runUpdateAsync(owner, null);
     }
 
@@ -812,7 +840,26 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             return;
         }
         // Sem confirmação: tela sem touch confiável — Encerrar deve funcionar sempre.
-        orchestrator.stop();
+        btnEndWorkflow.setEnabled(false);
+        btnRestartSession.setEnabled(false);
+        setStatus("Encerrando...", WorkflowUiTheme.WARNING, WorkflowUiTheme.WARNING);
+        // stop() faz I/O com timeout em balança/RFID — nunca na EDT.
+        Thread worker = new Thread(() -> {
+            try {
+                orchestrator.stop();
+            } catch (Throwable t) {
+                SwingUtilities.invokeLater(() -> {
+                    forceUiInteractive();
+                    btnEndWorkflow.setEnabled(true);
+                    btnRestartSession.setEnabled(true);
+                    setStatus("Erro ao encerrar: "
+                                    + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName()),
+                            WorkflowUiTheme.DANGER, WorkflowUiTheme.DANGER);
+                });
+            }
+        }, "workflow-stop");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private void confirmEndWorkflow() {
@@ -1271,8 +1318,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     @Override
     public void dispose() {
         WorkflowUiTheme.hideBusy(this);
+        // stopLivePreview já para o processo em background (não bloqueia EDT).
         cameraMonitor.stopLivePreview();
-        CameraHardware.stopPreview();
         super.dispose();
     }
 }

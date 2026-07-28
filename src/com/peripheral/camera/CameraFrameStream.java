@@ -70,6 +70,21 @@ public final class CameraFrameStream {
     }
 
     public void start() throws CameraServiceException {
+        if (CameraHardware.isExclusiveCapture()) {
+            throw new CameraServiceException("Câmera ocupada capturando foto — aguarde.");
+        }
+        // Detecta câmera FORA de startLock — isCameraPresent sincroniza em CameraHardware
+        // e captureStill também; segurar os dois locks na ordem inversa causa deadlock.
+        String cmd = resolveVidCommand();
+        if (cmd == null) {
+            throw new CameraServiceException(
+                    "rpicam-vid não encontrado. Instale rpicam-apps no Raspberry Pi.");
+        }
+        if (!CameraHardware.isCameraPresent()) {
+            throw new CameraServiceException(
+                    "Nenhuma câmera detectada. Verifique a conexão da Sony IMX500 (CSI).");
+        }
+
         synchronized (startLock) {
             if (CameraHardware.isExclusiveCapture()) {
                 throw new CameraServiceException("Câmera ocupada capturando foto — aguarde.");
@@ -79,19 +94,6 @@ public final class CameraFrameStream {
                 return;
             }
             stopInternal();
-
-            String cmd = resolveVidCommand();
-            if (cmd == null) {
-                desiredRunning = false;
-                throw new CameraServiceException(
-                        "rpicam-vid não encontrado. Instale rpicam-apps no Raspberry Pi.");
-            }
-            CameraHardware.invalidateCache();
-            if (!CameraHardware.isCameraPresent()) {
-                desiredRunning = false;
-                throw new CameraServiceException(
-                        "Nenhuma câmera detectada. Verifique a conexão da Sony IMX500 (CSI).");
-            }
 
             try {
                 // --timeout 0 = stream contínuo (não é “uma foto”).
@@ -141,8 +143,9 @@ public final class CameraFrameStream {
     }
 
     public void stop() {
+        // Marca parada imediatamente; o wait do processo fica curto para não congelar a EDT.
+        desiredRunning = false;
         synchronized (startLock) {
-            desiredRunning = false;
             stopInternal();
             latestFrame.set(null);
             notifyStatus("Vídeo parado", false);
@@ -159,9 +162,10 @@ public final class CameraFrameStream {
         if (process != null) {
             process.destroy();
             try {
-                if (!process.waitFor(3, TimeUnit.SECONDS)) {
+                // Timeout curto: Encerrar/dispose rodam na EDT e não podem ficar travados.
+                if (!process.waitFor(800, TimeUnit.MILLISECONDS)) {
                     process.destroyForcibly();
-                    process.waitFor(2, TimeUnit.SECONDS);
+                    process.waitFor(400, TimeUnit.MILLISECONDS);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
