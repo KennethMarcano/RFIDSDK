@@ -877,13 +877,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             String summary = result.getSummaryMessage();
             setStatus(ok ? "SUCESSO — " + summary.replace('\n', ' ')
                     : "DIVERGÊNCIA — " + summary.replace('\n', ' '), color, color);
-
-            // Pop-up de sucesso imediato; divergência espera tags/peso (+ IA) em onDivergenceOutcome.
-            if (!ok) {
-                return;
-            }
-            WorkflowUiTheme.showValidationOutcome(this, true,
-                    "Volume concluído com sucesso", summary);
+            // Pop-up de sucesso (com foto) é exibido em onReadingRecorded, após a captura.
         });
     }
 
@@ -927,6 +921,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             setOperatorReviewVisible(false);
             setDivergenceLayout(false);
             setWeightLiveEnabled(false);
+            // Tags do pedido já foram zeradas no orquestrador — limpa a UI também.
+            liveTagMonitor.clearDetections();
             liveTagMonitor.setHint("Divergência — confira os erros e aguarde o reinício...");
             cameraMonitor.ensureLivePreview();
 
@@ -954,10 +950,10 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             setOperatorReviewVisible(false);
             setDivergenceLayout(false);
             setWeightLiveEnabled(false);
-            liveTagMonitor.reset();
+            liveTagMonitor.clearDetections();
             liveTagMonitor.setHint("Divergência — tags limpas. Aproxime os produtos novamente...");
             cameraMonitor.ensureLivePreview();
-            setStatus("Divergência — reiniciando pedido do zero...",
+            setStatus(message != null ? message : "Divergência — reiniciando pedido do zero...",
                     WorkflowUiTheme.DANGER, WorkflowUiTheme.DANGER);
         });
     }
@@ -1213,6 +1209,18 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         SwingUtilities.invokeLater(() -> {
             addReadingToHistory(record);
             cameraMonitor.ensureLivePreview();
+            if (record == null) {
+                return;
+            }
+            String status = record.getValidationStatus();
+            if (status != null && status.startsWith("APROVADO")) {
+                String pedido = record.getNumeroPedido() != null ? record.getNumeroPedido() : "?";
+                String detail = "Pedido " + pedido
+                        + (record.getVolumeIndex() > 0 ? " — volume " + record.getVolumeIndex() : "")
+                        + "\nPeso e tags conferem.";
+                WorkflowUiTheme.showValidationOutcome(this, true,
+                        "Volume concluído com sucesso", detail, record.getPhotoPath());
+            }
         });
     }
 

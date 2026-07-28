@@ -5,6 +5,7 @@ import javax.swing.border.Border;
 import javax.swing.table.JTableHeader;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
+import java.io.File;
 
 public final class WorkflowUiTheme {
 
@@ -844,7 +845,15 @@ public final class WorkflowUiTheme {
     public static void showValidationOutcome(Window window, boolean success,
                                              String title, String detail) {
         showTimedOutcome(window, success ? OutcomeStyle.SUCCESS : OutcomeStyle.ERROR,
-                title, detail, 2000);
+                title, detail, 2000, null);
+    }
+
+    /** Pop-up de validação com foto opcional (ex.: sucesso com captura). */
+    public static void showValidationOutcome(Window window, boolean success,
+                                             String title, String detail, String photoPath) {
+        boolean hasPhoto = photoPath != null && !photoPath.trim().isEmpty();
+        showTimedOutcome(window, success ? OutcomeStyle.SUCCESS : OutcomeStyle.ERROR,
+                title, detail, hasPhoto ? 2800 : 2000, photoPath);
     }
 
     /**
@@ -853,11 +862,11 @@ public final class WorkflowUiTheme {
     public static void showTimedOutcome(Window window, boolean success,
                                         String title, String detail, int durationMs) {
         showTimedOutcome(window, success ? OutcomeStyle.SUCCESS : OutcomeStyle.ERROR,
-                title, detail, durationMs);
+                title, detail, durationMs, null);
     }
 
     public static void showInfoOutcome(Window window, String title, String detail, int durationMs) {
-        showTimedOutcome(window, OutcomeStyle.INFO, title, detail, durationMs);
+        showTimedOutcome(window, OutcomeStyle.INFO, title, detail, durationMs, null);
     }
 
     private enum OutcomeStyle {
@@ -865,13 +874,14 @@ public final class WorkflowUiTheme {
     }
 
     private static void showTimedOutcome(Window window, OutcomeStyle style,
-                                         String title, String detail, int durationMs) {
+                                         String title, String detail, int durationMs,
+                                         String photoPath) {
         if (window == null) {
             return;
         }
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(
-                    () -> showTimedOutcome(window, style, title, detail, durationMs));
+                    () -> showTimedOutcome(window, style, title, detail, durationMs, photoPath));
             return;
         }
 
@@ -942,12 +952,18 @@ public final class WorkflowUiTheme {
         card.add(Box.createVerticalStrut(10));
         card.add(detailLabel);
 
+        JComponent photoComponent = buildOutcomePhotoPreview(photoPath);
+        if (photoComponent != null) {
+            card.add(Box.createVerticalStrut(12));
+            card.add(photoComponent);
+        }
+
         overlay.add(card);
         dialog.setContentPane(overlay);
         dialog.pack();
         Dimension size = dialog.getSize();
-        int w = Math.max(size.width, 420);
-        int h = Math.max(size.height, 200);
+        int w = Math.max(size.width, photoComponent != null ? 480 : 420);
+        int h = Math.max(size.height, photoComponent != null ? 360 : 200);
         dialog.setSize(w, h);
         dialog.setLocationRelativeTo(window);
         dialog.setVisible(true);
@@ -959,6 +975,36 @@ public final class WorkflowUiTheme {
         });
         autoClose.setRepeats(false);
         autoClose.start();
+    }
+
+    /** Miniatura da foto no pop-up de sucesso; null se caminho inválido. */
+    private static JComponent buildOutcomePhotoPreview(String photoPath) {
+        if (photoPath == null || photoPath.trim().isEmpty()) {
+            return null;
+        }
+        File file = new File(photoPath.trim());
+        if (!file.isFile() || file.length() == 0) {
+            return null;
+        }
+        ImageIcon icon = new ImageIcon(file.getAbsolutePath());
+        if (icon.getIconWidth() <= 0 || icon.getIconHeight() <= 0) {
+            return null;
+        }
+        int maxW = 320;
+        int maxH = 220;
+        int iw = icon.getIconWidth();
+        int ih = icon.getIconHeight();
+        double scale = Math.min((double) maxW / iw, (double) maxH / ih);
+        scale = Math.min(1.0, scale);
+        int tw = Math.max(1, (int) Math.round(iw * scale));
+        int th = Math.max(1, (int) Math.round(ih * scale));
+        Image scaled = icon.getImage().getScaledInstance(tw, th, Image.SCALE_SMOOTH);
+        JLabel imageLabel = new JLabel(new ImageIcon(scaled));
+        imageLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        imageLabel.setBorder(BorderFactory.createLineBorder(BORDER, 1));
+        imageLabel.setOpaque(true);
+        imageLabel.setBackground(BG_CARD);
+        return imageLabel;
     }
 
     private static String escapeHtml(String s) {

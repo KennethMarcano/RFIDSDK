@@ -264,10 +264,14 @@ public class RfidTagMonitorPanel extends JPanel {
 
     /**
      * Sincroniza detecções a partir da lista do orquestrador (códigos únicos).
-     * Útil no fluxo para marcar esperados sem incrementar leituras.
+     * Lista vazia limpa as detecções (reinício por divergência / próximo pedido).
      */
     public void syncDetectedCodes(Collection<String> codes) {
         if (showReadCounts || codes == null) {
+            return;
+        }
+        if (codes.isEmpty()) {
+            clearDetections();
             return;
         }
         for (String code : codes) {

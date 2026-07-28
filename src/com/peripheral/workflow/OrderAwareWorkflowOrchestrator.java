@@ -446,7 +446,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                 config.getWeightTolerancePercent(),
                 config.getWeightToleranceKg());
         context.setValidationResult(validation);
-        if (listener != null) {
+        if (listener != null && !validation.isValid()) {
             listener.onValidationResult(validation);
         }
 
@@ -474,6 +474,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             }
             if (config.isEnabled(WorkflowStep.CAPTURE_PHOTO)) {
                 capturePhotoOptional();
+            }
+            if (listener != null) {
+                listener.onValidationResult(validation);
             }
             recordAndAdvance("APROVADO_OPERADOR");
             return;
@@ -852,6 +855,12 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
                 listener.onError("RFID: " + error.getMessage(), error);
             }
             if (PeripheralSafeIo.looksLikeConnectionLoss(error)) {
+                ReadablePeripheral rfid = sessionManager.getDevice(PeripheralSlot.RFID_READER);
+                // Timeout/erro no stop/start com a porta ainda aberta NÃO é perda de antena —
+                // desconectar aqui forçava reconfigurar RFID entre pedidos.
+                if (rfid != null && rfid.isConnected()) {
+                    return;
+                }
                 sessionManager.disconnect(PeripheralSlot.RFID_READER);
                 handleCycleFailure("Conexão com o leitor RFID foi perdida",
                         error instanceof Exception ? (Exception) error : new PeripheralException(
@@ -943,10 +952,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             rfidCollecting.set(false);
 
             if (validation.isValid()) {
-                if (listener != null) {
-                    listener.onValidationResult(validation);
-                }
-                handleHappyPath();
+                // Pop-up de sucesso (com foto) só após captura — ver handleHappyPath.
+                handleHappyPath(validation);
             } else {
                 handleDivergencePath(validation);
             }
@@ -957,7 +964,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         }
     }
 
-    private void handleHappyPath() throws IOException, PeripheralException {
+    private void handleHappyPath(PedidoValidationService.ValidationResult validation)
+            throws IOException, PeripheralException {
         context.setValidationStatusLabel("APROVADO_AUTOMATICO");
         notifyStep(WorkflowStep.VALIDATE_ORDER, "Validação OK — peso e tags conferem.");
 
@@ -966,6 +974,10 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         }
         if (config.isEnabled(WorkflowStep.CAPTURE_PHOTO)) {
             capturePhotoOptional();
+        }
+        // Notifica UI só depois da foto, para o pop-up de sucesso incluir a imagem.
+        if (listener != null) {
+            listener.onValidationResult(validation);
         }
         recordAndAdvance("APROVADO_AUTOMATICO");
     }
@@ -982,12 +994,15 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         operatorReview.set(false);
         waitingForNext.set(false);
         rfidCollecting.set(false);
-        stopRfidReading();
+        stopRfidReading(); // soft: só se ainda estiver lendo
 
         context.setAiMessage(null);
         context.setMissingProducts(null);
         context.setUnexpectedProducts(null);
         context.setPhotoPath(null);
+        // Zera inventário do pedido já na divergência — próximo ciclo começa do zero.
+        context.clearTags();
+        notifyTagInventory();
 
         // IA só entra se o fallback estiver configurado — e só após já haver divergência.
         if (config != null && config.isAiFallbackEnabled()) {
@@ -1077,13 +1092,17 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         waitingForNext.set(false);
         confirmingWeight.set(false);
         rfidCollecting.set(false);
-        stopRfidReading();
+        // Só limpa histórico de tags — não desconfigura a sessão RFID.
         context.clearTags();
         notifyTagInventory();
         resetStabilizationTracking();
         resetPhaseFlags();
-        notifyStep(WorkflowStep.RFID_READ, message != null ? message
-                : "Reiniciando leitura de tags do pedido...");
+        String restartMsg = message != null ? message
+                : "Reiniciando leitura de tags do pedido...";
+        notifyStep(WorkflowStep.RFID_READ, restartMsg);
+        if (listener != null) {
+            listener.onDivergenceRestart(restartMsg, context);
+        }
         notifyPhaseStart();
     }
 
@@ -1218,8 +1237,11 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             listener.onReadingRecorded(record);
             listener.onCycleCompleted(context);
         }
-        // Tempo do pop-up de sucesso antes de avançar / carregar o próximo.
-        sleepQuietly(OUTCOME_MESSAGE_MS);
+        // Tempo do pop-up de sucesso (com foto) antes de avançar / carregar o próximo.
+        long outcomeMs = context.getPhotoPath() != null && !context.getPhotoPath().trim().isEmpty()
+                ? 2800
+                : OUTCOME_MESSAGE_MS;
+        sleepQuietly(outcomeMs);
         if (!running.get()) {
             return;
         }
@@ -1246,8 +1268,8 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         operatorReview.set(false);
         waitingForNext.set(false);
         rfidCollecting.set(false);
+        // Só limpa histórico de tags após o aguardo — sem stop/reconfig do RFID.
         context.clearTags();
-        stopRfidReading();
         notifyTagInventory();
         resetStabilizationTracking();
         resetPhaseFlags();
@@ -1267,7 +1289,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         waitingForNext.set(false);
         cycleInProgress.set(false);
         rfidCollecting.set(false);
-        stopRfidReading();
+        // RFID já parado na pesagem — não chama stop de novo (evita perda de conexão).
         cancelTareMeasurement();
 
         if (listener != null) {
@@ -1298,7 +1320,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             return;
         }
 
-        // Limpa tags literalmente antes de começar o novo ciclo.
+        // Limpa só o histórico de tags após o aguardo — sessão RFID permanece.
         context.clearTags();
         notifyTagInventory();
         resetStabilizationTracking();
@@ -1369,8 +1391,9 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         if (rfid == null || !rfid.isConnected()) {
             throw new PeripheralException("Leitor RFID não conectado");
         }
+        // Já inventariando: mantém a sessão — não faz stop/start (causa timeout/desconexão).
         if (rfid.isReading()) {
-            PeripheralSafeIo.stopReading(rfid);
+            return;
         }
         rfid.startContinuousReading(continuousRfidListener);
     }
@@ -1474,7 +1497,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
 
     private void stopRfidReading() {
         ReadablePeripheral rfid = sessionManager.getDevice(PeripheralSlot.RFID_READER);
-        if (rfid != null) {
+        if (rfid != null && rfid.isReading()) {
             PeripheralSafeIo.stopReading(rfid);
         }
     }
