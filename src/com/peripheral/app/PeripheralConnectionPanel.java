@@ -19,7 +19,6 @@ import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.session.PeripheralConnectionHandle;
 import com.peripheral.session.PeripheralSessionManager;
 import com.peripheral.session.PeripheralSlot;
-import com.peripheral.util.LinuxUsbSerialReset;
 import com.rfid.core.SerialPortDiscovery;
 import com.rfid.core.SerialPortInfo;
 
@@ -53,8 +52,6 @@ public class PeripheralConnectionPanel extends JPanel {
     private final JComboBox<SerialPortInfo> cbPort = new JComboBox<>();
     private final ThemedButton btnRefreshPorts =
             WorkflowUiTheme.button("Atualizar", ThemedButton.Variant.SECONDARY);
-    private final ThemedButton btnRescanUsb =
-            WorkflowUiTheme.button("Reescanear USB", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnTestPort =
             WorkflowUiTheme.button("Testar porta", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnConnect =
@@ -185,11 +182,7 @@ public class PeripheralConnectionPanel extends JPanel {
         portRow.add(fieldLabel("Porta:"));
         portRow.add(cbPort);
         portRow.add(btnRefreshPorts);
-        if (LinuxUsbSerialReset.isSupported()) {
-            btnRescanUsb.setToolTipText(
-                    "Reinicia só conversores USB-serial (RFID/balança). Use se a porta não aparecer após o boot.");
-            portRow.add(btnRescanUsb);
-        }
+        // Botão "Reescanear USB" removido: o reset USBDEVFS afetava o touch USB da tela.
 
         JPanel connectRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         connectRow.setOpaque(false);
@@ -240,7 +233,6 @@ public class PeripheralConnectionPanel extends JPanel {
         cbVendor.addActionListener(e -> onVendorChanged());
         cbModel.addActionListener(e -> onModelChanged());
         btnRefreshPorts.addActionListener(e -> refreshPorts());
-        btnRescanUsb.addActionListener(e -> rescanUsbSerial());
         btnTestPort.addActionListener(e -> testPort());
         btnConnect.addActionListener(e -> connectDevice());
         btnDisconnect.addActionListener(e -> disconnectDevice());
@@ -801,39 +793,6 @@ public class PeripheralConnectionPanel extends JPanel {
         }
     }
 
-    private void rescanUsbSerial() {
-        if (!LinuxUsbSerialReset.isSupported() || busyOperation) {
-            return;
-        }
-        showBusy("Reescaneando USB-serial...");
-        btnRescanUsb.setEnabled(false);
-        new Thread(() -> {
-            LinuxUsbSerialReset.Result result;
-            try {
-                result = LinuxUsbSerialReset.resetPreferredSerialAdapters();
-            } catch (Exception e) {
-                result = LinuxUsbSerialReset.Result.failed(e.getMessage());
-            }
-            final LinuxUsbSerialReset.Result finalResult = result;
-            SwingUtilities.invokeLater(() -> {
-                hideBusy();
-                refreshPorts();
-                log("[USB] " + finalResult);
-                if (finalResult.getResetCount() > 0) {
-                    lbStatus.setText("USB reescaneado");
-                    WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.SUCCESS);
-                } else if (finalResult.hasErrors()) {
-                    lbStatus.setText("USB: sem permissão — use ./iniciar.sh");
-                    WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.WARNING);
-                } else {
-                    lbStatus.setText("USB: nenhum conversor encontrado");
-                    WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.TEXT_SECONDARY);
-                }
-                setSelectionEnabled(!sessionManager.isConnected(slot));
-            });
-        }, "usb-serial-rescan").start();
-    }
-
     private SerialConnectionConfig buildSerialConfig() {
         SerialConnectionConfig cfg = selectedModel != null
                 ? selectedModel.getDefaultSerialConfig()
@@ -1143,7 +1102,6 @@ public class PeripheralConnectionPanel extends JPanel {
         cbModel.setEnabled(enabled);
         cbPort.setEnabled(enabled);
         btnRefreshPorts.setEnabled(enabled);
-        btnRescanUsb.setEnabled(enabled && LinuxUsbSerialReset.isSupported());
         btnTestPort.setEnabled(enabled);
         btnConnect.setEnabled(enabled);
         // Potência/antenas editáveis também com o leitor conectado
