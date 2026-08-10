@@ -6,6 +6,7 @@ import com.peripheral.core.PeripheralFactory;
 import com.peripheral.core.ReadablePeripheral;
 import com.peripheral.core.RfidConfigurable;
 import com.peripheral.core.SerialConnectionConfig;
+import com.peripheral.scale.Hx711GpioPins;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -36,13 +37,18 @@ public class PeripheralSessionManager {
 
     public void connect(PeripheralSlot slot, DeviceModelEntry model, SerialConnectionConfig config,
                         int powerPercent, int[] antennaIds) throws PeripheralException {
+        boolean usesSerial = model == null || model.usesSerialPort();
         String port = config != null ? config.getPortName() : null;
-        if (port == null || port.trim().isEmpty()) {
-            throw new PeripheralException("Selecione uma porta serial válida");
-        }
-        String conflict = findPortConflict(slot, port.trim());
-        if (conflict != null) {
-            throw new PeripheralException(conflict);
+        if (usesSerial) {
+            if (port == null || port.trim().isEmpty()) {
+                throw new PeripheralException("Selecione uma porta serial válida");
+            }
+            String conflict = findPortConflict(slot, port.trim());
+            if (conflict != null) {
+                throw new PeripheralException(conflict);
+            }
+        } else if (config != null && (port == null || port.trim().isEmpty())) {
+            config.setPortName(Hx711GpioPins.LOGICAL_PORT);
         }
         disconnect(slot);
         ReadablePeripheral device = PeripheralFactory.create(model, config);

@@ -29,6 +29,11 @@ public class SerialConnectionConfig {
         return new SerialConnectionConfig("", 9600, 8, 1, ParityOption.NONE);
     }
 
+    /** Porta lógica para balança HX711 (não é COM/tty). */
+    public static SerialConnectionConfig hx711GpioDefault() {
+        return new SerialConnectionConfig("GPIO-HX711", 0, 8, 1, ParityOption.NONE);
+    }
+
     public String getPortName() {
         return portName;
     }

@@ -3,6 +3,7 @@ package com.peripheral.core;
 import com.peripheral.rfid.MercuryRfidProber;
 import com.peripheral.rfid.PayneRfidProber;
 import com.peripheral.scale.DigitronScaleProber;
+import com.peripheral.scale.Hx711ScaleProber;
 
 public final class PortProbeFactory {
 
@@ -27,6 +28,8 @@ public final class PortProbeFactory {
             switch ((ScaleDeviceModel) model) {
                 case DIGITRON_RS232:
                     return new DigitronScaleProber();
+                case PROPIO_HX711:
+                    return new Hx711ScaleProber();
                 default:
                     throw new IllegalStateException("Probe balança não definido: " + model);
             }

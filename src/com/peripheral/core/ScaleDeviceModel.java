@@ -1,6 +1,7 @@
 package com.peripheral.core;
 
 import com.peripheral.scale.DigitronScalePeripheral;
+import com.peripheral.scale.Hx711ScalePeripheral;
 
 public enum ScaleDeviceModel implements DeviceModelEntry {
     DIGITRON_RS232(
@@ -8,6 +9,13 @@ public enum ScaleDeviceModel implements DeviceModelEntry {
             "Balança serial",
             SdkType.DIGITRON_SERIAL,
             SerialConnectionConfig.scaleDefault()
+    ),
+    /** Fabricante próprio — HX711 em GPIO BCM 5 (DT) / 6 (SCK). */
+    PROPIO_HX711(
+            "Propio",
+            "Propio",
+            SdkType.HX711_GPIO,
+            SerialConnectionConfig.hx711GpioDefault()
     );
 
     private final String vendorName;
@@ -58,6 +66,8 @@ public enum ScaleDeviceModel implements DeviceModelEntry {
         switch (this) {
             case DIGITRON_RS232:
                 return new DigitronScalePeripheral(this, serial);
+            case PROPIO_HX711:
+                return new Hx711ScalePeripheral(this, serial);
             default:
                 throw new IllegalStateException("Modelo de balança não suportado: " + name());
         }

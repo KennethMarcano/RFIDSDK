@@ -19,6 +19,7 @@ import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.session.PeripheralConnectionHandle;
 import com.peripheral.session.PeripheralSessionManager;
 import com.peripheral.session.PeripheralSlot;
+import com.peripheral.scale.Hx711GpioPins;
 import com.rfid.core.SerialPortDiscovery;
 import com.rfid.core.SerialPortInfo;
 
@@ -74,6 +75,10 @@ public class PeripheralConnectionPanel extends JPanel {
     private final JSpinner spDataBits = new JSpinner(new SpinnerNumberModel(8, 5, 8, 1));
     private final JSpinner spStopBits = new JSpinner(new SpinnerNumberModel(1, 1, 2, 1));
     private final JComboBox<ParityOption> cbParity = new JComboBox<>(ParityOption.values());
+    private final JPanel gpioOptionsPanel = new JPanel(new GridBagLayout());
+    private final JLabel lbGpioDt = new JLabel("DT  →  GPIO BCM " + Hx711GpioPins.DT_BCM);
+    private final JLabel lbGpioSck = new JLabel("SCK →  GPIO BCM " + Hx711GpioPins.SCK_BCM);
+    private JPanel portRow;
 
     private final JPanel liveWeightPanel = new JPanel(new BorderLayout(8, 4));
     private final JLabel lbLiveWeight = new JLabel(
@@ -176,7 +181,7 @@ public class PeripheralConnectionPanel extends JPanel {
         selection.add(cbModel, gbc);
 
         setupPortCombo();
-        JPanel portRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        portRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         portRow.setOpaque(false);
         portRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         portRow.add(fieldLabel("Porta:"));
@@ -193,12 +198,14 @@ public class PeripheralConnectionPanel extends JPanel {
 
         buildRfidOptions();
         buildScaleOptions();
+        buildGpioOptions();
         buildLiveWeightPanel();
         buildRfidTestPanel();
         boolean isRfid = slot.getPeripheralType() == PeripheralType.RFID_READER;
         boolean isScale = slot.getPeripheralType() == PeripheralType.SCALE;
         rfidOptionsPanel.setVisible(isRfid);
         scaleOptionsPanel.setVisible(isScale);
+        gpioOptionsPanel.setVisible(false);
 
         lbStatus.setFont(WorkflowUiTheme.fontStatus(lbStatus));
         lbStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
@@ -218,6 +225,7 @@ public class PeripheralConnectionPanel extends JPanel {
         settings.add(lbDeviceInfo);
         settings.add(rfidOptionsPanel);
         settings.add(scaleOptionsPanel);
+        settings.add(gpioOptionsPanel);
 
         // O monitor fica sempre visível ao lado das configurações, sem depender de rolagem.
         JPanel monitorHost = new JPanel(new BorderLayout());
@@ -332,6 +340,28 @@ public class PeripheralConnectionPanel extends JPanel {
         scaleOptionsPanel.add(fieldLabel("Paridade:"), gbc);
         gbc.gridx = 1;
         scaleOptionsPanel.add(cbParity, gbc);
+    }
+
+    private void buildGpioOptions() {
+        gpioOptionsPanel.setOpaque(false);
+        gpioOptionsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        gpioOptionsPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Interface HX711 (GPIO BCM)"));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 2, 2, 2);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        lbGpioDt.setFont(WorkflowUiTheme.fontMeta(lbGpioDt));
+        lbGpioDt.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+        gpioOptionsPanel.add(lbGpioDt, gbc);
+        gbc.gridy = 1;
+        lbGpioSck.setFont(WorkflowUiTheme.fontMeta(lbGpioSck));
+        lbGpioSck.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
+        gpioOptionsPanel.add(lbGpioSck, gbc);
+        gbc.gridy = 2;
+        JLabel hint = fieldLabel("Sem porta serial — conexão direta nos pinos.");
+        gpioOptionsPanel.add(hint, gbc);
     }
 
     private void buildLiveWeightPanel() {
@@ -726,6 +756,25 @@ public class PeripheralConnectionPanel extends JPanel {
         spDataBits.setValue(defaults.getDataBits());
         spStopBits.setValue(defaults.getStopBits());
         cbParity.setSelectedItem(defaults.getParity());
+        updateConnectionUiForModel();
+    }
+
+    private boolean selectedUsesSerialPort() {
+        return selectedModel == null || selectedModel.usesSerialPort();
+    }
+
+    private void updateConnectionUiForModel() {
+        boolean serial = selectedUsesSerialPort();
+        boolean isScale = slot.getPeripheralType() == PeripheralType.SCALE;
+        if (portRow != null) {
+            portRow.setVisible(serial);
+        }
+        scaleOptionsPanel.setVisible(isScale && serial);
+        gpioOptionsPanel.setVisible(isScale && !serial);
+        btnTestPort.setText(serial ? "Testar porta" : "Testar HX711");
+        btnRefreshPorts.setVisible(serial);
+        revalidate();
+        repaint();
     }
 
     private void setupPortCombo() {
@@ -799,6 +848,10 @@ public class PeripheralConnectionPanel extends JPanel {
                 : (slot.getPeripheralType() == PeripheralType.SCALE
                 ? SerialConnectionConfig.scaleDefault()
                 : SerialConnectionConfig.rfidDefault());
+        if (selectedModel != null && !selectedModel.usesSerialPort()) {
+            cfg.setPortName(Hx711GpioPins.LOGICAL_PORT);
+            return cfg;
+        }
         String port = getSelectedPortName();
         if (port != null) {
             cfg.setPortName(port);
@@ -817,20 +870,24 @@ public class PeripheralConnectionPanel extends JPanel {
             showWarning("Selecione um modelo.");
             return;
         }
-        String port = getSelectedPortName();
-        if (port == null) {
+        boolean usesSerial = selectedUsesSerialPort();
+        final String port = usesSerial ? getSelectedPortName() : Hx711GpioPins.LOGICAL_PORT;
+        if (usesSerial && port == null) {
             showWarning("Selecione uma porta serial válida.");
             return;
         }
-        String conflict = sessionManager.findPortConflictForSelection(slot, port);
-        if (conflict != null) {
-            showWarning(conflict);
-            return;
+        if (usesSerial) {
+            String conflict = sessionManager.findPortConflictForSelection(slot, port);
+            if (conflict != null) {
+                showWarning(conflict);
+                return;
+            }
         }
         btnTestPort.setEnabled(false);
         btnConnect.setEnabled(false);
-        lbStatus.setText("Testando " + port + "...");
-        showBusy("Testando porta " + port + "...");
+        String targetLabel = usesSerial ? port : Hx711GpioPins.describeWiring();
+        lbStatus.setText("Testando " + targetLabel + "...");
+        showBusy("Testando " + (usesSerial ? ("porta " + port) : "HX711") + "...");
 
         new SwingWorker<PortProbeResult, Void>() {
             @Override
@@ -847,15 +904,15 @@ public class PeripheralConnectionPanel extends JPanel {
                 try {
                     PortProbeResult result = get();
                     showProbeResultDialog("Resultado do teste — " + slot.getLabel(), result);
-                    log("Teste " + slot.getLabel() + " porta " + port + ": " + result.getStatus());
+                    log("Teste " + slot.getLabel() + " " + targetLabel + ": " + result.getStatus());
                     if (result.isMatch()) {
-                        lbStatus.setText("Porta OK: " + port);
+                        lbStatus.setText(usesSerial ? ("Porta OK: " + port) : "HX711 OK");
                         WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.SUCCESS);
                     } else if (result.isBlocking()) {
                         lbStatus.setText("Teste falhou");
                         WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.DANGER);
                     } else {
-                        lbStatus.setText("Porta suspeita");
+                        lbStatus.setText(usesSerial ? "Porta suspeita" : "HX711 sem resposta");
                         WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.WARNING);
                     }
                 } catch (Exception e) {
@@ -872,24 +929,28 @@ public class PeripheralConnectionPanel extends JPanel {
             showWarning("Selecione um modelo.");
             return;
         }
-        String port = getSelectedPortName();
-        if (port == null) {
+        boolean usesSerial = selectedUsesSerialPort();
+        final String port = usesSerial ? getSelectedPortName() : Hx711GpioPins.LOGICAL_PORT;
+        if (usesSerial && port == null) {
             showWarning("Selecione uma porta serial válida.");
             return;
         }
-        String conflict = sessionManager.findPortConflictForSelection(slot, port);
-        if (conflict != null) {
-            showWarning(conflict);
-            return;
-        }
-        if (portConflictChecker != null) {
-            portConflictChecker.accept(port);
+        if (usesSerial) {
+            String conflict = sessionManager.findPortConflictForSelection(slot, port);
+            if (conflict != null) {
+                showWarning(conflict);
+                return;
+            }
+            if (portConflictChecker != null) {
+                portConflictChecker.accept(port);
+            }
         }
 
         btnConnect.setEnabled(false);
         btnTestPort.setEnabled(false);
-        lbStatus.setText("Verificando " + port + "...");
-        showBusy("Verificando dispositivo em " + port + "...");
+        String targetLabel = usesSerial ? port : Hx711GpioPins.describeWiring();
+        lbStatus.setText("Verificando " + targetLabel + "...");
+        showBusy("Verificando " + (usesSerial ? ("dispositivo em " + port) : "HX711") + "...");
 
         new SwingWorker<PortProbeResult, Void>() {
             @Override
@@ -921,7 +982,7 @@ public class PeripheralConnectionPanel extends JPanel {
                         int choice = JOptionPane.showConfirmDialog(
                                 getDialogParent(),
                                 body,
-                                "Porta suspeita",
+                                usesSerial ? "Porta suspeita" : "HX711 sem confirmação",
                                 JOptionPane.YES_NO_OPTION,
                                 JOptionPane.WARNING_MESSAGE);
                         if (choice != JOptionPane.YES_OPTION) {
@@ -930,7 +991,7 @@ public class PeripheralConnectionPanel extends JPanel {
                             lbStatus.setText("Conexão cancelada");
                             return;
                         }
-                        showBusy("Conectando em " + port + "...");
+                        showBusy("Conectando " + (usesSerial ? ("em " + port) : "HX711") + "...");
                     }
                     performConnect(port);
                 } catch (Exception e) {
@@ -976,7 +1037,9 @@ public class PeripheralConnectionPanel extends JPanel {
                     notifyConnectionChanged(false);
                     return;
                 }
-                lbStatus.setText("Conectado em " + port);
+                lbStatus.setText(Hx711GpioPins.LOGICAL_PORT.equals(port)
+                        ? "Conectado (HX711 GPIO)"
+                        : "Conectado em " + port);
                 WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.SUCCESS);
                 lbDeviceInfo.setText(sessionManager.getDevice(slot).getDeviceInfo());
                 btnDisconnect.setEnabled(true);
@@ -1100,8 +1163,9 @@ public class PeripheralConnectionPanel extends JPanel {
     private void setSelectionEnabled(boolean enabled) {
         cbVendor.setEnabled(enabled);
         cbModel.setEnabled(enabled);
-        cbPort.setEnabled(enabled);
-        btnRefreshPorts.setEnabled(enabled);
+        boolean serial = selectedUsesSerialPort();
+        cbPort.setEnabled(enabled && serial);
+        btnRefreshPorts.setEnabled(enabled && serial);
         btnTestPort.setEnabled(enabled);
         btnConnect.setEnabled(enabled);
         // Potência/antenas editáveis também com o leitor conectado
@@ -1116,10 +1180,11 @@ public class PeripheralConnectionPanel extends JPanel {
                 cb.setEnabled(antennasEditable);
             }
         }
-        spBaud.setEnabled(enabled);
-        spDataBits.setEnabled(enabled);
-        spStopBits.setEnabled(enabled);
-        cbParity.setEnabled(enabled);
+        spBaud.setEnabled(enabled && serial);
+        spDataBits.setEnabled(enabled && serial);
+        spStopBits.setEnabled(enabled && serial);
+        cbParity.setEnabled(enabled && serial);
+        updateConnectionUiForModel();
     }
 
     private void showProbeResultDialog(String title, PortProbeResult result) {
