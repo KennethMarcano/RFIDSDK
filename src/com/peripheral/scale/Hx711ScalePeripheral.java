@@ -265,6 +265,17 @@ public class Hx711ScalePeripheral implements ReadablePeripheral {
             cmd.add("--offset");
             cmd.add(offset.trim());
         }
+        // Suavização para ruído típico de dezenas/centenas no raw
+        cmd.add("--samples");
+        cmd.add(System.getProperty("hx711.samples", "24"));
+        cmd.add("--ema");
+        cmd.add(System.getProperty("hx711.ema", "0.18"));
+        cmd.add("--deadband-raw");
+        cmd.add(System.getProperty("hx711.deadbandRaw", "120"));
+        cmd.add("--stable-stdev");
+        cmd.add(System.getProperty("hx711.stableStdev", "220"));
+        cmd.add("--quantize-g");
+        cmd.add(System.getProperty("hx711.quantizeG", "2"));
         return cmd;
     }
 
