@@ -171,7 +171,9 @@ def main() -> int:
             if len(window) > args.samples:
                 window.pop(0)
 
-            if len(window) < max(5, args.samples // 3):
+            # Nunca exigir mais amostras do que a própria janela comporta
+            min_ready = max(3, min(args.samples, (args.samples + 1) // 2))
+            if len(window) < min_ready:
                 time.sleep(max(0.02, args.interval_ms / 1000.0))
                 continue
 
@@ -204,7 +206,7 @@ def main() -> int:
                 kg = round(kg / step_kg) * step_kg
 
             stable = 0
-            if len(window) >= max(5, args.samples // 2):
+            if len(window) >= min_ready:
                 stdev = statistics.pstdev(window) if len(window) > 1 else 9999.0
                 # Também exige que o EMA esteja perto do centro (sem tendência forte)
                 drift = abs(filtered - center) if ema_raw is not None else 0.0

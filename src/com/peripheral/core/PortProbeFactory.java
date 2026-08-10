@@ -41,6 +41,11 @@ public final class PortProbeFactory {
         if (model == null) {
             return 3000;
         }
+        if (model instanceof ScaleDeviceModel
+                && (ScaleDeviceModel) model == ScaleDeviceModel.PROPIO_HX711) {
+            // Tara + janela filtrada do hx711_reader.py precisa de mais tempo que RS232
+            return 12000;
+        }
         if (model.getPeripheralType() == PeripheralType.SCALE) {
             return 4000;
         }

@@ -75,13 +75,17 @@ public class Hx711ScalePeripheral implements ReadablePeripheral {
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.redirectErrorStream(false);
+            Path scriptDir = script.toAbsolutePath().getParent();
+            if (scriptDir != null && scriptDir.getParent() != null) {
+                pb.directory(scriptDir.getParent().toFile());
+            }
             readerProcess = pb.start();
             connected.set(true);
             lastError = null;
             startStderrDrain();
             startStdoutDrain();
-            // Aguarda um instante: se o processo morrer já, falha a conexão
-            Thread.sleep(250);
+            // Tara inicial do script pode levar ~1–2 s; só falha se o processo morrer
+            Thread.sleep(800);
             if (!readerProcess.isAlive()) {
                 int code = readerProcess.exitValue();
                 connected.set(false);

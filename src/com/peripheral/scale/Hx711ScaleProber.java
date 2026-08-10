@@ -43,20 +43,32 @@ public class Hx711ScaleProber implements SerialPortProber {
         cmd.add(String.valueOf(Hx711GpioPins.SCK_BCM));
         cmd.add("--ref-unit");
         cmd.add(System.getProperty("hx711.refUnit", Hx711GpioPins.DEFAULT_REF_UNIT));
-        String offset = System.getProperty("hx711.offset");
-        if (offset != null && !offset.trim().isEmpty()) {
-            cmd.add("--offset");
-            cmd.add(offset.trim());
-        }
+        // Probe rápido: offset fixo evita tara longa; janela curta mas consistente
+        cmd.add("--offset");
+        cmd.add("0");
         cmd.add("--samples");
-        cmd.add("4");
+        cmd.add("8");
         cmd.add("--interval-ms");
-        cmd.add("80");
+        cmd.add("40");
+        cmd.add("--ema");
+        cmd.add("0.35");
+        cmd.add("--deadband-raw");
+        cmd.add("0");
+        cmd.add("--quantize-g");
+        cmd.add("0");
 
         Process process = null;
         try {
-            process = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-            long deadline = System.currentTimeMillis() + Math.max(1500, timeoutMs);
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            // Garante que o script ache libs/cwd mesmo se a JVM tiver outro user.dir
+            Path scriptDir = script.toAbsolutePath().getParent();
+            if (scriptDir != null && scriptDir.getParent() != null) {
+                pb.directory(scriptDir.getParent().toFile());
+            }
+            process = pb.start();
+            long waitMs = Math.max(8000, timeoutMs);
+            long deadline = System.currentTimeMillis() + waitMs;
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String last = null;
@@ -92,10 +104,12 @@ public class Hx711ScaleProber implements SerialPortProber {
                             Hx711GpioPins.describeWiring());
                 }
                 return PortProbeResult.noResponse(
-                        "Nenhuma leitura do HX711 em " + timeoutMs + " ms.",
+                        "Nenhuma leitura do HX711 em " + waitMs + " ms.",
                         "Verifique alimentação do módulo, DOUT em BCM"
                                 + Hx711GpioPins.DT_BCM + " e SCK em BCM"
-                                + Hx711GpioPins.SCK_BCM + ".");
+                                + Hx711GpioPins.SCK_BCM
+                                + ".\nSe o comando python3 scripts/hx711_reader.py funciona, "
+                                + "confirme que a app foi iniciada na raiz do projeto.");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
