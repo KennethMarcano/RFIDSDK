@@ -42,7 +42,7 @@ public class Hx711ScaleProber implements SerialPortProber {
         cmd.add("--sck");
         cmd.add(String.valueOf(Hx711GpioPins.SCK_BCM));
         cmd.add("--ref-unit");
-        cmd.add(System.getProperty("hx711.refUnit", "1"));
+        cmd.add(System.getProperty("hx711.refUnit", Hx711GpioPins.DEFAULT_REF_UNIT));
         String offset = System.getProperty("hx711.offset");
         if (offset != null && !offset.trim().isEmpty()) {
             cmd.add("--offset");

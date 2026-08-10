@@ -14,6 +14,12 @@ public final class Hx711GpioPins {
     public static final String CHIP = "gpiochip0";
     public static final String LOGICAL_PORT = "GPIO-HX711";
 
+    /**
+     * Divisor de calibração: kg = (raw - tara) / REF_UNIT.
+     * Pode ser sobrescrito com {@code -Dhx711.refUnit=...}.
+     */
+    public static final String DEFAULT_REF_UNIT = "206994";
+
     private Hx711GpioPins() {
     }
 

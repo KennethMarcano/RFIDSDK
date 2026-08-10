@@ -257,7 +257,7 @@ public class Hx711ScalePeripheral implements ReadablePeripheral {
         cmd.add(String.valueOf(Hx711GpioPins.DT_BCM));
         cmd.add("--sck");
         cmd.add(String.valueOf(Hx711GpioPins.SCK_BCM));
-        String refUnit = System.getProperty("hx711.refUnit", "1");
+        String refUnit = System.getProperty("hx711.refUnit", Hx711GpioPins.DEFAULT_REF_UNIT);
         cmd.add("--ref-unit");
         cmd.add(refUnit);
         String offset = System.getProperty("hx711.offset");
