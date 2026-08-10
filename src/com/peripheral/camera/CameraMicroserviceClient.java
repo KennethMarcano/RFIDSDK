@@ -9,9 +9,25 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 public class CameraMicroserviceClient {
+
+    /**
+     * Label antigo do modelo → código atual do pedido (mesmo produto renomeado).
+     * Mantém a UI alinhada quando a IA ainda reporta o código antigo.
+     */
+    private static final Map<String, String> PRODUCT_CODE_ALIASES;
+
+    static {
+        Map<String, String> aliases = new HashMap<>();
+        aliases.put("003509", "003511");
+        PRODUCT_CODE_ALIASES = Collections.unmodifiableMap(aliases);
+    }
 
     private final CameraMicroserviceConfig config;
     private volatile boolean available;
@@ -176,11 +192,54 @@ public class CameraMicroserviceClient {
 
     private static AnalysisResult parseAnalysis(String body) {
         boolean success = body.contains("\"success\":true") || body.contains("\"success\": true");
-        String message = extractJsonString(body, "message");
-        List<String> missing = extractNamedProducts(body, "missing_products");
-        List<String> unexpected = extractNamedProducts(body, "unexpected_products");
-        List<Detection> detections = extractDetections(body);
+        String message = remapProductCodesInText(extractJsonString(body, "message"));
+        List<String> missing = remapProductCodes(extractNamedProducts(body, "missing_products"));
+        List<String> unexpected = remapProductCodes(extractNamedProducts(body, "unexpected_products"));
+        List<Detection> detections = remapDetections(extractDetections(body));
         return new AnalysisResult(success, message, missing, unexpected, detections);
+    }
+
+    public static String mapProductCode(String code) {
+        if (code == null || code.isEmpty()) {
+            return code;
+        }
+        String mapped = PRODUCT_CODE_ALIASES.get(code.trim().toUpperCase(Locale.ROOT));
+        return mapped != null ? mapped : code;
+    }
+
+    private static String remapProductCodesInText(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        String result = text;
+        for (Map.Entry<String, String> entry : PRODUCT_CODE_ALIASES.entrySet()) {
+            result = result.replace(entry.getKey(), entry.getValue());
+            result = result.replace(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue());
+        }
+        return result;
+    }
+
+    private static List<String> remapProductCodes(List<String> codes) {
+        if (codes == null || codes.isEmpty()) {
+            return codes;
+        }
+        List<String> mapped = new ArrayList<>(codes.size());
+        for (String code : codes) {
+            mapped.add(mapProductCode(code));
+        }
+        return mapped;
+    }
+
+    private static List<Detection> remapDetections(List<Detection> detections) {
+        if (detections == null || detections.isEmpty()) {
+            return detections;
+        }
+        List<Detection> mapped = new ArrayList<>(detections.size());
+        for (Detection detection : detections) {
+            String code = mapProductCode(detection.getCode());
+            mapped.add(new Detection(code, detection.getConfidence(), detection.getBox()));
+        }
+        return mapped;
     }
 
     private static List<Detection> extractDetections(String body) {

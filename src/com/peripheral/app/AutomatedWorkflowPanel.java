@@ -54,7 +54,7 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final JCheckBox cbAiFallback = new JCheckBox("IA fallback (análise de vídeo na divergência)", true);
     private final JCheckBox cbPedidoMock = new JCheckBox("Usar pedido mock (demo)", true);
     private final JCheckBox cbDemoDivergence = new JCheckBox("Cenário demo (forçar divergência)", false);
-    private final JTextField tfPedidoNumero = new JTextField("2002", 8);
+    private final JTextField tfPedidoNumero = new JTextField("1001", 8);
     private final JLabel lbPedidoResumo = new JLabel("Nenhum pedido carregado");
     private final JLabel lbCameraStatus = new JLabel("Câmera: verificando...");
     private final JSpinner spTolerancePercent = new JSpinner(

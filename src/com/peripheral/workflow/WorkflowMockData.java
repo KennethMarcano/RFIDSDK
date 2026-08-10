@@ -5,11 +5,10 @@ import java.util.List;
 
 public final class WorkflowMockData {
 
-    public static final String DEFAULT_TAGS_TEXT =
-            "003509, 003907, 004077";
+    public static final String DEFAULT_TAGS_TEXT = "003511";
 
-    /** Peso esperado do volume único do mock (73+11+349 g = 433 g). */
-    public static final double DEFAULT_WEIGHT_KG = 0.433;
+    /** Peso esperado do volume único do mock (73 g). */
+    public static final double DEFAULT_WEIGHT_KG = 0.073;
 
     private WorkflowMockData() {
     }

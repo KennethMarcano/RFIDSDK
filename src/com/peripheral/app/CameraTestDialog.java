@@ -379,7 +379,8 @@ public class CameraTestDialog extends JDialog implements CameraFrameStream.Liste
         if (bracket > 0) {
             s = s.substring(0, bracket).trim();
         }
-        return s.toUpperCase(java.util.Locale.ROOT);
+        // Label antigo do modelo → código atual do pedido
+        return CameraMicroserviceClient.mapProductCode(s.toUpperCase(java.util.Locale.ROOT));
     }
 
     /** Aceita confiança 0–1 ou já em percentual 0–100. */
