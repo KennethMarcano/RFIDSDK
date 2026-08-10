@@ -191,6 +191,7 @@ def main() -> int:
             # Deadband: evita tremer o display com ruído residual
             if published_raw is None:
                 published_raw = filtered
+                filtered_out = filtered
             elif args.deadband_raw > 0 and abs(filtered - published_raw) < args.deadband_raw:
                 filtered_out = published_raw
             else:
