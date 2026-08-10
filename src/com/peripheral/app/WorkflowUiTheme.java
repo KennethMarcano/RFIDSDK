@@ -175,6 +175,13 @@ public final class WorkflowUiTheme {
         if (!isFullScreenEnabled()) {
             return;
         }
+        if (window instanceof Frame) {
+            Frame frame = (Frame) window;
+            // Não forçar NORMAL enquanto minimizada — senão o botão Minimizar não surte efeito.
+            if ((frame.getExtendedState() & Frame.ICONIFIED) != 0) {
+                return;
+            }
+        }
         Rectangle screen = physicalScreenBounds();
         if (!screen.equals(window.getBounds())) {
             if (window instanceof Frame) {

@@ -30,12 +30,21 @@ public class MainFrame extends JFrame {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowOpened(WindowEvent e) {
-                WorkflowUiTheme.keepFullScreen(MainFrame.this);
+                if (!isWindowIconified()) {
+                    WorkflowUiTheme.keepFullScreen(MainFrame.this);
+                }
             }
 
             @Override
             public void windowActivated(WindowEvent e) {
-                WorkflowUiTheme.keepFullScreen(MainFrame.this);
+                if (!isWindowIconified()) {
+                    WorkflowUiTheme.keepFullScreen(MainFrame.this);
+                }
+            }
+
+            @Override
+            public void windowDeiconified(WindowEvent e) {
+                SwingUtilities.invokeLater(() -> WorkflowUiTheme.keepFullScreen(MainFrame.this));
             }
 
             @Override
@@ -72,6 +81,11 @@ public class MainFrame extends JFrame {
         btnUpdate.setToolTipText("Baixa a versão mais recente (git), recompila e reinicia a app.");
         btnUpdate.addActionListener(e -> confirmAndUpdate());
 
+        ThemedButton btnMinimize = WorkflowUiTheme.button("Minimizar", ThemedButton.Variant.SECONDARY)
+                .withSize(ThemedButton.Size.SMALL);
+        btnMinimize.setToolTipText("Minimiza a janela para usar outras aplicações.");
+        btnMinimize.addActionListener(e -> minimizeApplication());
+
         ThemedButton btnExit = WorkflowUiTheme.button("Sair", ThemedButton.Variant.DANGER)
                 .withSize(ThemedButton.Size.SMALL);
         btnExit.addActionListener(e -> confirmExit());
@@ -80,6 +94,7 @@ public class MainFrame extends JFrame {
         headerActions.setOpaque(false);
         headerActions.add(btnUpdate);
         headerActions.add(btnLog);
+        headerActions.add(btnMinimize);
         headerActions.add(btnExit);
 
         add(WorkflowUiTheme.createHeader(
@@ -134,6 +149,14 @@ public class MainFrame extends JFrame {
             workflowPanel.stopWorkflowIfRunning();
         }
         AppUpdater.runUpdateAsync(this, this::appendLog);
+    }
+
+    private boolean isWindowIconified() {
+        return (getExtendedState() & Frame.ICONIFIED) != 0;
+    }
+
+    private void minimizeApplication() {
+        setExtendedState(getExtendedState() | Frame.ICONIFIED);
     }
 
     private void confirmExit() {
