@@ -18,7 +18,7 @@ public final class Hx711GpioPins {
      * Divisor de calibração: kg = (raw - tara) / REF_UNIT.
      * Pode ser sobrescrito com {@code -Dhx711.refUnit=...}.
      */
-    public static final String DEFAULT_REF_UNIT = "206994";
+    public static final String DEFAULT_REF_UNIT = "198025";
 
     private Hx711GpioPins() {
     }
