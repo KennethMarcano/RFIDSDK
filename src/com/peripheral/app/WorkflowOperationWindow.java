@@ -332,12 +332,6 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     private JPanel buildMainCenter() {
-        monitorsRow = new JPanel(new GridLayout(1, 2, 8, 0));
-        monitorsRow.setOpaque(false);
-        monitorsRow.add(buildScaleMonitorPanel());
-        monitorsRow.add(cameraMonitor);
-        monitorsRow.setPreferredSize(new Dimension(0, MONITOR_ROW_HEIGHT));
-
         liveTagMonitor.setHint("Aguardando iniciar leitura de tags...");
 
         contentTabs = new JTabbedPane();
@@ -348,10 +342,21 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             contentTabs.addTab("Simulação", new JScrollPane(buildSimulationPanel()));
         }
 
-        JPanel center = new JPanel(new BorderLayout(0, 6));
+        // Coluna esquerda: peso e tags com a mesma altura.
+        // Coluna direita: câmera na mesma largura de antes, altura = peso + tags.
+        JPanel scalePanel = buildScaleMonitorPanel();
+        scalePanel.setPreferredSize(new Dimension(0, MONITOR_ROW_HEIGHT));
+        contentTabs.setPreferredSize(new Dimension(0, MONITOR_ROW_HEIGHT));
+
+        monitorsRow = new JPanel(new GridLayout(2, 1, 0, 6));
+        monitorsRow.setOpaque(false);
+        monitorsRow.add(scalePanel);
+        monitorsRow.add(contentTabs);
+
+        JPanel center = new JPanel(new GridLayout(1, 2, 8, 0));
         center.setOpaque(false);
-        center.add(monitorsRow, BorderLayout.NORTH);
-        center.add(contentTabs, BorderLayout.CENTER);
+        center.add(monitorsRow);
+        center.add(cameraMonitor);
         return center;
     }
 
@@ -741,8 +746,8 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     }
 
     /**
-     * Em divergência: encolhe balança/câmera e amplia a grade de tags
-     * para o operador conseguir ler os códigos com clareza.
+     * Em divergência: destaca a grade de tags (peso e tags já têm a mesma altura;
+     * a câmera permanece na coluna direita ocupando as duas).
      */
     private void setDivergenceLayout(boolean active) {
         if (divergenceLayoutActive == active) {
@@ -753,17 +758,12 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         }
         divergenceLayoutActive = active;
         liveTagMonitor.setEmphasisMode(active);
-        if (monitorsRow != null) {
-            monitorsRow.setPreferredSize(new Dimension(0,
-                    active ? Math.max(96, MONITOR_ROW_HEIGHT / 2) : MONITOR_ROW_HEIGHT));
-            monitorsRow.revalidate();
-        }
         if (contentTabs != null) {
             contentTabs.setSelectedIndex(0);
             contentTabs.revalidate();
         }
         liveTagMonitor.setHint(active
-                ? "Divergência — confira as tags lidas abaixo (layout ampliado)"
+                ? "Divergência — confira as tags lidas abaixo"
                 : liveTagMonitor.getUniqueTagCount() > 0
                 ? "Tags detectadas"
                 : "Aguardando leitura das tags...");
