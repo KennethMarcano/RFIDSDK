@@ -417,7 +417,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         });
         btnUpdateApp.addActionListener(e -> {
             forceUiInteractive();
-            confirmUpdateApp();
+            startUpdateApp();
         });
 
         btnRereadRfid.addActionListener(e -> runOperatorAction(() -> {
@@ -806,30 +806,21 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         setCursor(Cursor.getDefaultCursor());
     }
 
-    private void confirmUpdateApp() {
-        int choice = JOptionPane.showConfirmDialog(this,
-                "Baixar a versão mais recente, recompilar e reiniciar?\n"
-                        + "O fluxo atual será parado.",
-                "Atualizar",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.QUESTION_MESSAGE);
-        if (choice != JOptionPane.YES_OPTION) {
-            return;
-        }
+    private void startUpdateApp() {
         Window owner = getOwner() != null ? getOwner() : this;
         if (orchestrator != null && orchestrator.isRunning()) {
             Thread worker = new Thread(() -> {
                 try {
                     orchestrator.stop();
                 } finally {
-                    SwingUtilities.invokeLater(() -> AppUpdater.runUpdateAsync(owner, null));
+                    SwingUtilities.invokeLater(() -> AppUpdater.runUpdateAsync(owner));
                 }
             }, "workflow-stop-before-update");
             worker.setDaemon(true);
             worker.start();
             return;
         }
-        AppUpdater.runUpdateAsync(owner, null);
+        AppUpdater.runUpdateAsync(owner);
     }
 
     private void endWorkflowNow() {

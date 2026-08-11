@@ -78,8 +78,8 @@ public class MainFrame extends JFrame {
 
         ThemedButton btnUpdate = WorkflowUiTheme.button("Atualizar", ThemedButton.Variant.SECONDARY)
                 .withSize(ThemedButton.Size.SMALL);
-        btnUpdate.setToolTipText("Baixa a versão mais recente (git), recompila e reinicia a app.");
-        btnUpdate.addActionListener(e -> confirmAndUpdate());
+        btnUpdate.setToolTipText("Atualiza o aplicativo para a última versão.");
+        btnUpdate.addActionListener(e -> startUpdate());
 
         ThemedButton btnMinimize = WorkflowUiTheme.button("Minimizar", ThemedButton.Variant.SECONDARY)
                 .withSize(ThemedButton.Size.SMALL);
@@ -135,20 +135,11 @@ public class MainFrame extends JFrame {
         dialog.setVisible(true);
     }
 
-    private void confirmAndUpdate() {
-        int choice = JOptionPane.showConfirmDialog(this,
-                "Baixar a versão mais recente, recompilar e reiniciar a aplicação?\n\n"
-                        + "A janela vai fechar e reabrir sozinha em alguns segundos.",
-                "Atualizar",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.QUESTION_MESSAGE);
-        if (choice != JOptionPane.YES_OPTION) {
-            return;
-        }
+    private void startUpdate() {
         if (workflowPanel != null) {
             workflowPanel.stopWorkflowIfRunning();
         }
-        AppUpdater.runUpdateAsync(this, this::appendLog);
+        AppUpdater.runUpdateAsync(this);
     }
 
     private boolean isWindowIconified() {
