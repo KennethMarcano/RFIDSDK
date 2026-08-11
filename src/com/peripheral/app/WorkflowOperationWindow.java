@@ -487,7 +487,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
 
         JLabel hint = WorkflowUiTheme.createHintLabel(
                 "<html>Informe o <b>peso</b> (kg) e os códigos das tags.<br/>"
-                        + "Ex.: <code>003511</code> · 0,073 kg</html>");
+                        + "Ex.: <code>003511</code> · 0,074 kg</html>");
         gbc.gridy = 3;
         gbc.weightx = 1;
         simulationPanel.add(hint, gbc);

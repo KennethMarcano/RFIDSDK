@@ -7,8 +7,8 @@ public final class WorkflowMockData {
 
     public static final String DEFAULT_TAGS_TEXT = "003511";
 
-    /** Peso esperado do volume único do mock (73 g). */
-    public static final double DEFAULT_WEIGHT_KG = 0.073;
+    /** Peso esperado do volume único do mock (74 g). */
+    public static final double DEFAULT_WEIGHT_KG = 0.074;
 
     private WorkflowMockData() {
     }
