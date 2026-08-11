@@ -28,7 +28,7 @@ public class RfidTagMonitorPanel extends JPanel {
     private static final int EMPHASIS_TILE_GAP = 10;
     private static final int DISPLAY_TILE_WIDTH = 236;
     private static final int DISPLAY_TILE_HEIGHT = 86;
-    private static final int DISPLAY_TILE_GAP = 4;
+    private static final int DISPLAY_TILE_GAP = 0;
     private static final int DISPLAY_EMPHASIS_TILE_WIDTH = 280;
     private static final int DISPLAY_EMPHASIS_TILE_HEIGHT = 100;
 
@@ -103,7 +103,7 @@ public class RfidTagMonitorPanel extends JPanel {
         this.showReadCounts = showReadCounts;
         setOpaque(true);
         setBackground(WorkflowUiTheme.MONITOR_BG);
-        int pad = showReadCounts ? 8 : 4;
+        int pad = showReadCounts ? 8 : 2;
         setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1),
                 WorkflowUiTheme.empty(pad, pad, pad, pad)));
@@ -448,17 +448,21 @@ public class RfidTagMonitorPanel extends JPanel {
         tile.setOpaque(true);
         tile.setBackground(displayMode ? WorkflowUiTheme.MONITOR_BG : WorkflowUiTheme.MONITOR_ROW_BG);
         tile.setBorder(tileBorder(false));
-        Dimension size = new Dimension(tileW, tileH);
-        tile.setPreferredSize(size);
-        tile.setMinimumSize(size);
-        tile.setMaximumSize(size);
+        if (!displayMode) {
+            Dimension size = new Dimension(tileW, tileH);
+            tile.setPreferredSize(size);
+            tile.setMinimumSize(size);
+            tile.setMaximumSize(size);
+        }
 
-        JLabel lbCode = new JLabel(truncate(code, displayMode ? 16 : (emphasisMode ? 22 : 14)));
+        JLabel lbCode = new JLabel(displayMode ? code : truncate(code, emphasisMode ? 22 : 14));
         lbCode.setToolTipText("Código: " + code);
         if (displayMode) {
-            lbCode.setFont(WorkflowUiTheme.fontTagCode(lbCode).deriveFont(emphasisMode ? 36f : 32f));
-            lbCode.setHorizontalAlignment(SwingConstants.CENTER);
+            lbCode.setFont(WorkflowUiTheme.fontMonitorDisplay());
+            lbCode.setHorizontalAlignment(SwingConstants.LEFT);
             lbCode.setVerticalAlignment(SwingConstants.CENTER);
+            lbCode.setIconTextGap(0);
+            lbCode.setBorder(null);
         } else {
             lbCode.setFont(lbCode.getFont().deriveFont(Font.BOLD, emphasisMode ? 18f : 12f));
             lbCode.setForeground(WorkflowUiTheme.MONITOR_TEXT);
@@ -478,7 +482,8 @@ public class RfidTagMonitorPanel extends JPanel {
         }
 
         if (displayMode) {
-            tile.add(lbCode, BorderLayout.CENTER);
+            tile.setLayout(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            tile.add(lbCode);
         } else {
             JPanel top = new JPanel(new BorderLayout(4, 0));
             top.setOpaque(false);
@@ -550,8 +555,7 @@ public class RfidTagMonitorPanel extends JPanel {
     private Border tileBorder(boolean detected) {
         int pad = tilePad();
         if (!showReadCounts) {
-            // Conferência: só o código, sem quadro ao redor da tag.
-            return WorkflowUiTheme.empty(1, 4, 1, 4);
+            return BorderFactory.createEmptyBorder();
         }
         int hPad = pad + 2;
         Color line = detected ? WorkflowUiTheme.MONITOR_VALUE : WorkflowUiTheme.MONITOR_BORDER;

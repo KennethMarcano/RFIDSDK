@@ -243,7 +243,7 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
         caption.setFont(caption.getFont().deriveFont(Font.BOLD, 12f));
         caption.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
 
-        lbLiveWeightValue.setFont(new Font(Font.MONOSPACED, Font.BOLD, 48));
+        lbLiveWeightValue.setFont(WorkflowUiTheme.fontMonitorDisplay());
         lbLiveWeightValue.setForeground(Color.WHITE);
 
         lbLiveWeightUnit.setFont(lbLiveWeightUnit.getFont().deriveFont(Font.BOLD, 16f));

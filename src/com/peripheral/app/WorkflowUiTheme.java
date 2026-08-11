@@ -641,9 +641,14 @@ public final class WorkflowUiTheme {
         return new Font(Font.MONOSPACED, Font.BOLD, 20);
     }
 
-    /** Fonte monoespaçada usada nos códigos das tags RFID (mesmo peso visual do display de peso). */
+    /** Mesma fonte do display de peso líquido e do código da tag na conferência. */
+    public static Font fontMonitorDisplay() {
+        return new Font(Font.MONOSPACED, Font.BOLD, 48);
+    }
+
+    /** Fonte monoespaçada usada nos códigos das tags RFID. */
     public static Font fontTagCode(Component c) {
-        return new Font(Font.MONOSPACED, Font.BOLD, 32);
+        return fontMonitorDisplay();
     }
 
     public static Font fontWeightUnit(Component c) {
