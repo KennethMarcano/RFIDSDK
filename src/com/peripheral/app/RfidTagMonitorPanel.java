@@ -446,7 +446,7 @@ public class RfidTagMonitorPanel extends JPanel {
 
         JPanel tile = new JPanel(new BorderLayout(0, 0));
         tile.setOpaque(true);
-        tile.setBackground(WorkflowUiTheme.MONITOR_ROW_BG);
+        tile.setBackground(displayMode ? WorkflowUiTheme.MONITOR_BG : WorkflowUiTheme.MONITOR_ROW_BG);
         tile.setBorder(tileBorder(false));
         Dimension size = new Dimension(tileW, tileH);
         tile.setPreferredSize(size);
@@ -519,7 +519,11 @@ public class RfidTagMonitorPanel extends JPanel {
         widgets.lbStatus.setVisible(false);
         widgets.lbCode.setForeground(WorkflowUiTheme.MONITOR_VALUE);
         widgets.lbCode.setToolTipText("Código identificado");
-        widgets.root.setBackground(new Color(0x2F, 0x45, 0x63));
+        if (showReadCounts) {
+            widgets.root.setBackground(new Color(0x2F, 0x45, 0x63));
+        } else {
+            widgets.root.setBackground(WorkflowUiTheme.MONITOR_BG);
+        }
         widgets.root.setBorder(tileBorder(true));
     }
 
@@ -531,7 +535,8 @@ public class RfidTagMonitorPanel extends JPanel {
         widgets.lbStatus.setVisible(false);
         widgets.lbCode.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
         widgets.lbCode.setToolTipText("Aguardando leitura deste código");
-        widgets.root.setBackground(WorkflowUiTheme.MONITOR_ROW_BG);
+        widgets.root.setBackground(
+                showReadCounts ? WorkflowUiTheme.MONITOR_ROW_BG : WorkflowUiTheme.MONITOR_BG);
         widgets.root.setBorder(tileBorder(false));
     }
 
@@ -544,13 +549,16 @@ public class RfidTagMonitorPanel extends JPanel {
 
     private Border tileBorder(boolean detected) {
         int pad = tilePad();
-        int hPad = showReadCounts ? pad + 2 : 4;
-        int vPad = showReadCounts ? pad : 1;
+        if (!showReadCounts) {
+            // Conferência: só o código, sem quadro ao redor da tag.
+            return WorkflowUiTheme.empty(1, 4, 1, 4);
+        }
+        int hPad = pad + 2;
         Color line = detected ? WorkflowUiTheme.MONITOR_VALUE : WorkflowUiTheme.MONITOR_BORDER;
         int thickness = detected || emphasisMode ? 2 : 1;
         return BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(line, thickness),
-                WorkflowUiTheme.empty(vPad, hPad, vPad, hPad));
+                WorkflowUiTheme.empty(pad, hPad, pad, hPad));
     }
 
     private void applyCount(JLabel label, int count) {
