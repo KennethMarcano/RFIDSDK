@@ -49,15 +49,16 @@ public final class LabelContent {
         }
 
         StringBuilder qr = new StringBuilder();
-        qr.append("PEDIDO:").append(order.isEmpty() ? "-" : order).append('\n');
-        qr.append("VOL:").append(volume).append('\n');
+        qr.append("Pedido: ").append(order.isEmpty() ? "-" : order).append('\n');
+        qr.append("Volume: ").append(volume).append('\n');
+        qr.append('\n');
         for (Line line : lines) {
-            qr.append(line.codigo).append('|')
-                    .append(line.quantidade).append('|')
-                    .append(ScaleWeightFormat.formatGramsPlain(line.pesoLinhaKg))
-                    .append('\n');
+            qr.append(line.codigo).append('\n');
+            qr.append("Qtd: ").append(line.quantidade).append('\n');
+            qr.append("Peso: ").append(ScaleWeightFormat.formatGramsPlain(line.pesoLinhaKg)).append('\n');
+            qr.append('\n');
         }
-        qr.append("PESO:").append(ScaleWeightFormat.formatGramsPlain(weight));
+        qr.append("Peso conferido: ").append(ScaleWeightFormat.formatGramsPlain(weight));
         return new LabelContent(order, volume, lines, weight, qr.toString());
     }
 

@@ -30,4 +30,38 @@ public final class LabelLayout {
         }
         return text.replace("^", " ").replace("~", " ").replace("\\", " ");
     }
+
+    /**
+     * Mantém quebras de linha no QR via ^FH (_0A = LF) para o celular exibir
+     * cada campo em uma linha ao escanear.
+     */
+    public static String zplQrPayload(String payload) {
+        String escaped = zplEscape(payload).replace("_", " ");
+        StringBuilder out = new StringBuilder(escaped.length() + 16);
+        for (int i = 0; i < escaped.length(); i++) {
+            char c = escaped.charAt(i);
+            if (c == '\r') {
+                if (i + 1 < escaped.length() && escaped.charAt(i + 1) == '\n') {
+                    i++;
+                }
+                out.append("_0A");
+            } else if (c == '\n') {
+                out.append("_0A");
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
+    }
+
+    public static int orderFontDots(String orderNumber) {
+        int len = orderNumber != null ? orderNumber.length() : 0;
+        if (len <= 6) {
+            return 72;
+        }
+        if (len <= 10) {
+            return 54;
+        }
+        return 40;
+    }
 }

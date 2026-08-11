@@ -1,5 +1,6 @@
 package com.peripheral.workflow.label;
 
+import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,9 +24,9 @@ public class ZplLabelGenerator {
         int dpi = LabelLayout.ZPL_DPI;
         int pw = LabelLayout.mmToDots(widthMm, dpi);
         int ll = LabelLayout.mmToDots(heightMm, dpi);
-        int margin = LabelLayout.mmToDots(4f, dpi);
-        int y = margin + 10;
+        int m = LabelLayout.mmToDots(3f, dpi);
 
+        String order = LabelLayout.zplEscape(data.getOrderNumber().isEmpty() ? "-" : data.getOrderNumber());
         StringBuilder zpl = new StringBuilder();
         zpl.append("^XA\n");
         zpl.append("^CI28\n");
@@ -33,37 +34,111 @@ public class ZplLabelGenerator {
         zpl.append("^LL").append(ll).append('\n');
         zpl.append("^LH0,0\n");
 
-        String order = LabelLayout.zplEscape(data.getOrderNumber().isEmpty() ? "-" : data.getOrderNumber());
-        zpl.append("^FO").append(margin).append(',').append(y)
-                .append("^A0N,40,40^FDPedido ").append(order).append("^FS\n");
-        y += 48;
-        zpl.append("^FO").append(margin).append(',').append(y)
-                .append("^A0N,24,24^FDVolume ").append(data.getVolumeIndex()).append("^FS\n");
-        y += 36;
+        int accent = LabelLayout.mmToDots(2.4f, dpi);
+        zpl.append("^FO0,0^GB").append(pw).append(',').append(accent).append(',').append(accent).append("^FS\n");
 
-        for (LabelContent.Line line : data.getLines()) {
-            String row = LabelLayout.zplEscape(line.codigo)
-                    + "  x" + line.quantidade
-                    + "  " + LabelLayout.formatWeight(line.pesoLinhaKg);
-            zpl.append("^FO").append(margin).append(',').append(y)
-                    .append("^A0N,22,22^FD").append(row).append("^FS\n");
-            y += 28;
+        int headerY = accent + 8;
+        int logoW = LabelLayout.mmToDots(32f, dpi);
+        int logoH = LabelLayout.mmToDots(16f, dpi);
+        int textX = m;
+        BufferedImage logo = LabelAssets.loadLogo();
+        if (logo != null) {
+            zpl.append("^FO").append(m).append(',').append(headerY)
+                    .append(ZplGraphic.toGfa(logo, logoW, logoH))
+                    .append("^FS\n");
+            textX = m + logoW + 14;
+        } else {
+            zpl.append("^FO").append(m).append(',').append(headerY + 8)
+                    .append("^A0N,44,44^FDeship^FS\n");
+            textX = m + LabelLayout.mmToDots(22f, dpi);
         }
 
-        y += 8;
-        zpl.append("^FO").append(margin).append(',').append(y)
-                .append("^A0N,26,26^FDPeso conferido: ")
+        int orderFont = LabelLayout.orderFontDots(order);
+        zpl.append("^FO").append(textX).append(',').append(headerY)
+                .append("^A0N,26,26^FDPEDIDO^FS\n");
+        zpl.append("^FO").append(textX).append(',').append(headerY + 28)
+                .append("^A0N,").append(orderFont).append(',').append(orderFont)
+                .append("^FD").append(order).append("^FS\n");
+
+        String volume = String.valueOf(data.getVolumeIndex());
+        int volBoxW = LabelLayout.mmToDots(26f, dpi);
+        int volBoxH = Math.max(logoH, 28 + orderFont);
+        int volX = pw - m - volBoxW;
+        zpl.append("^FO").append(volX).append(',').append(headerY)
+                .append("^GB").append(volBoxW).append(',').append(volBoxH).append(",").append(volBoxH).append("^FS\n");
+        zpl.append("^FO").append(volX + 8).append(',').append(headerY + 8)
+                .append("^FR^A0N,22,22^FDVOL^FS\n");
+        zpl.append("^FO").append(volX + 8).append(',').append(headerY + 34)
+                .append("^FR^A0N,48,48^FD").append(volume).append("^FS\n");
+
+        int barY = headerY + Math.max(logoH, volBoxH) + 10;
+        zpl.append("^FO").append(m).append(',').append(barY)
+                .append("^GB").append(pw - 2 * m).append(",8,8^FS\n");
+
+        int contentY = barY + 18;
+        int captionH = 28;
+        int availH = ll - contentY - m - captionH;
+        int leftMin = LabelLayout.mmToDots(40f, dpi);
+        int availW = Math.max(LabelLayout.mmToDots(32f, dpi), pw - m - leftMin - 12);
+        int mag = 10;
+        int qrDots = 43 * mag;
+        while (mag > 6 && (qrDots > availH || qrDots > availW)) {
+            mag--;
+            qrDots = 43 * mag;
+        }
+
+        int qrX = pw - m - qrDots;
+        int qrY = contentY;
+        zpl.append("^FO").append(qrX - 6).append(',').append(qrY - 6)
+                .append("^GB").append(qrDots + 12).append(',').append(qrDots + 12).append(",3^FS\n");
+        zpl.append("^FO").append(qrX).append(',').append(qrY)
+                .append("^BQN,2,").append(mag).append('\n');
+        zpl.append("^FH^FDMA,").append(LabelLayout.zplQrPayload(data.getQrPayload())).append("^FS\n");
+        zpl.append("^FO").append(qrX).append(',').append(qrY + qrDots + 8)
+                .append("^A0N,24,24^FDESCANEIE O QR^FS\n");
+
+        int y = contentY;
+        zpl.append("^FO").append(m).append(',').append(y)
+                .append("^A0N,28,28^FDPRODUTOS^FS\n");
+        y += 36;
+
+        int weightBlockH = 118;
+        int maxItemY = ll - m - weightBlockH - 8;
+        int printed = 0;
+        for (LabelContent.Line line : data.getLines()) {
+            if (y + 72 > maxItemY) {
+                zpl.append("^FO").append(m).append(',').append(y)
+                        .append("^A0N,30,30^FD...^FS\n");
+                break;
+            }
+            zpl.append("^FO").append(m).append(',').append(y)
+                    .append("^A0N,40,40^FD")
+                    .append(LabelLayout.zplEscape(line.codigo))
+                    .append("^FS\n");
+            y += 44;
+            String detail = "x" + line.quantidade
+                    + "   " + LabelLayout.formatWeight(line.pesoLinhaKg);
+            zpl.append("^FO").append(m).append(',').append(y)
+                    .append("^A0N,32,32^FD").append(detail).append("^FS\n");
+            y += 40;
+            printed++;
+        }
+        if (printed == 0) {
+            zpl.append("^FO").append(m).append(',').append(y)
+                    .append("^A0N,30,30^FD-^FS\n");
+        }
+
+        int weightY = ll - m - weightBlockH;
+        int leftW = Math.max(80, qrX - m - 16);
+        zpl.append("^FO").append(m).append(',').append(weightY)
+                .append("^GB").append(leftW).append(",6,6^FS\n");
+        zpl.append("^FO").append(m).append(',').append(weightY + 14)
+                .append("^A0N,28,28^FDPESO CONFERIDO^FS\n");
+        zpl.append("^FO").append(m).append(',').append(weightY + 48)
+                .append("^A0N,64,64^FD")
                 .append(LabelLayout.zplEscape(LabelLayout.formatWeight(data.getMeasuredWeightKg())))
                 .append("^FS\n");
 
-        String qr = LabelLayout.zplEscape(data.getQrPayload().replace('\n', ';'));
-        int mag = 4;
-        int qrDots = 29 * mag + 20;
-        int qrX = Math.max(0, (pw - qrDots) / 2);
-        int qrY = Math.max(y + 20, ll - qrDots - margin);
-        zpl.append("^FO").append(qrX).append(',').append(qrY)
-                .append("^BQN,2,").append(mag).append('\n');
-        zpl.append("^FDQA,").append(qr).append("^FS\n");
         zpl.append("^XZ\n");
         return zpl.toString();
     }
