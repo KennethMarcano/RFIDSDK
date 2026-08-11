@@ -1008,12 +1008,14 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
     public void onPreparingNextPedido(Pedido completed, Pedido next, int nextIndex, int total,
                                       String message) {
         SwingUtilities.invokeLater(() -> {
+            if (total <= 1) {
+                return;
+            }
             setOperatorReviewVisible(false);
             setWeightLiveEnabled(false);
             liveTagMonitor.reset();
             liveTagMonitor.setHint("Retire os produtos já conferidos...");
             cameraMonitor.ensureLivePreview();
-
             String completedNum = completed != null ? completed.getNumero() : "?";
             String nextNum = next != null ? next.getNumero() : "?";
             String detail = (message != null ? message : "Carregando próximo pedido...")
@@ -1069,7 +1071,9 @@ public class WorkflowOperationWindow extends JDialog implements WorkflowListener
             btnRestartSession.setEnabled(true);
             refreshTareLabel();
             liveTagMonitor.reset();
-            liveTagMonitor.setHint("Tags limpas — aproxime os produtos do novo pedido...");
+            liveTagMonitor.setHint(total <= 1
+                    ? "Aproxime os produtos..."
+                    : "Tags limpas — aproxime os produtos do novo pedido...");
             cameraMonitor.ensureLivePreview();
 
             String nextNum = next != null ? next.getNumero() : "?";

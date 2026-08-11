@@ -857,16 +857,13 @@ public final class WorkflowUiTheme {
     public static void showValidationOutcome(Window window, boolean success,
                                              String title, String detail) {
         showTimedOutcome(window, success ? OutcomeStyle.SUCCESS : OutcomeStyle.ERROR,
-                title, detail, success ? 2000 : 10_000, null);
+                title, detail, success ? 5000 : 10_000, null);
     }
 
     /** Pop-up de validação com foto opcional (ex.: sucesso com captura). */
     public static void showValidationOutcome(Window window, boolean success,
                                              String title, String detail, String photoPath) {
-        boolean hasPhoto = photoPath != null && !photoPath.trim().isEmpty();
-        int durationMs = success
-                ? (hasPhoto ? 2800 : 2000)
-                : 10_000;
+        int durationMs = success ? 5000 : 10_000;
         showTimedOutcome(window, success ? OutcomeStyle.SUCCESS : OutcomeStyle.ERROR,
                 title, detail, durationMs, photoPath);
     }

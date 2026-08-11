@@ -1062,6 +1062,9 @@ public class AutomatedWorkflowPanel extends JPanel {
             public void onPreparingNextPedido(Pedido completed, Pedido next, int nextIndex, int total,
                                               String message) {
                 window.onPreparingNextPedido(completed, next, nextIndex, total, message);
+                if (total <= 1) {
+                    return;
+                }
                 SwingUtilities.invokeLater(() -> {
                     lbWorkflowStatus.setText("Carregando próximo pedido...");
                     appendLog(message != null ? message : "Carregando próximo pedido");

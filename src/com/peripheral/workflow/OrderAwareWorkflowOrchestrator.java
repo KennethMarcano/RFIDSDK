@@ -38,7 +38,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
     private static final long TARE_TIMEOUT_MS = 15_000;
     private static final double TARE_STABLE_TOLERANCE_KG = 0.005;
     /** Tempo de exibição do pop-up de sucesso (sem botão). */
-    private static final long OUTCOME_MESSAGE_MS = 2000;
+    private static final long OUTCOME_MESSAGE_MS = 5000;
     /** Tempo de exibição do pop-up de divergência (sem botão). */
     private static final long DIVERGENCE_OUTCOME_MESSAGE_MS = 10_000;
     /** Delay após sucesso antes de iniciar o próximo pedido (retirar produtos). */
@@ -1250,9 +1250,7 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             listener.onCycleCompleted(context);
         }
         // Tempo do pop-up de sucesso (com foto) antes de avançar / carregar o próximo.
-        long outcomeMs = context.getPhotoPath() != null && !context.getPhotoPath().trim().isEmpty()
-                ? 2800
-                : OUTCOME_MESSAGE_MS;
+        long outcomeMs = OUTCOME_MESSAGE_MS;
         sleepQuietly(outcomeMs);
         if (!running.get()) {
             return;
@@ -1266,15 +1264,17 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
             finishCurrentPedidoAndAdvance();
             return;
         }
-        String prepareMsg = "Retire os produtos já conferidos. Carregando próximo volume...";
-        if (listener != null) {
-            listener.onPreparingNextPedido(pedido, pedido,
-                    pedidoIndex + 1, pedidos.size(), prepareMsg);
-        }
-        notifyStep(WorkflowStep.FETCH_ORDER, prepareMsg);
-        sleepQuietly(NEXT_PEDIDO_DELAY_MS);
-        if (!running.get()) {
-            return;
+        if (shouldPauseForNextPedido()) {
+            String prepareMsg = "Retire os produtos já conferidos. Carregando próximo volume...";
+            if (listener != null) {
+                listener.onPreparingNextPedido(pedido, pedido,
+                        pedidoIndex + 1, pedidos.size(), prepareMsg);
+            }
+            notifyStep(WorkflowStep.FETCH_ORDER, prepareMsg);
+            sleepQuietly(NEXT_PEDIDO_DELAY_MS);
+            if (!running.get()) {
+                return;
+            }
         }
         armed.set(false);
         operatorReview.set(false);
@@ -1318,18 +1318,19 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         pedido = pedidos.get(pedidoIndex);
         currentVolumeIndex = 0;
 
-        String prepareMsg = wrapped
-                ? "Fila concluída — reiniciando do primeiro pedido. Retire os produtos já conferidos."
-                : "Retire os produtos já conferidos. Carregando próximo pedido...";
-        if (listener != null) {
-            listener.onPreparingNextPedido(finished, pedido,
-                    pedidoIndex + 1, pedidos.size(), prepareMsg);
-        }
-        notifyStep(WorkflowStep.FETCH_ORDER, prepareMsg);
-
-        sleepQuietly(NEXT_PEDIDO_DELAY_MS);
-        if (!running.get()) {
-            return;
+        if (shouldPauseForNextPedido()) {
+            String prepareMsg = wrapped
+                    ? "Fila concluída — reiniciando do primeiro pedido. Retire os produtos já conferidos."
+                    : "Retire os produtos já conferidos. Carregando próximo pedido...";
+            if (listener != null) {
+                listener.onPreparingNextPedido(finished, pedido,
+                        pedidoIndex + 1, pedidos.size(), prepareMsg);
+            }
+            notifyStep(WorkflowStep.FETCH_ORDER, prepareMsg);
+            sleepQuietly(NEXT_PEDIDO_DELAY_MS);
+            if (!running.get()) {
+                return;
+            }
         }
 
         // Limpa só o histórico de tags após o aguardo — sessão RFID permanece.
@@ -1371,6 +1372,13 @@ public class OrderAwareWorkflowOrchestrator implements WorkflowController {
         notifyStep(WorkflowStep.RFID_READ,
                 "Todas as tags do pedido identificadas — iniciando pesagem...");
         confirmWeighingStart();
+    }
+
+    /** Com um único pedido/volume (feira) não há tela de “aguarde o próximo”. */
+    private boolean shouldPauseForNextPedido() {
+        int orderCount = pedidos != null ? pedidos.size() : 0;
+        int volumeCount = pedido != null ? pedido.getVolumeCount() : 0;
+        return orderCount > 1 || volumeCount > 1;
     }
 
     private void sleepQuietly(long ms) {
