@@ -95,16 +95,21 @@ public class PdfLabelGenerator {
             qrX = widthPt - margin - qrSize;
         }
 
+        float areaX = qrX - 3f;
+        float areaY = qrY - 3f;
+        float areaSize = qrSize + 6f;
         boolean[][] modules = QrMatrix.encode(data.getQrPayload());
         BufferedImage qrImage = QrMatrix.toImage(modules, 4, 3);
         PDImageXObject qr = LosslessFactory.createFromImage(document, qrImage);
-        cs.setStrokingColor(0f);
-        cs.setLineWidth(1.4f);
-        cs.addRect(qrX - 3, qrY - 3, qrSize + 6, qrSize + 6);
-        cs.stroke();
-        cs.drawImage(qr, qrX, qrY, qrSize, qrSize);
-        float captionY = Math.max(margin, qrY - 12f);
-        drawText(cs, PDType1Font.HELVETICA_BOLD, 8, qrX, captionY, "ESCANEIE O QR", 0f);
+        float drawSize = qrSize;
+        float qrDrawX = areaX + (areaSize - drawSize) / 2f;
+        float qrDrawY = areaY + (areaSize - drawSize) / 2f;
+        cs.drawImage(qr, qrDrawX, qrDrawY, drawSize, drawSize);
+        float captionY = Math.max(margin, areaY - 12f);
+        float captionWidth = stringWidth(PDType1Font.HELVETICA_BOLD, 8, "ESCANEIE O QR");
+        drawText(cs, PDType1Font.HELVETICA_BOLD, 8,
+                areaX + Math.max(0f, (areaSize - captionWidth) / 2f),
+                captionY, "ESCANEIE O QR", 0f);
 
         float y = barY - 16f;
         drawText(cs, PDType1Font.HELVETICA_BOLD, 10, margin, y, "PRODUTOS", 0f);
@@ -136,6 +141,14 @@ public class PdfLabelGenerator {
         drawText(cs, PDType1Font.HELVETICA_BOLD, 10, margin, weightTop + 14f, "PESO CONFERIDO", 0f);
         drawText(cs, PDType1Font.HELVETICA_BOLD, 22, margin, weightBlockBottom,
                 pdfSafe(LabelLayout.formatWeight(data.getMeasuredWeightKg())), 0f);
+    }
+
+    private static float stringWidth(PDFont font, float size, String text) throws IOException {
+        String safe = pdfSafe(text);
+        if (safe.isEmpty()) {
+            return 0f;
+        }
+        return font.getStringWidth(safe) / 1000f * size;
     }
 
     private static void drawText(PDPageContentStream cs, PDFont font, float size,

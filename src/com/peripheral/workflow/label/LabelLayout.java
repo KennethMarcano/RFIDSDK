@@ -64,4 +64,30 @@ public final class LabelLayout {
         }
         return 40;
     }
+
+    /** Capacidade aproximada em bytes (modo byte, ECC M) por versão QR. */
+    private static final int[] QR_BYTE_CAP_M = {
+            0, 14, 26, 42, 62, 84, 106, 122, 152, 180, 214
+    };
+
+    public static int qrVersionForBytes(int byteLen) {
+        int n = Math.max(0, byteLen);
+        for (int version = 1; version < QR_BYTE_CAP_M.length; version++) {
+            if (n <= QR_BYTE_CAP_M[version]) {
+                return version;
+            }
+        }
+        return QR_BYTE_CAP_M.length - 1;
+    }
+
+    /**
+     * Tamanho impresso do QR Zebra (^BQ modelo 2): módulos + quiet zone de 4
+     * de cada lado, vezes a magnificação.
+     */
+    public static int zplQrPrintedDots(int payloadBytes, int magnification) {
+        int version = qrVersionForBytes(payloadBytes);
+        int modules = 21 + 4 * (version - 1);
+        int mag = Math.max(1, magnification);
+        return (modules + 8) * mag;
+    }
 }
