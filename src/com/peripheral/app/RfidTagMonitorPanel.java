@@ -1,6 +1,7 @@
 package com.peripheral.app;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -25,6 +26,11 @@ public class RfidTagMonitorPanel extends JPanel {
     private static final int EMPHASIS_TILE_WIDTH = 260;
     private static final int EMPHASIS_TILE_HEIGHT = 88;
     private static final int EMPHASIS_TILE_GAP = 10;
+    private static final int DISPLAY_TILE_WIDTH = 236;
+    private static final int DISPLAY_TILE_HEIGHT = 86;
+    private static final int DISPLAY_TILE_GAP = 4;
+    private static final int DISPLAY_EMPHASIS_TILE_WIDTH = 280;
+    private static final int DISPLAY_EMPHASIS_TILE_HEIGHT = 100;
 
     public static final class ProductEntry {
         private final String rowId;
@@ -93,25 +99,29 @@ public class RfidTagMonitorPanel extends JPanel {
     }
 
     public RfidTagMonitorPanel(String caption, boolean showReadCounts) {
-        super(new BorderLayout(0, 6));
+        super(new BorderLayout(0, 2));
         this.showReadCounts = showReadCounts;
         setOpaque(true);
         setBackground(WorkflowUiTheme.MONITOR_BG);
+        int pad = showReadCounts ? 8 : 4;
         setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1),
-                WorkflowUiTheme.empty(8, 10, 8, 10)));
+                WorkflowUiTheme.empty(pad, pad, pad, pad)));
         setAlignmentX(Component.LEFT_ALIGNMENT);
 
         lbCaption = new JLabel(caption);
         lbCaption.setFont(lbCaption.getFont().deriveFont(Font.BOLD, 12f));
         lbCaption.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
 
+        if (!showReadCounts) {
+            tiles.setLayout(new WrapLayout(FlowLayout.LEFT, DISPLAY_TILE_GAP, DISPLAY_TILE_GAP));
+        }
         tiles.setOpaque(true);
         tiles.setBackground(WorkflowUiTheme.MONITOR_BG);
 
-        lbHint.setFont(lbHint.getFont().deriveFont(Font.PLAIN, 11f));
+        lbHint.setFont(lbHint.getFont().deriveFont(Font.PLAIN, showReadCounts ? 11f : 12f));
         lbHint.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
-        lbHint.setBorder(WorkflowUiTheme.empty(2, 2, 4, 2));
+        lbHint.setBorder(WorkflowUiTheme.empty(0, 0, 2, 0));
 
         JPanel listHost = new JPanel(new BorderLayout(0, 2));
         listHost.setOpaque(true);
@@ -323,10 +333,12 @@ public class RfidTagMonitorPanel extends JPanel {
             return;
         }
         this.emphasisMode = emphasis;
-        int gap = emphasis ? EMPHASIS_TILE_GAP : TILE_GAP;
+        int gap = !showReadCounts
+                ? DISPLAY_TILE_GAP
+                : (emphasis ? EMPHASIS_TILE_GAP : TILE_GAP);
         tiles.setLayout(new WrapLayout(FlowLayout.LEFT, gap, gap));
         lbCaption.setFont(lbCaption.getFont().deriveFont(Font.BOLD, emphasis ? 16f : 12f));
-        lbHint.setFont(lbHint.getFont().deriveFont(Font.PLAIN, emphasis ? 13f : 11f));
+        lbHint.setFont(lbHint.getFont().deriveFont(Font.PLAIN, emphasis ? 13f : (showReadCounts ? 11f : 12f)));
         rebuildRowsFromState();
         revalidate();
         repaint();
@@ -424,58 +436,67 @@ public class RfidTagMonitorPanel extends JPanel {
     }
 
     private JPanel createTagTile(String key, String code, String name, boolean detected, int count) {
-        int tileW = emphasisMode ? EMPHASIS_TILE_WIDTH : TILE_WIDTH;
-        int tileH = emphasisMode ? EMPHASIS_TILE_HEIGHT : TILE_HEIGHT;
-        float codeSize = emphasisMode ? 18f : 12f;
-        float nameSize = emphasisMode ? 13f : 10f;
-        float statusSize = emphasisMode ? 14f : 10f;
-        int pad = emphasisMode ? 10 : 5;
+        boolean displayMode = !showReadCounts;
+        int tileW = displayMode
+                ? (emphasisMode ? DISPLAY_EMPHASIS_TILE_WIDTH : DISPLAY_TILE_WIDTH)
+                : (emphasisMode ? EMPHASIS_TILE_WIDTH : TILE_WIDTH);
+        int tileH = displayMode
+                ? (emphasisMode ? DISPLAY_EMPHASIS_TILE_HEIGHT : DISPLAY_TILE_HEIGHT)
+                : (emphasisMode ? EMPHASIS_TILE_HEIGHT : TILE_HEIGHT);
 
-        JPanel tile = new JPanel(new BorderLayout(4, 0));
+        JPanel tile = new JPanel(new BorderLayout(0, 0));
         tile.setOpaque(true);
         tile.setBackground(WorkflowUiTheme.MONITOR_ROW_BG);
-        tile.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, emphasisMode ? 2 : 1),
-                WorkflowUiTheme.empty(pad, pad + 2, pad, pad + 2)));
+        tile.setBorder(tileBorder(false));
         Dimension size = new Dimension(tileW, tileH);
         tile.setPreferredSize(size);
         tile.setMinimumSize(size);
         tile.setMaximumSize(size);
 
-        JLabel lbCode = new JLabel(truncate(code, emphasisMode ? 22 : 14));
-        lbCode.setFont(lbCode.getFont().deriveFont(Font.BOLD, codeSize));
-        lbCode.setForeground(WorkflowUiTheme.MONITOR_TEXT);
+        JLabel lbCode = new JLabel(truncate(code, displayMode ? 16 : (emphasisMode ? 22 : 14)));
         lbCode.setToolTipText("Código: " + code);
+        if (displayMode) {
+            lbCode.setFont(WorkflowUiTheme.fontTagCode(lbCode).deriveFont(emphasisMode ? 36f : 32f));
+            lbCode.setHorizontalAlignment(SwingConstants.CENTER);
+            lbCode.setVerticalAlignment(SwingConstants.CENTER);
+        } else {
+            lbCode.setFont(lbCode.getFont().deriveFont(Font.BOLD, emphasisMode ? 18f : 12f));
+            lbCode.setForeground(WorkflowUiTheme.MONITOR_TEXT);
+        }
 
         JLabel lbStatus = new JLabel("", SwingConstants.RIGHT);
-        lbStatus.setFont(lbStatus.getFont().deriveFont(Font.BOLD, statusSize));
-
-        JPanel top = new JPanel(new BorderLayout(4, 0));
-        top.setOpaque(false);
-        top.add(lbCode, BorderLayout.CENTER);
-        top.add(lbStatus, BorderLayout.EAST);
+        lbStatus.setFont(lbStatus.getFont().deriveFont(Font.BOLD, emphasisMode ? 14f : 10f));
+        lbStatus.setVisible(showReadCounts);
 
         String displayName = name != null ? name : "";
         JLabel lbName = new JLabel(truncate(displayName, emphasisMode ? 28 : 18));
-        lbName.setFont(lbName.getFont().deriveFont(Font.PLAIN, nameSize));
+        lbName.setFont(lbName.getFont().deriveFont(Font.PLAIN, emphasisMode ? 13f : 10f));
         lbName.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
-        lbName.setVisible(!displayName.isEmpty());
+        lbName.setVisible(showReadCounts && !displayName.isEmpty());
         if (!displayName.isEmpty()) {
             lbName.setToolTipText(displayName);
         }
 
-        JPanel body = new JPanel();
-        body.setOpaque(false);
-        body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-        top.setAlignmentX(Component.LEFT_ALIGNMENT);
-        lbName.setAlignmentX(Component.LEFT_ALIGNMENT);
-        body.add(top);
-        if (lbName.isVisible()) {
-            body.add(Box.createVerticalStrut(emphasisMode ? 4 : 2));
-            body.add(lbName);
-        }
+        if (displayMode) {
+            tile.add(lbCode, BorderLayout.CENTER);
+        } else {
+            JPanel top = new JPanel(new BorderLayout(4, 0));
+            top.setOpaque(false);
+            top.add(lbCode, BorderLayout.CENTER);
+            top.add(lbStatus, BorderLayout.EAST);
 
-        tile.add(body, BorderLayout.CENTER);
+            JPanel body = new JPanel();
+            body.setOpaque(false);
+            body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+            top.setAlignmentX(Component.LEFT_ALIGNMENT);
+            lbName.setAlignmentX(Component.LEFT_ALIGNMENT);
+            body.add(top);
+            if (lbName.isVisible()) {
+                body.add(Box.createVerticalStrut(emphasisMode ? 4 : 2));
+                body.add(lbName);
+            }
+            tile.add(body, BorderLayout.CENTER);
+        }
 
         RowWidgets widgets = new RowWidgets(tile, lbCode, lbName, lbStatus);
         rowsByKey.put(key, widgets);
@@ -494,28 +515,42 @@ public class RfidTagMonitorPanel extends JPanel {
         if (widgets == null) {
             return;
         }
-        widgets.lbStatus.setText("OK");
-        widgets.lbStatus.setForeground(WorkflowUiTheme.MONITOR_VALUE);
-        widgets.lbStatus.setToolTipText("Código identificado");
-        widgets.lbCode.setForeground(WorkflowUiTheme.MONITOR_TEXT);
+        widgets.lbStatus.setText("");
+        widgets.lbStatus.setVisible(false);
+        widgets.lbCode.setForeground(WorkflowUiTheme.MONITOR_VALUE);
+        widgets.lbCode.setToolTipText("Código identificado");
         widgets.root.setBackground(new Color(0x2F, 0x45, 0x63));
-        widgets.root.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_VALUE, 1),
-                WorkflowUiTheme.empty(5, 7, 5, 7)));
+        widgets.root.setBorder(tileBorder(true));
     }
 
     private void markPending(RowWidgets widgets) {
         if (widgets == null) {
             return;
         }
-        widgets.lbStatus.setText("...");
-        widgets.lbStatus.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
-        widgets.lbStatus.setToolTipText("Aguardando leitura deste código");
+        widgets.lbStatus.setText("");
+        widgets.lbStatus.setVisible(false);
         widgets.lbCode.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
+        widgets.lbCode.setToolTipText("Aguardando leitura deste código");
         widgets.root.setBackground(WorkflowUiTheme.MONITOR_ROW_BG);
-        widgets.root.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1),
-                WorkflowUiTheme.empty(5, 7, 5, 7)));
+        widgets.root.setBorder(tileBorder(false));
+    }
+
+    private int tilePad() {
+        if (!showReadCounts) {
+            return 2;
+        }
+        return emphasisMode ? 8 : 4;
+    }
+
+    private Border tileBorder(boolean detected) {
+        int pad = tilePad();
+        int hPad = showReadCounts ? pad + 2 : 4;
+        int vPad = showReadCounts ? pad : 1;
+        Color line = detected ? WorkflowUiTheme.MONITOR_VALUE : WorkflowUiTheme.MONITOR_BORDER;
+        int thickness = detected || emphasisMode ? 2 : 1;
+        return BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(line, thickness),
+                WorkflowUiTheme.empty(vPad, hPad, vPad, hPad));
     }
 
     private void applyCount(JLabel label, int count) {
