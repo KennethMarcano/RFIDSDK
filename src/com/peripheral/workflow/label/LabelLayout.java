@@ -4,10 +4,10 @@ import com.peripheral.scale.ScaleWeightFormat;
 
 public final class LabelLayout {
 
-    public static final float LABEL_WIDTH_MM = 100f;
-    public static final float LABEL_HEIGHT_MM = 50f;
+    /** Etiqueta física informada: 100 × 80 mm. */
+    public static final float DEFAULT_WIDTH_MM = 100f;
+    public static final float DEFAULT_HEIGHT_MM = 80f;
     public static final int ZPL_DPI = 203;
-    public static final float PDF_WEIGHT_FONT_SIZE = 32f;
 
     private LabelLayout() {
     }
@@ -22,5 +22,12 @@ public final class LabelLayout {
 
     public static int mmToDots(float mm, int dpi) {
         return Math.round(mm * dpi / 25.4f);
+    }
+
+    public static String zplEscape(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("^", " ").replace("~", " ").replace("\\", " ");
     }
 }

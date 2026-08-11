@@ -2,6 +2,9 @@ package com.rfid.core;
 
 import com.fazecast.jSerialComm.SerialPort;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -32,6 +35,9 @@ public final class SerialPortDiscovery {
             "usb input device", "input device",
             "human interface", "hid class"
     };
+
+    /** Zebra Technologies. */
+    private static final int ZEBRA_VID = 0x0A5F;
 
     /** VIDs típicos de chips USB-UART usados por balanças/RFID/conversores. */
     private static final int[] PREFERRED_SERIAL_VIDS = {
@@ -84,6 +90,70 @@ public final class SerialPortDiscovery {
                     "Biblioteca nativa jSerialComm não carregou. "
                             + "Use jSerialComm 2.11.4+ com Java 25 no Windows, ou JDK 21 LTS.",
                     e);
+        }
+    }
+
+    /**
+     * Portas candidatas à Zebra USB: inclui a palavra "printer" (filtrada no RFID),
+     * VID Zebra 0x0A5F e /dev/usb/lp* no Linux.
+     */
+    public static List<SerialPortInfo> listPrinterPorts() {
+        List<SerialPortInfo> result = new ArrayList<>();
+        try {
+            SerialPort[] ports = SerialPort.getCommPorts();
+            for (SerialPort port : ports) {
+                SerialPortInfo info = SerialPortInfo.from(port);
+                if (info.getSystemPortName().isEmpty() || info.isPlaceholder()) {
+                    continue;
+                }
+                if (isLikelyPrinterPort(info)) {
+                    result.add(info);
+                }
+            }
+        } catch (UnsatisfiedLinkError e) {
+            throw new SerialPortDiscoveryException(
+                    "Biblioteca nativa jSerialComm não carregou. "
+                            + "Use jSerialComm 2.11.4+ com Java 25 no Windows, ou JDK 21 LTS.",
+                    e);
+        }
+        addLinuxLpDevices(result);
+        result.sort(Comparator.comparing(SerialPortInfo::getSystemPortName, String.CASE_INSENSITIVE_ORDER));
+        return result;
+    }
+
+    private static boolean isLikelyPrinterPort(SerialPortInfo info) {
+        if (info.getVendorId() == ZEBRA_VID) {
+            return true;
+        }
+        String haystack = buildHaystack(info);
+        if (haystack.contains("zebra") || haystack.contains("zdesigner") || haystack.contains("zd230")) {
+            return true;
+        }
+        if (haystack.contains("printer") || haystack.contains("impressora")) {
+            return !looksLikeHidOrTouch(haystack);
+        }
+        // USB-serial genérico: ainda oferece a porta para o operador escolher.
+        return isLikelySerialPeripheral(info);
+    }
+
+    private static void addLinuxLpDevices(List<SerialPortInfo> result) {
+        for (int i = 0; i < 4; i++) {
+            Path path = Paths.get("/dev/usb/lp" + i);
+            if (!Files.exists(path)) {
+                continue;
+            }
+            String name = path.toString();
+            boolean already = false;
+            for (SerialPortInfo existing : result) {
+                if (name.equalsIgnoreCase(existing.getSystemPortName())) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) {
+                result.add(new SerialPortInfo(
+                        name, "Zebra USB RAW", "usblp", "Zebra", ZEBRA_VID, 0, "", name));
+            }
         }
     }
 

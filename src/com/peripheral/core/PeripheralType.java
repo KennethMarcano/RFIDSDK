@@ -2,7 +2,8 @@ package com.peripheral.core;
 
 public enum PeripheralType {
     RFID_READER("Módulo RFID"),
-    SCALE("Balança");
+    SCALE("Balança"),
+    PRINTER("Impressora");
 
     private final String label;
 

@@ -4,7 +4,8 @@ public enum SdkType {
     PAYNE("Payne Reader SDK", false, "libs/lib_reader.jar", true),
     THINGMAGIC_MERCURY("ThingMagic Mercury API", true, "SDKMERCURY (java.library.path)", true),
     DIGITRON_SERIAL("Digitron serial protocol", false, "jSerialComm", true),
-    HX711_GPIO("HX711 GPIO (DT/SCK)", false, "python3 + RPi.GPIO/lgpio", false);
+    HX711_GPIO("HX711 GPIO (DT/SCK)", false, "python3 + RPi.GPIO/lgpio", false),
+    ZEBRA_ZPL("Zebra ZPL USB", false, "jSerialComm /dev/usb/lp*", true);
 
     private final String description;
     private final boolean requiresNativeLibrary;

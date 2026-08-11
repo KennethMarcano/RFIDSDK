@@ -1,34 +1,66 @@
 package com.peripheral.workflow;
 
+import com.peripheral.core.PeripheralException;
+import com.peripheral.core.ReadablePeripheral;
+import com.peripheral.printer.LabelPrinter;
+import com.peripheral.session.PeripheralSessionManager;
+import com.peripheral.session.PeripheralSlot;
+import com.peripheral.workflow.label.LabelContent;
 import com.peripheral.workflow.label.LabelLayout;
 import com.peripheral.workflow.label.PdfLabelGenerator;
-import com.peripheral.workflow.label.PdfToZplConverter;
-import com.peripheral.workflow.label.ZplPrintTransport;
+import com.peripheral.workflow.label.ZplLabelGenerator;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 public class LabelPrintService {
 
     private final PdfLabelGenerator pdfLabelGenerator = new PdfLabelGenerator();
-    private final PdfToZplConverter pdfToZplConverter = new PdfToZplConverter();
-    private final ZplPrintTransport zplPrintTransport = new ZplPrintTransport();
+    private final ZplLabelGenerator zplLabelGenerator = new ZplLabelGenerator();
+    private final PeripheralSessionManager sessionManager;
 
-    public void generateLabelPdf(WorkflowContext context, Path sessionDirectory, int labelIndex) throws IOException {
-        Path pdfPath = pdfLabelGenerator.generate(context.getWeightKg(), sessionDirectory, labelIndex);
-        context.setLabelPdfPath(pdfPath.toString());
+    public LabelPrintService() {
+        this(null);
     }
 
-    public void printLabel(WorkflowContext context, Path sessionDirectory, int labelIndex) throws IOException {
-        String pdfPathValue = context.getLabelPdfPath();
-        if (pdfPathValue == null || pdfPathValue.trim().isEmpty()) {
-            throw new IOException("PDF da etiqueta não foi gerado");
+    public LabelPrintService(PeripheralSessionManager sessionManager) {
+        this.sessionManager = sessionManager;
+    }
+
+    public void generateAndPrint(WorkflowContext context, Path sessionDirectory, int labelIndex)
+            throws IOException, PeripheralException {
+        LabelContent content = LabelContent.from(context);
+        float widthMm = LabelLayout.DEFAULT_WIDTH_MM;
+        float heightMm = LabelLayout.DEFAULT_HEIGHT_MM;
+        LabelPrinter printer = findPrinter();
+        if (printer != null) {
+            widthMm = printer.getLabelWidthMm();
+            heightMm = printer.getLabelHeightMm();
         }
 
-        Path pdfPath = Paths.get(pdfPathValue);
-        String zpl = pdfToZplConverter.convert(pdfPath, LabelLayout.ZPL_DPI);
-        Path zplPath = zplPrintTransport.send(zpl, sessionDirectory, labelIndex);
+        Path pdfPath = pdfLabelGenerator.generate(content, widthMm, heightMm, sessionDirectory, labelIndex);
+        context.setLabelPdfPath(pdfPath.toString());
+
+        Path zplPath = zplLabelGenerator.generate(content, widthMm, heightMm, sessionDirectory, labelIndex);
         context.setLabelZplPath(zplPath.toString());
+
+        if (printer == null) {
+            return;
+        }
+        String zpl = new String(Files.readAllBytes(zplPath), StandardCharsets.US_ASCII);
+        printer.printZpl(zpl);
+    }
+
+    private LabelPrinter findPrinter() {
+        if (sessionManager == null) {
+            return null;
+        }
+        ReadablePeripheral device = sessionManager.getDevice(PeripheralSlot.PRINTER);
+        if (device instanceof LabelPrinter && device.isConnected()) {
+            return (LabelPrinter) device;
+        }
+        return null;
     }
 }

@@ -437,12 +437,14 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
             }
             if (config.isEnabled(WorkflowStep.PRINT_LABEL)) {
                 int labelIndex = sessionStore.getNextLabelIndex();
-                notifyStep(WorkflowStep.PRINT_LABEL, "Gerando etiqueta PDF...");
-                labelPrint().generateLabelPdf(
+                notifyStep(WorkflowStep.PRINT_LABEL, "Gerando etiqueta PDF e ZPL...");
+                labelPrint().generateAndPrint(
                         context, sessionStore.getSessionDirectory(), labelIndex);
-                notifyStep(WorkflowStep.PRINT_LABEL, "Imprimindo etiqueta (PDF → ZPL)...");
-                labelPrint().printLabel(
-                        context, sessionStore.getSessionDirectory(), labelIndex);
+                if (sessionManager.isConnected(PeripheralSlot.PRINTER)) {
+                    notifyStep(WorkflowStep.PRINT_LABEL, "Etiqueta enviada à Zebra");
+                } else {
+                    notifyStep(WorkflowStep.PRINT_LABEL, "Etiqueta PDF/ZPL salva (impressora não conectada)");
+                }
             }
             if (!running.get()) {
                 return;
@@ -695,7 +697,7 @@ public class WeighingWorkflowOrchestrator implements WorkflowController {
     private LabelPrintService labelPrint() throws PeripheralException {
         if (labelPrintService == null) {
             try {
-                labelPrintService = new LabelPrintService();
+                labelPrintService = new LabelPrintService(sessionManager);
             } catch (NoClassDefFoundError | ExceptionInInitializerError e) {
                 throw new PeripheralException(
                         "Bibliotecas PDF não disponíveis (pdfbox/fontbox). Execute com ./iniciar.sh no Linux.");

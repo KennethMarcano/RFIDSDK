@@ -45,8 +45,8 @@ public class PdfToZplConverter {
             }
         }
 
-        int labelWidthDots = LabelLayout.mmToDots(LabelLayout.LABEL_WIDTH_MM, dpi);
-        int labelHeightDots = LabelLayout.mmToDots(LabelLayout.LABEL_HEIGHT_MM, dpi);
+        int labelWidthDots = LabelLayout.mmToDots(LabelLayout.DEFAULT_WIDTH_MM, dpi);
+        int labelHeightDots = LabelLayout.mmToDots(LabelLayout.DEFAULT_HEIGHT_MM, dpi);
 
         return "^XA"
                 + "^PW" + labelWidthDots

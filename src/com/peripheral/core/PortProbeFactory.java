@@ -1,5 +1,6 @@
 package com.peripheral.core;
 
+import com.peripheral.printer.ZebraPrinterProber;
 import com.peripheral.rfid.MercuryRfidProber;
 import com.peripheral.rfid.PayneRfidProber;
 import com.peripheral.scale.DigitronScaleProber;
@@ -33,6 +34,9 @@ public final class PortProbeFactory {
                 default:
                     throw new IllegalStateException("Probe balança não definido: " + model);
             }
+        }
+        if (model instanceof PrinterDeviceModel) {
+            return new ZebraPrinterProber();
         }
         throw new IllegalStateException("Probe não suportado para: " + model.getDisplayLabel());
     }

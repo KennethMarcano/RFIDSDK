@@ -14,12 +14,14 @@ import com.peripheral.core.RfidConfigurable;
 import com.peripheral.core.PeripheralDataListener;
 import com.peripheral.core.SerialConnectionConfig;
 import com.peripheral.core.SerialPortProber;
+import com.peripheral.printer.LabelPrinter;
 import com.peripheral.scale.DigitronDgnParser;
 import com.peripheral.scale.ScaleWeightFormat;
 import com.peripheral.session.PeripheralConnectionHandle;
 import com.peripheral.session.PeripheralSessionManager;
 import com.peripheral.session.PeripheralSlot;
 import com.peripheral.scale.Hx711GpioPins;
+import com.peripheral.workflow.label.LabelLayout;
 import com.rfid.core.SerialPortDiscovery;
 import com.rfid.core.SerialPortInfo;
 
@@ -76,6 +78,15 @@ public class PeripheralConnectionPanel extends JPanel {
     private final JSpinner spStopBits = new JSpinner(new SpinnerNumberModel(1, 1, 2, 1));
     private final JComboBox<ParityOption> cbParity = new JComboBox<>(ParityOption.values());
     private final JPanel gpioOptionsPanel = new JPanel(new GridBagLayout());
+    private final JPanel printerOptionsPanel = new JPanel(new GridBagLayout());
+    private final JSpinner spLabelWidthMm = new JSpinner(
+            new SpinnerNumberModel((int) LabelLayout.DEFAULT_WIDTH_MM, 40, 150, 1));
+    private final JSpinner spLabelHeightMm = new JSpinner(
+            new SpinnerNumberModel((int) LabelLayout.DEFAULT_HEIGHT_MM, 30, 200, 1));
+    private final JPanel printerTestPanel = new JPanel(new BorderLayout(0, 8));
+    private final JLabel lbPrinterHint = new JLabel("Conecte a Zebra e toque em Imprimir teste.");
+    private final ThemedButton btnPrintTest =
+            WorkflowUiTheme.button("Imprimir teste", ThemedButton.Variant.PRIMARY);
     private final JLabel lbGpioDt = new JLabel("DT  →  GPIO BCM " + Hx711GpioPins.DT_BCM);
     private final JLabel lbGpioSck = new JLabel("SCK →  GPIO BCM " + Hx711GpioPins.SCK_BCM);
     private JPanel portRow;
@@ -199,13 +210,17 @@ public class PeripheralConnectionPanel extends JPanel {
         buildRfidOptions();
         buildScaleOptions();
         buildGpioOptions();
+        buildPrinterOptions();
         buildLiveWeightPanel();
         buildRfidTestPanel();
+        buildPrinterTestPanel();
         boolean isRfid = slot.getPeripheralType() == PeripheralType.RFID_READER;
         boolean isScale = slot.getPeripheralType() == PeripheralType.SCALE;
+        boolean isPrinter = slot.getPeripheralType() == PeripheralType.PRINTER;
         rfidOptionsPanel.setVisible(isRfid);
         scaleOptionsPanel.setVisible(isScale);
         gpioOptionsPanel.setVisible(false);
+        printerOptionsPanel.setVisible(isPrinter);
 
         lbStatus.setFont(WorkflowUiTheme.fontStatus(lbStatus));
         lbStatus.setForeground(WorkflowUiTheme.TEXT_SECONDARY);
@@ -226,6 +241,7 @@ public class PeripheralConnectionPanel extends JPanel {
         settings.add(rfidOptionsPanel);
         settings.add(scaleOptionsPanel);
         settings.add(gpioOptionsPanel);
+        settings.add(printerOptionsPanel);
 
         // O monitor fica sempre visível ao lado das configurações, sem depender de rolagem.
         JPanel monitorHost = new JPanel(new BorderLayout());
@@ -233,7 +249,13 @@ public class PeripheralConnectionPanel extends JPanel {
         monitorHost.setBorder(WorkflowUiTheme.empty(0, 10, 0, 0));
         monitorHost.setPreferredSize(new Dimension(MONITOR_COLUMN_WIDTH, 10));
         monitorHost.setMinimumSize(new Dimension(MONITOR_COLUMN_WIDTH, 10));
-        monitorHost.add(isRfid ? rfidTestPanel : liveWeightPanel, BorderLayout.CENTER);
+        JComponent monitor = liveWeightPanel;
+        if (isRfid) {
+            monitor = rfidTestPanel;
+        } else if (isPrinter) {
+            monitor = printerTestPanel;
+        }
+        monitorHost.add(monitor, BorderLayout.CENTER);
 
         add(WorkflowUiTheme.wrapVerticalScroll(settings), BorderLayout.CENTER);
         add(monitorHost, BorderLayout.EAST);
@@ -245,6 +267,7 @@ public class PeripheralConnectionPanel extends JPanel {
         btnConnect.addActionListener(e -> connectDevice());
         btnDisconnect.addActionListener(e -> disconnectDevice());
         btnApplyPower.addActionListener(e -> applyPower());
+        btnPrintTest.addActionListener(e -> printTestLabel());
         btnToggleRfidTest.addActionListener(e -> toggleRfidTest());
         btnClearTags.addActionListener(e -> {
             tagMonitor.reset();
@@ -364,6 +387,58 @@ public class PeripheralConnectionPanel extends JPanel {
         gpioOptionsPanel.add(hint, gbc);
     }
 
+    private void buildPrinterOptions() {
+        printerOptionsPanel.setOpaque(false);
+        printerOptionsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        printerOptionsPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.BORDER), "Tamanho da etiqueta (mm)"));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 2, 2, 2);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        printerOptionsPanel.add(fieldLabel("Largura:"), gbc);
+        gbc.gridx = 1;
+        WorkflowUiTheme.styleCompactSpinner(spLabelWidthMm);
+        printerOptionsPanel.add(spLabelWidthMm, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        printerOptionsPanel.add(fieldLabel("Altura:"), gbc);
+        gbc.gridx = 1;
+        WorkflowUiTheme.styleCompactSpinner(spLabelHeightMm);
+        printerOptionsPanel.add(spLabelHeightMm, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = 2;
+        printerOptionsPanel.add(fieldLabel("Padrão ZD230: 100 × 80 mm. USB RAW em Linux: /dev/usb/lp0."), gbc);
+        spLabelWidthMm.addChangeListener(e -> applyPrinterLabelSize());
+        spLabelHeightMm.addChangeListener(e -> applyPrinterLabelSize());
+    }
+
+    private void buildPrinterTestPanel() {
+        printerTestPanel.setOpaque(true);
+        printerTestPanel.setBackground(WorkflowUiTheme.MONITOR_BG);
+        printerTestPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1),
+                WorkflowUiTheme.empty(10, 12, 10, 12)));
+
+        JLabel caption = new JLabel("IMPRESSORA ZEBRA");
+        caption.setFont(caption.getFont().deriveFont(Font.BOLD, 12f));
+        caption.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
+
+        lbPrinterHint.setFont(WorkflowUiTheme.fontMeta(lbPrinterHint));
+        lbPrinterHint.setForeground(WorkflowUiTheme.MONITOR_TEXT);
+        btnPrintTest.setEnabled(false);
+
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        south.setOpaque(false);
+        south.add(btnPrintTest);
+
+        printerTestPanel.add(caption, BorderLayout.NORTH);
+        printerTestPanel.add(lbPrinterHint, BorderLayout.CENTER);
+        printerTestPanel.add(south, BorderLayout.SOUTH);
+    }
+
     private void buildLiveWeightPanel() {
         liveWeightPanel.setOpaque(true);
         liveWeightPanel.setBackground(WorkflowUiTheme.MONITOR_BG);
@@ -406,8 +481,14 @@ public class PeripheralConnectionPanel extends JPanel {
         WorkflowUiTheme.setStatusColor(lbStatus, WorkflowUiTheme.SUCCESS);
         btnDisconnect.setEnabled(true);
         setSelectionEnabled(false);
+        applyPrinterLabelSize();
         startLiveWeightReading();
         startLiveRfidReading();
+        boolean printer = slot.getPeripheralType() == PeripheralType.PRINTER;
+        btnPrintTest.setEnabled(printer);
+        if (printer) {
+            lbPrinterHint.setText("Conectada. Toque em Imprimir teste para validar a ZPL.");
+        }
     }
 
     public void startLiveWeightReading() {
@@ -771,6 +852,7 @@ public class PeripheralConnectionPanel extends JPanel {
         }
         scaleOptionsPanel.setVisible(isScale && serial);
         gpioOptionsPanel.setVisible(isScale && !serial);
+        printerOptionsPanel.setVisible(slot.getPeripheralType() == PeripheralType.PRINTER);
         btnTestPort.setText(serial ? "Testar porta" : "Testar HX711");
         btnRefreshPorts.setVisible(serial);
         revalidate();
@@ -816,7 +898,9 @@ public class PeripheralConnectionPanel extends JPanel {
         String selectedPortName = getSelectedPortName();
         cbPort.removeAllItems();
         try {
-            List<SerialPortInfo> ports = SerialPortDiscovery.listPorts();
+            List<SerialPortInfo> ports = slot.getPeripheralType() == PeripheralType.PRINTER
+                    ? SerialPortDiscovery.listPrinterPorts()
+                    : SerialPortDiscovery.listPorts();
             if (ports.isEmpty()) {
                 cbPort.addItem(SerialPortInfo.placeholder("(nenhuma porta serial encontrada)"));
             } else {
@@ -1054,8 +1138,13 @@ public class PeripheralConnectionPanel extends JPanel {
                         log(diag);
                     }
                 }
+                applyPrinterLabelSize();
                 startLiveWeightReading();
                 startLiveRfidReading();
+                btnPrintTest.setEnabled(slot.getPeripheralType() == PeripheralType.PRINTER);
+                if (slot.getPeripheralType() == PeripheralType.PRINTER) {
+                    lbPrinterHint.setText("Conectada. Toque em Imprimir teste para validar a ZPL.");
+                }
                 notifyConnectionChanged(true);
             }
         }.execute();
@@ -1092,8 +1181,75 @@ public class PeripheralConnectionPanel extends JPanel {
                 tagMonitor.reset();
                 tagMonitor.setHint("Conecte o leitor e toque em Iniciar teste.");
                 updateRfidTestControls();
+                btnPrintTest.setEnabled(false);
+                lbPrinterHint.setText("Conecte a Zebra e toque em Imprimir teste.");
                 notifyConnectionChanged(false);
                 log("Desconectado " + slot.getLabel());
+            }
+        }.execute();
+    }
+
+    private void applyPrinterLabelSize() {
+        ReadablePeripheral device = sessionManager.getDevice(slot);
+        if (!(device instanceof LabelPrinter)) {
+            return;
+        }
+        float width = ((Number) spLabelWidthMm.getValue()).floatValue();
+        float height = ((Number) spLabelHeightMm.getValue()).floatValue();
+        ((LabelPrinter) device).setLabelSizeMm(width, height);
+        if (device.getDeviceInfo() != null) {
+            lbDeviceInfo.setText(device.getDeviceInfo());
+        }
+    }
+
+    private void printTestLabel() {
+        if (!isConnected()) {
+            showWarning("Conecte a impressora antes de imprimir o teste.");
+            return;
+        }
+        applyPrinterLabelSize();
+        ReadablePeripheral device = sessionManager.getDevice(slot);
+        if (!(device instanceof LabelPrinter)) {
+            showWarning("Impressora inválida.");
+            return;
+        }
+        LabelPrinter printer = (LabelPrinter) device;
+        int pw = LabelLayout.mmToDots(printer.getLabelWidthMm(), LabelLayout.ZPL_DPI);
+        int ll = LabelLayout.mmToDots(printer.getLabelHeightMm(), LabelLayout.ZPL_DPI);
+        String zpl = "^XA^PW" + pw + "^LL" + ll
+                + "^FO40,40^A0N,40,40^FDTESTE ZD230^FS"
+                + "^FO40,100^A0N,28,28^FD"
+                + Math.round(printer.getLabelWidthMm()) + "x"
+                + Math.round(printer.getLabelHeightMm()) + " mm^FS"
+                + "^FO80,160^BQN,2,4^FDQA,TESTE-ZD230^FS"
+                + "^XZ";
+        btnPrintTest.setEnabled(false);
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() {
+                try {
+                    printer.printZpl(zpl);
+                    return null;
+                } catch (Exception e) {
+                    return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                }
+            }
+
+            @Override
+            protected void done() {
+                btnPrintTest.setEnabled(true);
+                try {
+                    String error = get();
+                    if (error != null) {
+                        lbPrinterHint.setText("Falha no teste: " + error);
+                        showWarning(error);
+                        return;
+                    }
+                    lbPrinterHint.setText("Teste enviado. Confira a etiqueta na Zebra.");
+                    log("Teste ZPL enviado (" + slot.getLabel() + ")");
+                } catch (Exception e) {
+                    showWarning("Falha no teste de impressão.");
+                }
             }
         }.execute();
     }
@@ -1181,6 +1337,9 @@ public class PeripheralConnectionPanel extends JPanel {
             }
         }
         spBaud.setEnabled(enabled && serial);
+        boolean printer = slot.getPeripheralType() == PeripheralType.PRINTER;
+        spLabelWidthMm.setEnabled(printer);
+        spLabelHeightMm.setEnabled(printer);
         spDataBits.setEnabled(enabled && serial);
         spStopBits.setEnabled(enabled && serial);
         cbParity.setEnabled(enabled && serial);

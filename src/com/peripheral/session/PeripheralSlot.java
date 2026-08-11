@@ -5,7 +5,8 @@ import com.peripheral.core.PeripheralType;
 public enum PeripheralSlot {
 
     SCALE(PeripheralType.SCALE, "Balança"),
-    RFID_READER(PeripheralType.RFID_READER, "Leitor RFID");
+    RFID_READER(PeripheralType.RFID_READER, "Leitor RFID"),
+    PRINTER(PeripheralType.PRINTER, "Impressora");
 
     private final PeripheralType peripheralType;
     private final String label;

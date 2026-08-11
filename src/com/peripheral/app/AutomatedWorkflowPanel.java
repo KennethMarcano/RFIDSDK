@@ -38,12 +38,15 @@ public class AutomatedWorkflowPanel extends JPanel {
     private final JLabel lbScaleSummary = new JLabel();
     private final JLabel lbRfidSummary = new JLabel();
     private final JLabel lbCameraSummary = new JLabel();
+    private final JLabel lbPrinterSummary = new JLabel();
     private final ThemedButton btnConfigScale =
             WorkflowUiTheme.button("Configurar", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnConfigRfid =
             WorkflowUiTheme.button("Configurar", ThemedButton.Variant.SECONDARY);
     private final ThemedButton btnTestCamera =
             WorkflowUiTheme.button("Testar", ThemedButton.Variant.SECONDARY);
+    private final ThemedButton btnConfigPrinter =
+            WorkflowUiTheme.button("Configurar", ThemedButton.Variant.SECONDARY);
 
     private final JCheckBox cbRfid = new JCheckBox("Leitura RFID contínua durante a pesagem", true);
     private final JCheckBox cbPhoto = new JCheckBox("Capturar foto", true);
@@ -122,6 +125,7 @@ public class AutomatedWorkflowPanel extends JPanel {
 
         btnConfigScale.addActionListener(e -> openConfigDialog(PeripheralSlot.SCALE));
         btnConfigRfid.addActionListener(e -> openConfigDialog(PeripheralSlot.RFID_READER));
+        btnConfigPrinter.addActionListener(e -> openConfigDialog(PeripheralSlot.PRINTER));
         btnTestCamera.addActionListener(e -> openCameraTestDialog());
         btnStartWorkflow.addActionListener(e -> startWorkflow());
         btnStopWorkflow.addActionListener(e -> stopWorkflow());
@@ -148,6 +152,7 @@ public class AutomatedWorkflowPanel extends JPanel {
 
         column.add(buildPeripheralRow("Balança", true, lbScaleSummary, btnConfigScale));
         column.add(buildPeripheralRow("Leitor RFID", false, lbRfidSummary, btnConfigRfid));
+        column.add(buildPeripheralRow("Impressora", false, lbPrinterSummary, btnConfigPrinter));
         lbCameraSummary.setText("Verificando...");
         WorkflowUiTheme.setStatusColor(lbCameraSummary, WorkflowUiTheme.TEXT_MUTED);
         column.add(buildPeripheralRow("Câmera", false, lbCameraSummary, btnTestCamera));
@@ -278,7 +283,7 @@ public class AutomatedWorkflowPanel extends JPanel {
                 "<html>Fluxo em fases: 1) Iniciar leitura tags → 2) Iniciar leitura peso (RFID parado). "
                         + "UI mostra só as tags lidas; a validação compara com o pedido (se ativa). "
                         + "Divergência: revisão do operador (+ foto/IA se fallback marcado). "
-                        + "Caminho OK: etiqueta (e foto se marcada).</html>");
+                        + "Caminho OK: etiqueta PDF+ZPL na Zebra (só se o pedido conferir) e foto se marcada.</html>");
         help.setAlignmentX(Component.LEFT_ALIGNMENT);
         help.setBorder(WorkflowUiTheme.empty(10, 2, 0, 2));
 
@@ -551,6 +556,7 @@ public class AutomatedWorkflowPanel extends JPanel {
     private void refreshPeripheralSummaries() {
         updateSummaryLabel(lbScaleSummary, PeripheralSlot.SCALE, true);
         updateSummaryLabel(lbRfidSummary, PeripheralSlot.RFID_READER, false);
+        updateSummaryLabel(lbPrinterSummary, PeripheralSlot.PRINTER, false);
     }
 
     private void updateSummaryLabel(JLabel label, PeripheralSlot slot, boolean required) {
@@ -589,6 +595,7 @@ public class AutomatedWorkflowPanel extends JPanel {
         btnRestartWorkflow.setEnabled(workflowRunning);
         btnConfigScale.setEnabled(!workflowRunning && !simulation);
         btnConfigRfid.setEnabled(!workflowRunning && !simulation);
+        btnConfigPrinter.setEnabled(!workflowRunning && !simulation);
         cbRfid.setEnabled(!workflowRunning);
         cbPhoto.setEnabled(!workflowRunning);
         cbLabel.setEnabled(!workflowRunning);
@@ -656,6 +663,17 @@ public class AutomatedWorkflowPanel extends JPanel {
                     JOptionPane.WARNING_MESSAGE);
             return;
         }
+        if (!simulation && cbLabel.isSelected() && !sessionManager.isConnected(PeripheralSlot.PRINTER)) {
+            int choice = JOptionPane.showConfirmDialog(getDialogParent(),
+                    "Impressora Zebra não conectada.\n"
+                            + "A etiqueta PDF/ZPL será salva, mas não será impressa.\n\nContinuar?",
+                    "Impressora",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (choice != JOptionPane.YES_OPTION) {
+                return;
+            }
+        }
 
         if (cbOrderValidation.isSelected() && (loadedPedidos == null || loadedPedidos.isEmpty())) {
             showWorkflowMessage("Carregue os pedidos antes de iniciar a validação.", JOptionPane.WARNING_MESSAGE);
@@ -669,7 +687,7 @@ public class AutomatedWorkflowPanel extends JPanel {
         if (cbPhoto.isSelected()) {
             steps.add(WorkflowStep.CAPTURE_PHOTO);
         }
-        if (cbLabel.isSelected() || cbOrderValidation.isSelected()) {
+        if (cbLabel.isSelected()) {
             steps.add(WorkflowStep.PRINT_LABEL);
         }
 

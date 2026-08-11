@@ -58,6 +58,10 @@ public class PeripheralConfigDialog extends JDialog {
         String hintHtml = slot == PeripheralSlot.SCALE
                 ? "<html>Selecione fabricante, modelo e porta. Use <b>Testar porta</b> e <b>Conectar</b>. "
                 + "Após conectar, o <b>peso atualiza em tempo real</b>.</html>"
+                : slot == PeripheralSlot.PRINTER
+                ? "<html>Selecione a porta USB da <b>Zebra ZD230</b>, o tamanho da etiqueta em <b>mm</b> "
+                + "e use <b>Testar porta</b> / <b>Imprimir teste</b>. "
+                + "No Linux a porta RAW costuma ser <code>/dev/usb/lp0</code>.</html>"
                 : "<html>Selecione fabricante, modelo e porta e toque em <b>Conectar</b>. "
                 + "O teste mostra cada <b>tag detectada</b> e <b>quantas vezes</b> ela foi lida.</html>";
         JLabel hint = WorkflowUiTheme.createHintLabel(hintHtml);

@@ -21,6 +21,8 @@ public final class PeripheralCatalog {
                 return RfidDeviceModel.values();
             case SCALE:
                 return ScaleDeviceModel.values();
+            case PRINTER:
+                return PrinterDeviceModel.values();
             default:
                 return new DeviceModelEntry[0];
         }
@@ -60,6 +62,7 @@ public final class PeripheralCatalog {
         List<DeviceModelEntry> all = new ArrayList<>();
         Collections.addAll(all, RfidDeviceModel.values());
         Collections.addAll(all, ScaleDeviceModel.values());
+        Collections.addAll(all, PrinterDeviceModel.values());
         return all;
     }
 }
