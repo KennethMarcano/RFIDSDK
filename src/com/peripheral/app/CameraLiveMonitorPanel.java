@@ -29,12 +29,12 @@ public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.
     private ImageIcon currentIcon;
 
     public CameraLiveMonitorPanel() {
-        super(new BorderLayout(0, 4));
+        super(new BorderLayout(0, 2));
         setOpaque(true);
         setBackground(WorkflowUiTheme.MONITOR_BG);
         setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1),
-                WorkflowUiTheme.empty(8, 10, 8, 10)));
+                WorkflowUiTheme.empty(4, 6, 4, 6)));
 
         lbCaption.setFont(lbCaption.getFont().deriveFont(Font.BOLD, 12f));
         lbCaption.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
@@ -47,10 +47,10 @@ public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.
         header.add(btnRecalibrate, BorderLayout.EAST);
 
         lbVideo.setOpaque(true);
-        lbVideo.setBackground(WorkflowUiTheme.MONITOR_ROW_BG);
+        lbVideo.setBackground(WorkflowUiTheme.MONITOR_BG);
         lbVideo.setForeground(WorkflowUiTheme.MONITOR_CAPTION);
         lbVideo.setFont(lbVideo.getFont().deriveFont(Font.PLAIN, 12f));
-        lbVideo.setBorder(BorderFactory.createLineBorder(WorkflowUiTheme.MONITOR_BORDER, 1));
+        lbVideo.setBorder(null);
         lbVideo.setHorizontalAlignment(SwingConstants.CENTER);
         lbVideo.setVerticalAlignment(SwingConstants.CENTER);
 
@@ -231,8 +231,10 @@ public class CameraLiveMonitorPanel extends JPanel implements CameraFrameStream.
             if (!liveDesired || !isShowing()) {
                 return;
             }
-            BufferedImage scaled = CameraFrameStream.scaleToFit(
-                    frame, lbVideo.getWidth(), lbVideo.getHeight());
+            Insets insets = lbVideo.getInsets();
+            int viewW = lbVideo.getWidth() - insets.left - insets.right;
+            int viewH = lbVideo.getHeight() - insets.top - insets.bottom;
+            BufferedImage scaled = CameraFrameStream.scaleToFill(frame, viewW, viewH);
             if (scaled == null) {
                 return;
             }

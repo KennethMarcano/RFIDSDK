@@ -266,6 +266,48 @@ public final class CameraFrameStream {
         }
     }
 
+    /**
+     * Preenche o retângulo (cover): corta as bordas se preciso, sem faixas
+     * acima/abaixo ou nas laterais.
+     */
+    public static BufferedImage scaleToFill(BufferedImage source, int maxW, int maxH) {
+        if (source == null) {
+            return null;
+        }
+        int w = Math.max(1, maxW);
+        int h = Math.max(1, maxH);
+        if (w < 8 || h < 8) {
+            return source;
+        }
+        int srcW = source.getWidth();
+        int srcH = source.getHeight();
+        if (srcW <= 0 || srcH <= 0) {
+            return source;
+        }
+        double scale = Math.max((double) w / srcW, (double) h / srcH);
+        int cropW = Math.min(srcW, Math.max(1, (int) Math.round(w / scale)));
+        int cropH = Math.min(srcH, Math.max(1, (int) Math.round(h / scale)));
+        int srcX = Math.max(0, (srcW - cropW) / 2);
+        int srcY = Math.max(0, (srcH - cropH) / 2);
+        if (srcX + cropW > srcW) {
+            cropW = srcW - srcX;
+        }
+        if (srcY + cropH > srcH) {
+            cropH = srcH - srcY;
+        }
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = out.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(source, 0, 0, w, h,
+                    srcX, srcY, srcX + cropW, srcY + cropH, null);
+        } finally {
+            g.dispose();
+        }
+        return out;
+    }
+
     /** Escala síncrona (evita getScaledInstance, que congela o primeiro frame no Pi). */
     public static BufferedImage scaleToFit(BufferedImage source, int maxW, int maxH) {
         if (source == null) {

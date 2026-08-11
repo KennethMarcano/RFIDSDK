@@ -92,16 +92,17 @@ public class ZplLabelGenerator {
         int areaX = qrX - 6;
         int areaY = qrY - 6;
         int areaSize = qrDots + 12;
-        int payloadBytes = data.getQrPayload().getBytes(StandardCharsets.ISO_8859_1).length;
-        int qrPrinted = LabelLayout.zplQrPrintedDots(payloadBytes, mag);
-        if (qrPrinted > areaSize) {
-            qrPrinted = areaSize;
-        }
-        int qrPrintX = areaX + (areaSize - qrPrinted) / 2;
-        int qrPrintY = areaY + (areaSize - qrPrinted) / 2;
+        boolean[][] qrModules = QrMatrix.encode(data.getQrPayload());
+        int moduleCount = qrModules.length;
+        int quiet = 3;
+        int moduleDots = Math.max(2, areaSize / (moduleCount + quiet * 2));
+        BufferedImage qrImage = QrMatrix.toImage(qrModules, moduleDots, quiet);
+        int qrPrinted = qrImage.getWidth();
+        int qrPrintX = areaX + Math.max(0, (areaSize - qrPrinted) / 2);
+        int qrPrintY = areaY + Math.max(0, (areaSize - qrPrinted) / 2);
         zpl.append("^FO").append(qrPrintX).append(',').append(qrPrintY)
-                .append("^BQN,2,").append(mag).append('\n');
-        zpl.append("^FH^FDMA,").append(LabelLayout.zplQrPayload(data.getQrPayload())).append("^FS\n");
+                .append(ZplGraphic.toGfa(qrImage, qrPrinted, qrPrinted))
+                .append("^FS\n");
         zpl.append("^FO").append(areaX).append(',').append(areaY + areaSize + 4)
                 .append("^FB").append(areaSize).append(",1,0,C")
                 .append("^A0N,24,24^FDESCANEIE O QR^FS\n");
