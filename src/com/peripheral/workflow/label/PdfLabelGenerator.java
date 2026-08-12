@@ -86,29 +86,24 @@ public class PdfLabelGenerator {
         cs.addRect(margin, barY, widthPt - 2 * margin, 3.5f);
         cs.fill();
 
+        float captionH = 14f;
         float qrSize = LabelLayout.mmToPoints(40f);
         float qrX = widthPt - margin - qrSize;
         float qrY = barY - 10f - qrSize;
-        if (qrY < margin + 14f) {
-            qrY = margin + 14f;
+        if (qrY < margin + captionH) {
+            qrY = margin + captionH;
             qrSize = Math.max(LabelLayout.mmToPoints(28f), barY - 10f - qrY);
             qrX = widthPt - margin - qrSize;
         }
 
-        float areaX = qrX - 3f;
-        float areaY = qrY - 3f;
-        float areaSize = qrSize + 6f;
         boolean[][] modules = QrMatrix.encode(data.getQrPayload());
         BufferedImage qrImage = QrMatrix.toImage(modules, 4, 3);
         PDImageXObject qr = LosslessFactory.createFromImage(document, qrImage);
-        float drawSize = qrSize;
-        float qrDrawX = areaX + (areaSize - drawSize) / 2f;
-        float qrDrawY = areaY + (areaSize - drawSize) / 2f;
-        cs.drawImage(qr, qrDrawX, qrDrawY, drawSize, drawSize);
-        float captionY = Math.max(margin, areaY - 12f);
+        cs.drawImage(qr, qrX, qrY, qrSize, qrSize);
+        float captionY = Math.max(margin, qrY - 12f);
         float captionWidth = stringWidth(PDType1Font.HELVETICA_BOLD, 8, "ESCANEIE O QR");
         drawText(cs, PDType1Font.HELVETICA_BOLD, 8,
-                areaX + Math.max(0f, (areaSize - captionWidth) / 2f),
+                qrX + Math.max(0f, (qrSize - captionWidth) / 2f),
                 captionY, "ESCANEIE O QR", 0f);
 
         float y = barY - 16f;

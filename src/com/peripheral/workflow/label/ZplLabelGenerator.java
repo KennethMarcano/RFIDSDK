@@ -76,14 +76,34 @@ public class ZplLabelGenerator {
                 .append("^GB").append(pw - 2 * m).append(",8,8^FS\n");
 
         int contentY = barY + 18;
-        int mag = 4;
-        int qrDots = 29 * mag + 20;
+        int captionH = 28;
+        int availH = ll - contentY - m - captionH;
+        int leftMin = LabelLayout.mmToDots(40f, dpi);
+        int availW = Math.max(LabelLayout.mmToDots(32f, dpi), pw - m - leftMin - 12);
+        int mag = 10;
+        int qrDots = 43 * mag;
+        while (mag > 6 && (qrDots > availH || qrDots > availW)) {
+            mag--;
+            qrDots = 43 * mag;
+        }
+
         int qrX = pw - m - qrDots;
         int qrY = contentY;
-        zpl.append("^FO").append(qrX).append(',').append(qrY)
+        int areaX = qrX - 6;
+        int areaY = qrY - 6;
+        int areaSize = qrDots + 12;
+        int payloadBytes = data.getQrPayload().getBytes(StandardCharsets.ISO_8859_1).length;
+        int qrPrinted = LabelLayout.zplQrPrintedDots(payloadBytes, mag);
+        if (qrPrinted > areaSize) {
+            qrPrinted = areaSize;
+        }
+        int qrPrintX = areaX + Math.max(0, (areaSize - qrPrinted) / 2);
+        int qrPrintY = areaY + Math.max(0, (areaSize - qrPrinted) / 2);
+        zpl.append("^FO").append(qrPrintX).append(',').append(qrPrintY)
                 .append("^BQN,2,").append(mag).append('\n');
         zpl.append("^FH^FDQA,").append(LabelLayout.zplQrPayload(data.getQrPayload())).append("^FS\n");
-        zpl.append("^FO").append(qrX).append(',').append(qrY + qrDots + 8)
+        zpl.append("^FO").append(areaX).append(',').append(areaY + areaSize + 4)
+                .append("^FB").append(areaSize).append(",1,0,C")
                 .append("^A0N,24,24^FDESCANEIE O QR^FS\n");
 
         int y = contentY;
